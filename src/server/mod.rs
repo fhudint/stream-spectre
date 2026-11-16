@@ -262,12 +262,15 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn the_overlay_files_are_served_with_the_right_types() {
+    async fn the_page_files_are_served_with_the_right_types() {
         let server = start(Some(TOKEN)).await;
         for (path, kind) in [
             ("/overlay/overlay.js", "javascript"),
             ("/overlay/overlay-core.js", "javascript"),
             ("/overlay/overlay.css", "text/css"),
+            ("/dashboard/dashboard.js", "javascript"),
+            ("/dashboard/dashboard-core.js", "javascript"),
+            ("/dashboard/dashboard.css", "text/css"),
         ] {
             // Pages and their files need no token; they hold nothing secret.
             let response = server.http.get(server.url(path)).send().await.unwrap();

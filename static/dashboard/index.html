@@ -2,9 +2,76 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>stream-spectre dashboard</title>
+<link rel="stylesheet" href="dashboard.css">
 </head>
 <body>
-<p>The dashboard page is not built yet.</p>
+<header id="top">
+  <h1 data-i18n="dashboard.title"></h1>
+  <div id="status" aria-live="polite">
+    <span id="connection" class="pill"></span>
+    <span id="chat-status" class="pill"></span>
+  </div>
+</header>
+
+<section id="login" class="panel hidden">
+  <form id="login-form">
+    <label for="token-input" data-i18n="dashboard.auth.prompt">Enter the dashboard token</label>
+    <div class="row">
+      <input id="token-input" type="password" autocomplete="off" spellcheck="false">
+      <button type="submit" data-i18n="dashboard.auth.submit">Sign in</button>
+    </div>
+    <p id="login-error" role="alert"></p>
+  </form>
+</section>
+
+<main id="app" class="hidden">
+  <p id="error" class="banner banner-error hidden" role="alert"></p>
+  <p id="flash" class="banner banner-ok hidden" role="status"></p>
+
+  <section class="panel" aria-labelledby="now-heading">
+    <h2 id="now-heading" data-i18n="dashboard.now_playing.title"></h2>
+    <div id="now"></div>
+  </section>
+
+  <section class="panel" aria-labelledby="pending-heading">
+    <h2 id="pending-heading" data-i18n="dashboard.pending.title"></h2>
+    <ul id="pending" class="items"></ul>
+  </section>
+
+  <section class="panel" aria-labelledby="approved-heading">
+    <h2 id="approved-heading" data-i18n="dashboard.approved.title"></h2>
+    <ul id="approved" class="items"></ul>
+  </section>
+
+  <section class="panel" aria-labelledby="volume-heading">
+    <h2 id="volume-heading" data-i18n="dashboard.settings.volume"></h2>
+    <div class="row">
+      <input id="volume" type="range" min="0" max="100" step="1" aria-labelledby="volume-heading">
+      <output id="volume-value" for="volume"></output>
+    </div>
+  </section>
+
+  <section class="panel" aria-labelledby="settings-heading">
+    <h2 id="settings-heading" data-i18n="dashboard.settings.title"></h2>
+    <form id="settings-form" class="form"></form>
+  </section>
+
+  <section class="panel" aria-labelledby="blacklist-heading">
+    <h2 id="blacklist-heading" data-i18n="dashboard.blacklist.title"></h2>
+    <p class="hint" data-i18n="dashboard.blacklist.hint"></p>
+    <form id="blacklist-form" class="form"></form>
+  </section>
+
+  <section class="panel" aria-labelledby="notices-heading">
+    <h2 id="notices-heading" data-i18n="dashboard.notices.title"></h2>
+    <ul id="notices" aria-live="polite"></ul>
+    <p id="notices-empty" class="hint" data-i18n="dashboard.notices.empty"></p>
+  </section>
+</main>
+
+<script src="dashboard-core.js"></script>
+<script src="dashboard.js"></script>
 </body>
 </html>
