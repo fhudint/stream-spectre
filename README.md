@@ -212,6 +212,7 @@ trust, not across the internet.
   and why.
 - [`docs/websocket-events.md`](docs/websocket-events.md): the HTTP API and the
   event protocol, for anyone writing another client.
+- [`docs/roadmap.md`](docs/roadmap.md): ideas for the next update.
 
 ```sh
 cargo fmt --all -- --check
