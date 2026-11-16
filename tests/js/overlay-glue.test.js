@@ -37,7 +37,7 @@ class FakeElement {
 }
 
 function load({ search = '', protocol = 'http:', host = '127.0.0.1:8787', fetchBody = {}, fetchOk = true } = {}) {
-  const log = { sockets: [], timeouts: [], fetches: [], scripts: [], players: [] };
+  const log = { sockets: [], timeouts: [], intervals: [], fetches: [], scripts: [], players: [], position: 0 };
 
   class FakeWebSocket {
     static OPEN = 1;
@@ -72,6 +72,9 @@ function load({ search = '', protocol = 'http:', host = '127.0.0.1:8787', fetchB
     }
     setVolume(volume) {
       this.calls.push(['setVolume', volume]);
+    }
+    getCurrentTime() {
+      return log.position;
     }
     loadVideoById(videoId) {
       this.calls.push(['loadVideoById', videoId]);
@@ -110,6 +113,10 @@ function load({ search = '', protocol = 'http:', host = '127.0.0.1:8787', fetchB
     setTimeout: (fn, delay) => {
       log.timeouts.push({ fn, delay });
       return log.timeouts.length;
+    },
+    setInterval: (fn, delay) => {
+      log.intervals.push({ fn, delay });
+      return log.intervals.length;
     },
     YT: { Player: FakePlayer, PlayerState: { ENDED: 0, PLAYING: 1 } },
   };
@@ -292,4 +299,35 @@ test('a report made while the socket is down goes out after the reconnect', () =
   assert.notEqual(second, first);
   second.open();
   assert.deepEqual(second.sent, [{ type: 'player_ready' }, { type: 'ended', item_id: 7 }]);
+});
+
+test('progress is reported once a second, but only while the video is playing', () => {
+  const page = load();
+  assert.deepEqual(page.log.intervals.map((i) => i.delay), [1000]);
+  const tick = page.log.intervals[0].fn;
+  page.apiReady();
+  page.player().options.events.onReady();
+  page.socket().open();
+  page.socket().receive(envelope(1, 'play', { item: item(7), volume: 40 }));
+  const progress = () => page.socket().sent.filter((m) => m.type === 'progress');
+
+  // Loading: the player has not started yet.
+  page.log.position = 0;
+  tick();
+  assert.deepEqual(progress(), []);
+
+  page.player().options.events.onStateChange({ data: 1 }); // playing
+  page.log.position = 4.7;
+  tick();
+  assert.deepEqual(plain(progress()), [{ type: 'progress', item_id: 7, position_secs: 4 }]);
+
+  page.player().options.events.onStateChange({ data: 2 }); // paused or buffering
+  page.log.position = 9;
+  tick();
+  assert.equal(progress().length, 1);
+
+  page.player().options.events.onStateChange({ data: 1 });
+  page.socket().receive(envelope(2, 'stop', {}));
+  tick();
+  assert.equal(progress().length, 1, 'nothing after the screen is cleared');
 });

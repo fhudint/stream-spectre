@@ -3,6 +3,8 @@
  *
  * Open it as /dashboard/ (add #token=... when a dashboard token is set; the
  * fragment is never sent to the server and is removed from the address bar).
+ * The menu pages are chosen with the address fragment (#queue, #blacklist,
+ * #rules, #overlay, #settings).
  * Texts that come from other people (names, titles) are only ever assigned
  * with textContent, never as markup.
  */
@@ -11,6 +13,14 @@
 
   var core = window.DashboardCore;
   var TOKEN_KEY = 'stream-spectre-token';
+  /* The heading each page moves the keyboard focus to when it is opened. */
+  var HEADINGS = {
+    queue: 'queue-heading',
+    blacklist: 'blacklist-heading',
+    rules: 'settings-heading',
+    overlay: 'overlay-heading',
+    settings: 'chat-settings-heading',
+  };
   /* Shown before the translations can be fetched (sign-in, a server that is down). */
   var FALLBACK = {
     'dashboard.auth.invalid': 'Invalid token',
@@ -28,6 +38,13 @@
   var lastSettings = '';
   var chatDrawn = null; // the newest chat line already in the page
   var commandsOnly = false;
+  var view = 'queue';
+  var pane = 'queue'; // queue | chat | notices
+  var selectedId = null; // the waiting request the keyboard acts on
+  var selectedIndex = 0;
+  var clockOffset = 0; // browser clock minus server clock, in milliseconds
+  var nowRefs = null; // the parts of the "now playing" card that change
+  var waiting = []; // { node, item }: labels that count up every second
 
   function $(id) {
     return document.getElementById(id);
@@ -55,9 +72,21 @@
       node.addEventListener(name, o.on[name]);
     });
     (children || []).forEach(function (child) {
-      node.appendChild(child);
+      if (child) node.appendChild(child);
     });
     return node;
+  }
+
+  function nowMs() {
+    return Date.now() - clockOffset;
+  }
+
+  function timeTemplates() {
+    return {
+      seconds: t('dashboard.time.seconds'),
+      minutes_seconds: t('dashboard.time.minutes_seconds'),
+      hours_minutes: t('dashboard.time.hours_minutes'),
+    };
   }
 
   // --- token ---
@@ -164,12 +193,15 @@
 
   /* Takes a complete snapshot (the /api/state shape) as the current state.
    * Chat lines the page already has are kept: they are a longer record than
-   * the snapshot's, which only holds what the server remembers for a reload. */
+   * the snapshot's, which only holds what the server remembers for a reload.
+   * So is the playback position, which a snapshot does not carry. */
   function adopt(data) {
     if (!data || typeof data !== 'object') return;
     var lines = state.messages;
+    var playback = state.playback;
     state = core.reduce(state, { v: core.PROTOCOL_VERSION, seq: data.seq, type: 'hello', data: data });
     if (lines.length > 0) state = Object.assign({}, state, { messages: lines });
+    if (playback) state = Object.assign({}, state, { playback: playback });
     render();
   }
 
@@ -190,12 +222,60 @@
     boot(true);
   });
 
+  // --- pages and panes ---
+
+  /* Shows one page of the menu and marks it in both menus. */
+  function showView(name, focusHeading) {
+    view = name;
+    core.VIEWS.forEach(function (candidate) {
+      $('view-' + candidate).classList[candidate === name ? 'remove' : 'add']('hidden');
+      ['nav-', 'bnav-'].forEach(function (prefix) {
+        $(prefix + candidate).setAttribute('aria-current', candidate === name ? 'page' : 'false');
+      });
+    });
+    var heading = $(HEADINGS[name]);
+    if (focusHeading && heading && heading.focus) heading.focus();
+  }
+
+  /* On a phone the queue page shows one of three panes at a time; on a wide
+   * screen the queue is always shown and the side card shows chat or notices. */
+  function setPane(name) {
+    pane = name;
+    $('view-queue').setAttribute('data-pane', name);
+    [
+      ['tab-queue', name === 'queue'],
+      ['tab-chat', name === 'chat'],
+      ['tab-notices', name === 'notices'],
+      ['rail-chat', name !== 'notices'],
+      ['rail-notices', name === 'notices'],
+    ].forEach(function (entry) {
+      $(entry[0]).setAttribute('aria-pressed', entry[1] ? 'true' : 'false');
+    });
+  }
+
+  window.addEventListener('hashchange', function () {
+    showView(core.parseView(location.hash), true);
+  });
+
+  [
+    ['tab-queue', 'queue'],
+    ['tab-chat', 'chat'],
+    ['tab-notices', 'notices'],
+    ['rail-chat', 'chat'],
+    ['rail-notices', 'notices'],
+  ].forEach(function (entry) {
+    $(entry[0]).addEventListener('click', function () {
+      setPane(entry[1]);
+    });
+  });
+
   // --- drawing ---
 
   function applyTexts() {
     document.querySelectorAll('[data-i18n]').forEach(function (node) {
       node.textContent = t(node.getAttribute('data-i18n'));
     });
+    $('keys').setAttribute('aria-label', t('dashboard.keys.label'));
     document.title = t('dashboard.title');
     if (state.language) document.documentElement.lang = state.language;
   }
@@ -209,29 +289,76 @@
     });
   }
 
-  function itemView(item, actions) {
-    var info = [
-      h('div', { className: 'item-title', text: item.title }),
-      h('div', { className: 'meta', text: tf('dashboard.item.requested_by', { name: item.requested_by.name }) }),
-      h('div', { className: 'meta', text: tf('dashboard.item.channel', { channel: item.channel }) }),
-      h('div', {
-        className: 'meta',
-        text: tf('dashboard.item.duration', { duration: core.formatDuration(item.duration_secs) }),
-      }),
-      h('div', { className: 'actions' }, actions),
-    ];
+  /* A video's picture, or an empty box when it has none we may show. */
+  function thumb(item, className, width, height) {
+    var url = core.thumbnailUrl(item);
     var children = [];
-    var thumb = core.thumbnailUrl(item);
-    if (thumb) {
+    if (url) {
       children.push(
         h('img', {
-          className: 'thumb',
-          attrs: { src: thumb, alt: '', width: '120', height: '68', loading: 'lazy', referrerpolicy: 'no-referrer' },
+          attrs: {
+            src: url,
+            alt: '',
+            width: String(width),
+            height: String(height),
+            loading: 'lazy',
+            referrerpolicy: 'no-referrer',
+          },
         })
       );
     }
-    children.push(h('div', { className: 'info' }, info));
-    return h('div', { className: 'item' }, children);
+    return { url: url, children: children, className: className + (url ? '' : ' empty') };
+  }
+
+  function metaText(item) {
+    var role = t('role.' + item.requested_by.role);
+    var seconds = core.waitingSeconds(item, nowMs());
+    if (seconds === null) return role;
+    return tf('dashboard.row.meta', { role: role, time: core.formatWaiting(seconds, timeTemplates()) });
+  }
+
+  /* One request in a list: picture, title, who asked and for how long. */
+  function rowView(item, selected, actions) {
+    var picture = thumb(item, 'thumb', 96, 54);
+    if (item.duration_secs > 0) {
+      picture.children.push(h('span', { className: 'duration', text: core.formatDuration(item.duration_secs) }));
+    }
+    var label = h('span', { className: 'who-meta', text: metaText(item) });
+    waiting.push({ node: label, item: item });
+    var tint = core.tintIndex(item.requested_by.name);
+    var li = h(
+      'li',
+      {
+        className: selected ? 'row selected' : 'row',
+        attrs: selected ? { 'aria-current': 'true' } : {},
+        on: {
+          click: function () {
+            if (state.queue.pending.indexOf(item) >= 0) select(item.id);
+          },
+        },
+      },
+      [
+        h('div', { className: picture.className }, picture.children),
+        h('div', { className: 'info' }, [
+          h('div', { className: 'row-title', text: item.title }),
+          h('div', { className: 'row-sub' }, [
+            h('span', { text: item.channel }),
+            h('span', { className: 'sep', text: ' · ' }),
+            h('code', { text: item.video_id }),
+          ]),
+        ]),
+        h('div', { className: 'who' }, [
+          h('span', {
+            className: 'avatar tint-' + tint,
+            text: core.initial(item.requested_by.name),
+            attrs: { 'aria-hidden': 'true' },
+          }),
+          h('div', { className: 'who-text' }, [h('span', { className: 'who-name', text: item.requested_by.name }), label]),
+        ]),
+        h('div', { className: 'actions' }, actions),
+      ]
+    );
+    return li;
   }
 
   function renderStatus() {
@@ -246,59 +373,196 @@
       chat.textContent = '';
       chat.className = 'pill';
     }
+    var channel = state.chat && typeof state.chat.channel === 'string' ? state.chat.channel : '';
+    $('channel-name').textContent = channel;
+    $('channel-initial').textContent = channel ? core.initial(channel) : '';
   }
 
-  function renderNow() {
-    var item = state.queue.now_playing;
-    var box = $('now');
-    if (!item) {
-      box.replaceChildren(h('p', { className: 'empty', text: t('dashboard.now_playing.none') }));
+  function renderSummary() {
+    var pending = state.queue.pending;
+    var box = $('queue-summary');
+    if (pending.length === 0) {
+      box.textContent = t('dashboard.queue.summary_none');
       return;
     }
-    box.replaceChildren(
-      itemView(item, [
-        button('dashboard.action.skip', 'skip', function () {
-          act('POST', '/api/skip');
-        }),
+    var oldest = core.oldestWaiting(pending, nowMs());
+    box.textContent =
+      oldest === null
+        ? tf('dashboard.queue.summary', { count: pending.length })
+        : tf('dashboard.queue.summary_oldest', {
+            count: pending.length,
+            time: core.formatWaiting(oldest, timeTemplates()),
+          });
+  }
+
+  function renderCounts() {
+    var pending = String(state.queue.pending.length);
+    ['nav-queue-count', 'tab-queue-count', 'queue-count'].forEach(function (id) {
+      $(id).textContent = pending;
+    });
+    $('approved-count').textContent = String(state.queue.approved.length);
+  }
+
+  function renderToday() {
+    var stats = state.stats;
+    $('stat-received').textContent = String(stats.received);
+    $('stat-approved').textContent = String(stats.approved);
+    $('stat-rejected').textContent = String(stats.rejected);
+    $('stat-waiting').textContent = String(state.queue.pending.length);
+    var since = core.formatClock(stats.since_ms);
+    $('today-since').textContent = since ? tf('dashboard.today.since', { time: since.slice(0, 5) }) : '';
+  }
+
+  function renderRules() {
+    var chips = core.ruleChips(state.settings, function (key, values) {
+      return tf(key, values);
+    });
+    var list = $('rules-chips');
+    list.replaceChildren.apply(
+      list,
+      chips.map(function (text) {
+        return h('li', { className: 'chip', text: text });
+      })
+    );
+  }
+
+  /* The card for the video that is playing. It is built once per video and
+   * after that only its progress and the "next" line change, so the picture
+   * is not loaded again every second. */
+  function buildNow(item) {
+    var picture = thumb(item, 'preview', 288, 162);
+    var caption = h('span', {
+      className: 'caption',
+      text: tf('dashboard.now.caption', { name: item.requested_by.name }),
+    });
+    picture.children.push(caption);
+    var progress = h('progress', { attrs: { max: String(Math.max(1, item.duration_secs)), value: '0' } });
+    var elapsed = h('span');
+    var remaining = h('span');
+    var next = h('p', { className: 'dim small' });
+    nowRefs = { id: item.id, progress: progress, elapsed: elapsed, remaining: remaining, next: next };
+    $('now').replaceChildren(
+      h('div', { className: 'now-media' }, [
+        h('span', { className: 'label', text: t('dashboard.now.preview') }),
+        h('div', { className: picture.className }, picture.children),
+      ]),
+      h('div', { className: 'now-info' }, [
+        h('span', { className: 'label live' }, [
+          h('span', { className: 'dot' }),
+          h('span', { text: t('dashboard.now_playing.title') }),
+        ]),
+        h('div', { className: 'now-title', text: item.title }),
+        h('div', { className: 'row-sub' }, [
+          h('span', { text: item.channel }),
+          h('span', { className: 'sep', text: ' · ' }),
+          h('code', { text: item.video_id }),
+          h('span', { className: 'sep', text: ' · ' }),
+          h('span', {
+            text:
+              tf('dashboard.item.requested_by', { name: item.requested_by.name }) +
+              ' (' +
+              t('role.' + item.requested_by.role) +
+              ')',
+          }),
+        ]),
+        h('div', { className: 'progress' }, [progress, h('div', { className: 'times' }, [elapsed, remaining])]),
+        h('div', { className: 'actions' }, [
+          button('dashboard.action.skip', 'skip', function () {
+            act('POST', '/api/skip');
+          }),
+        ]),
+        next,
       ])
     );
   }
 
-  function renderList(id, list, actionsFor) {
-    var box = $(id);
-    if (list.length === 0) {
-      box.replaceChildren(h('li', { className: 'empty', text: t('dashboard.queue.empty') }));
+  function renderNow() {
+    var item = state.queue.now_playing;
+    if (!item) {
+      nowRefs = null;
+      $('now').replaceChildren(h('p', { className: 'empty', text: t('dashboard.now_playing.none') }));
       return;
     }
-    box.replaceChildren.apply(
-      box,
-      list.map(function (item) {
-        return h('li', {}, [itemView(item, actionsFor(item))]);
-      })
-    );
+    if (!nowRefs || nowRefs.id !== item.id) buildNow(item);
+    var position = core.playbackPosition(state);
+    nowRefs.progress.setAttribute('value', String(position));
+    nowRefs.elapsed.textContent = tf('dashboard.now.elapsed', {
+      position: core.formatDuration(position),
+      duration: core.formatDuration(item.duration_secs),
+    });
+    nowRefs.remaining.textContent = tf('dashboard.now.remaining', {
+      time: core.formatWaiting(Math.max(0, item.duration_secs - position), timeTemplates()),
+    });
+    var upcoming = state.queue.approved[0];
+    nowRefs.next.textContent = upcoming
+      ? tf('dashboard.now.next', { title: upcoming.title })
+      : t('dashboard.now.next_none');
   }
 
   function itemPath(item, action) {
     return '/api/queue/' + encodeURIComponent(String(item.id)) + '/' + action;
   }
 
+  function approve(item) {
+    return act('POST', itemPath(item, 'approve'));
+  }
+
+  function reject(item) {
+    return act('POST', itemPath(item, 'reject'));
+  }
+
+  function pendingIds() {
+    return state.queue.pending.map(function (item) {
+      return item.id;
+    });
+  }
+
+  function select(id) {
+    selectedId = id;
+    selectedIndex = Math.max(0, pendingIds().indexOf(id));
+    renderQueues();
+  }
+
+  /* Keeps the keyboard's choice on a request that still waits: the same one,
+   * or else the one that took its place. */
+  function syncSelection() {
+    var ids = pendingIds();
+    var at = ids.indexOf(selectedId);
+    if (at >= 0) {
+      selectedIndex = at;
+    } else {
+      selectedId = ids.length ? ids[Math.min(selectedIndex, ids.length - 1)] : null;
+    }
+  }
+
+  function renderList(id, list, rowFor) {
+    var box = $(id);
+    if (list.length === 0) {
+      box.replaceChildren(h('li', { className: 'empty', text: t('dashboard.queue.empty') }));
+      return;
+    }
+    box.replaceChildren.apply(box, list.map(rowFor));
+  }
+
   function renderQueues() {
+    syncSelection();
+    waiting = [];
     renderList('pending', state.queue.pending, function (item) {
-      return [
-        button('dashboard.action.approve', 'approve', function () {
-          act('POST', itemPath(item, 'approve'));
-        }),
+      return rowView(item, item.id === selectedId, [
         button('dashboard.action.reject', 'reject', function () {
-          act('POST', itemPath(item, 'reject'));
+          reject(item);
         }),
-      ];
+        button('dashboard.action.approve', 'approve', function () {
+          approve(item);
+        }),
+      ]);
     });
     renderList('approved', state.queue.approved, function (item) {
-      return [
+      return rowView(item, false, [
         button('dashboard.action.reject', 'reject', function () {
-          act('POST', itemPath(item, 'reject'));
+          reject(item);
         }),
-      ];
+      ]);
     });
   }
 
@@ -330,12 +594,17 @@
       );
     }
     if (commandsOnly && !line.command) return;
-    var parts = [h('span', { className: 'chat-name', text: line.name })];
+    var main = [h('span', { className: 'chat-name name-' + core.tintIndex(line.name), text: line.name })];
     if (line.role !== 'everyone') {
-      parts.push(h('span', { className: 'chat-role', text: ' (' + t('role.' + line.role) + ')' }));
+      main.push(h('span', { className: 'chat-role', text: t('role.' + line.role) }));
     }
-    parts.push(h('span', { className: 'chat-text', text: ': ' + line.text }));
-    box.appendChild(h('li', { className: line.command ? 'chat-line chat-command' : 'chat-line' }, parts));
+    main.push(h('span', { className: line.command ? 'chat-text chat-cmd' : 'chat-text', text: line.text }));
+    box.appendChild(
+      h('li', { className: line.command ? 'chat-line chat-command' : 'chat-line' }, [
+        h('span', { className: 'chat-time', text: core.formatClock(line.at_ms) }),
+        h('div', { className: 'chat-main' }, main),
+      ])
+    );
   }
 
   /* Adds the chat lines that arrived since the last drawing. Everything is
@@ -390,14 +659,26 @@
     });
   }
 
+  /* The address OBS needs, as shown (no token) and as copied (with it). */
+  function renderOverlay() {
+    var shown = core.overlayUrl(location.protocol, location.host, '').replace(/^https?:\/\//, '');
+    $('overlay-address').textContent = shown;
+    $('overlay-shown').textContent = shown;
+  }
+
   function render() {
     renderStatus();
+    renderSummary();
+    renderCounts();
+    renderToday();
+    renderRules();
     renderNow();
     renderQueues();
     renderVolume();
     renderChat(false);
     renderNotices();
     renderSettings();
+    renderOverlay();
   }
 
   // --- forms ---
@@ -527,6 +808,78 @@
     });
   });
 
+  // --- copying the overlay address ---
+
+  /* The old way, for pages that are not a secure context (a moderator
+   * opening the dashboard by the computer's address on the network). */
+  function copyByHand(text) {
+    try {
+      var area = h('textarea', { className: 'offscreen', attrs: { readonly: 'readonly', 'aria-hidden': 'true' } });
+      area.value = text;
+      document.body.appendChild(area);
+      area.select();
+      var copied = document.execCommand('copy') === true;
+      document.body.removeChild(area);
+      return copied;
+    } catch (error) {
+      return false;
+    }
+  }
+
+  function copyOverlay() {
+    var url = core.overlayUrl(location.protocol, location.host, token);
+    var done = function () {
+      clearError();
+      flash(t('dashboard.overlay.copied'));
+    };
+    var fallback = function () {
+      if (copyByHand(url)) done();
+      else showError(t('dashboard.overlay.copy_failed'));
+    };
+    if (typeof navigator !== 'undefined' && navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(url).then(done, fallback);
+    } else {
+      fallback();
+    }
+  }
+
+  $('copy-overlay').addEventListener('click', copyOverlay);
+  $('copy-overlay-page').addEventListener('click', copyOverlay);
+
+  // --- keyboard ---
+
+  function typing(target) {
+    var tag = target && target.tagName ? String(target.tagName).toLowerCase() : '';
+    return tag === 'input' || tag === 'textarea' || tag === 'select' || (target && target.isContentEditable === true);
+  }
+
+  document.addEventListener('keydown', function (event) {
+    if (view !== 'queue' || $('app').classList.contains('hidden')) return;
+    // Typing, and the chat list, which uses the arrow keys to scroll.
+    if (typing(event.target) || event.target === $('chat-log')) return;
+    var command = core.keyCommand(event);
+    if (!command) return;
+
+    var ids = pendingIds();
+    var chosen = state.queue.pending.filter(function (item) {
+      return item.id === selectedId;
+    })[0];
+    if (command === 'up' || command === 'down') {
+      if (ids.length === 0) return;
+      event.preventDefault();
+      select(core.selectAfter(ids, selectedId, command === 'up' ? -1 : 1));
+    } else if (command === 'approve' && chosen) {
+      event.preventDefault();
+      approve(chosen);
+    } else if (command === 'reject' && chosen) {
+      event.preventDefault();
+      reject(chosen);
+    } else if (command === 'skip' && state.queue.now_playing) {
+      event.preventDefault();
+      act('POST', '/api/skip');
+    }
+  });
+
   // --- live connection ---
 
   /* Reconnects with a growing delay, up to ten seconds. A refused connection
@@ -547,6 +900,10 @@
       } catch (error) {
         return;
       }
+      // Waiting times are measured on the server's clock.
+      if (message && typeof message.ts === 'number' && isFinite(message.ts) && message.ts > 0) {
+        clockOffset = Date.now() - message.ts;
+      }
       state = core.reduce(state, message);
       render();
     };
@@ -565,6 +922,15 @@
       });
     };
   }
+
+  /* Waiting times count up without any message from the server. */
+  setInterval(function () {
+    if (!started) return;
+    renderSummary();
+    waiting.forEach(function (entry) {
+      entry.node.textContent = metaText(entry.item);
+    });
+  }, 1000);
 
   function boot(fromLogin) {
     return api('GET', '/api/state').then(function (result) {
@@ -586,6 +952,8 @@
         adopt(result.data);
         applyTexts();
         buildForms();
+        showView(core.parseView(location.hash), false);
+        setPane(pane);
         render();
         if (!started) {
           started = true;

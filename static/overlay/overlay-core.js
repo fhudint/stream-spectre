@@ -66,7 +66,8 @@
   }
 
   /* deps:
-   *   player: { play(videoId, volume), stop(), setVolume(volume) }
+   *   player: { play(videoId, volume), stop(), setVolume(volume),
+   *             position() -> seconds into the video, or null when not playing }
    *   ui:     { show({ requestedBy, title }), hide() }
    *   send:   (message) => boolean, false when the socket is not open
    *   text:   (key) => string | undefined, for translated UI texts
@@ -178,6 +179,16 @@
         if (!current || reported) return;
         reported = true;
         report({ type: 'player_error', item_id: current.id, code: sanitizeCode(code) });
+      },
+
+      /* Called about once a second. Tells the server how far the video has
+       * got, so the dashboard can show it. A report that cannot be sent is
+       * simply dropped: the next one replaces it. */
+      tick: function () {
+        if (!current || reported || typeof player.position !== 'function') return;
+        var seconds = player.position();
+        if (typeof seconds !== 'number' || !isFinite(seconds) || seconds < 0) return;
+        send({ type: 'progress', item_id: current.id, position_secs: Math.floor(seconds) });
       },
 
       /* The socket (re)connected. */

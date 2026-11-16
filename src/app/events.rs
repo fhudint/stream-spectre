@@ -87,6 +87,8 @@ pub struct ChatLineView {
     pub name: String,
     pub role: Role,
     pub text: String,
+    /// When the message arrived, in milliseconds since the Unix epoch.
+    pub at_ms: u64,
     /// The message started with the video command (valid or not).
     pub command: bool,
     /// How many messages before this one were left out of the stream because
@@ -132,6 +134,23 @@ pub struct ChatStatusView {
     pub text: String,
 }
 
+/// What the moderators have decided since the program started. Counts only
+/// requests that passed the rules and entered the queue, so at any moment
+/// `received = approved + rejected + waiting` (waiting being the requests still
+/// awaiting approval).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
+pub struct StatsView {
+    /// When counting started, in milliseconds since the Unix epoch.
+    pub since_ms: u64,
+    /// Requests that entered the queue.
+    pub received: u64,
+    /// Requests approved by a moderator or automatically, and not rejected
+    /// afterwards. Includes the video playing and the ones already played.
+    pub approved: u64,
+    /// Requests rejected by a moderator, before or after approval.
+    pub rejected: u64,
+}
+
 /// Sent to each client right after it connects.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Hello {
@@ -147,6 +166,7 @@ pub struct Hello {
     /// The most recent chat messages, oldest first, at most
     /// `settings.dashboard.chat_history` of them.
     pub chat_log: Vec<ChatLineView>,
+    pub stats: StatsView,
 }
 
 impl Hello {
@@ -159,6 +179,7 @@ impl Hello {
         self.settings.blacklist = BlacklistConfig::default();
         self.chat = None;
         self.chat_log.clear();
+        self.stats = StatsView::default();
         self
     }
 }
@@ -216,6 +237,13 @@ pub enum Event {
     ChatStatus(ChatStatusView),
     /// A chat message (dashboard).
     ChatMessage(ChatLineView),
+    /// The counters changed (dashboard).
+    StatsUpdated(StatsView),
+    /// How far the video that is playing has got (dashboard).
+    Playback {
+        item_id: u64,
+        position_secs: u64,
+    },
 }
 
 /// An event with its place in the stream.
@@ -240,6 +268,8 @@ pub enum OverlayMessage {
     Ended { item_id: u64 },
     /// The YouTube player reported an error for this video.
     PlayerError { item_id: u64, code: String },
+    /// How far the video has got, about once a second while it plays.
+    Progress { item_id: u64, position_secs: u64 },
 }
 
 #[cfg(test)]
@@ -402,6 +432,7 @@ mod tests {
             name: "Budi".to_owned(),
             role: Role::Follower,
             text: "!v dQw4w9WgXcQ".to_owned(),
+            at_ms: 1_700_000_000_123,
             command: true,
             skipped: 3,
         };
@@ -411,6 +442,7 @@ mod tests {
                 "name": "Budi",
                 "role": "follower",
                 "text": "!v dQw4w9WgXcQ",
+                "at_ms": 1_700_000_000_123u64,
                 "command": true,
                 "skipped": 3
             }})
@@ -454,13 +486,24 @@ mod tests {
                 name: "Sari".to_owned(),
                 role: Role::Everyone,
                 text: "hi".to_owned(),
+                at_ms: 1,
                 command: false,
                 skipped: 0,
             }],
+            stats: StatsView {
+                since_ms: 1000,
+                received: 5,
+                approved: 3,
+                rejected: 1,
+            },
         };
         let value = to_json(&Event::Hello(Box::new(hello)));
         assert_eq!(value["type"], "hello");
         let data = &value["data"];
+        assert_eq!(
+            data["stats"],
+            json!({"since_ms": 1000, "received": 5, "approved": 3, "rejected": 1})
+        );
         assert_eq!(data["server_version"], "1.2.3");
         assert_eq!(data["language"], "id");
         assert_eq!(data["seq"], 9);
@@ -501,9 +544,16 @@ mod tests {
                 name: "Secret Viewer".to_owned(),
                 role: Role::Follower,
                 text: "secret comment".to_owned(),
+                at_ms: 1,
                 command: false,
                 skipped: 0,
             }],
+            stats: StatsView {
+                since_ms: 1000,
+                received: 5,
+                approved: 3,
+                rejected: 1,
+            },
         };
         let overlay = hello.for_overlay();
         assert_eq!(overlay.seq, 3);
@@ -513,6 +563,7 @@ mod tests {
         assert_eq!(overlay.settings.blacklist, BlacklistConfig::default());
         assert!(overlay.chat.is_none());
         assert!(overlay.chat_log.is_empty());
+        assert_eq!(overlay.stats, StatsView::default());
 
         let json = serde_json::to_string(&overlay).unwrap();
         assert!(!json.contains("secretword") && !json.contains("Secret Channel"));
@@ -537,8 +588,37 @@ mod tests {
                 code: "150".to_owned()
             }
         );
+        assert_eq!(
+            parse(r#"{"type":"progress","item_id":7,"position_secs":23}"#).unwrap(),
+            OverlayMessage::Progress {
+                item_id: 7,
+                position_secs: 23
+            }
+        );
         // Extra fields from newer overlays are ignored.
         assert!(parse(r#"{"type":"ended","item_id":7,"extra":true}"#).is_ok());
+    }
+
+    #[test]
+    fn the_new_dashboard_events_have_their_documented_shape() {
+        assert_eq!(
+            to_json(&Event::StatsUpdated(StatsView {
+                since_ms: 5,
+                received: 4,
+                approved: 3,
+                rejected: 1
+            })),
+            json!({"type": "stats_updated", "data": {
+                "since_ms": 5, "received": 4, "approved": 3, "rejected": 1
+            }})
+        );
+        assert_eq!(
+            to_json(&Event::Playback {
+                item_id: 7,
+                position_secs: 23
+            }),
+            json!({"type": "playback", "data": {"item_id": 7, "position_secs": 23}})
+        );
     }
 
     #[test]
@@ -555,6 +635,9 @@ mod tests {
             r#"{"type":"ended","item_id":-1}"#,
             r#"{"type":"player_error","item_id":7}"#,
             r#"{"type":"player_error","item_id":7,"code":5}"#,
+            r#"{"type":"progress","item_id":7}"#,
+            r#"{"type":"progress","item_id":7,"position_secs":-1}"#,
+            r#"{"type":"progress","item_id":7,"position_secs":2.5}"#,
         ] {
             assert!(parse(bad).is_err(), "{bad}");
         }

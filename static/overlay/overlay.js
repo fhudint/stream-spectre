@@ -48,8 +48,10 @@
     var failed = false;
     var volume = 50;
     var pending = null;
+    var playing = false;
 
     function load(next) {
+      playing = false;
       volume = next.volume;
       yt.setVolume(volume);
       yt.loadVideoById(next.videoId);
@@ -81,6 +83,7 @@
             }
           },
           onStateChange: function (event) {
+            playing = event.data === YT.PlayerState.PLAYING;
             if (event.data === YT.PlayerState.ENDED) callbacks.onEnded();
           },
           onError: function (event) {
@@ -115,7 +118,13 @@
       },
       stop: function () {
         pending = null;
+        playing = false;
         if (ready) yt.stopVideo();
+      },
+      /* Seconds into the video while it plays, otherwise null. */
+      position: function () {
+        if (!ready || !playing || typeof yt.getCurrentTime !== 'function') return null;
+        return yt.getCurrentTime();
       },
       setVolume: function (requestedVolume) {
         volume = requestedVolume;
@@ -181,4 +190,5 @@
     .catch(function () {});
 
   connect();
+  setInterval(controller.tick, 1000);
 })();

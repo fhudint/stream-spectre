@@ -250,7 +250,7 @@ test('chat messages are appended in order, with the flags kept', () => {
   state = core.reduce(state, envelope(2, 'chat_message', line('hi')));
   state = core.reduce(state, envelope(3, 'chat_message', line('!v dQw4w9WgXcQ', { command: true, skipped: 4, role: 'moderator' })));
   assert.deepEqual(state.messages[1], {
-    name: 'Budi', role: 'moderator', text: '!v dQw4w9WgXcQ', command: true, skipped: 4,
+    name: 'Budi', role: 'moderator', text: '!v dQw4w9WgXcQ', at_ms: 0, command: true, skipped: 4,
   });
   assert.equal(state.seq, 3);
 });
@@ -273,7 +273,7 @@ test('chat lines are capped at the newest ones', () => {
 test('chat lines are sanitized and junk is ignored', () => {
   let state = core.reduce(core.initialState(), hello(1));
   state = core.reduce(state, envelope(2, 'chat_message', { name: 7, role: {}, text: 'ok', command: 'yes', skipped: -3 }));
-  assert.deepEqual(state.messages[0], { name: '', role: 'everyone', text: 'ok', command: false, skipped: 0 });
+  assert.deepEqual(state.messages[0], { name: '', role: 'everyone', text: 'ok', at_ms: 0, command: false, skipped: 0 });
   state = core.reduce(state, envelope(3, 'chat_message', { name: 'x' }));
   state = core.reduce(state, envelope(4, 'chat_message', 'text'));
   state = core.reduce(state, envelope(5, 'chat_message', { name: 'x', text: 5 }));
@@ -297,4 +297,179 @@ test('settings_updated keeps the dashboard settings for the form', () => {
   const changed = { ...settings(), dashboard: { chat_history: 5 } };
   state = core.reduce(state, envelope(2, 'settings_updated', changed));
   assert.equal(state.settings.dashboard.chat_history, 5);
+});
+
+// --- the redesigned page: counters, progress, waiting times and so on ---
+
+const TIMES = { seconds: '{seconds} s', minutes_seconds: '{minutes} min {seconds} s', hours_minutes: '{hours} h {minutes} min' };
+
+test('requests and chat lines keep when they were made, and junk becomes zero', () => {
+  let state = core.reduce(core.initialState(), hello(1, { queue: { pending: [item(1, { requested_at_ms: 1700000000123.9 })], approved: [item(2, { requested_at_ms: -5 })], now_playing: item(3, { requested_at_ms: 'soon' }) } }));
+  assert.equal(state.queue.pending[0].requested_at_ms, 1700000000123);
+  assert.equal(state.queue.approved[0].requested_at_ms, 0);
+  assert.equal(state.queue.now_playing.requested_at_ms, 0);
+  state = core.reduce(state, envelope(2, 'chat_message', line('hi', { at_ms: 1700000000999 })));
+  state = core.reduce(state, envelope(3, 'chat_message', line('hi', { at_ms: 'x' })));
+  assert.deepEqual(state.messages.map((m) => m.at_ms), [1700000000999, 0]);
+});
+
+test('the counters come with hello and stats_updated, and bad values are zero', () => {
+  let state = core.reduce(core.initialState(), hello(1));
+  assert.deepEqual(state.stats, { since_ms: 0, received: 0, approved: 0, rejected: 0 });
+  state = core.reduce(state, hello(2, { stats: { since_ms: 5, received: 4, approved: 3, rejected: 1 } }));
+  assert.deepEqual(state.stats, { since_ms: 5, received: 4, approved: 3, rejected: 1 });
+  state = core.reduce(state, envelope(3, 'stats_updated', { since_ms: 5, received: 9, approved: 6, rejected: 2 }));
+  assert.equal(state.stats.received, 9);
+  state = core.reduce(state, envelope(4, 'stats_updated', { since_ms: 'x', received: -1, approved: null, rejected: 1.9 }));
+  assert.deepEqual(state.stats, { since_ms: 0, received: 0, approved: 0, rejected: 1 });
+  // An event the snapshot already covers is ignored.
+  const old = core.reduce(state, envelope(4, 'stats_updated', { received: 100 }));
+  assert.equal(old, state);
+});
+
+test('playback reports are kept, checked, and dropped by a new hello', () => {
+  let state = core.reduce(core.initialState(), hello(1, { queue: { pending: [], approved: [], now_playing: item(7) } }));
+  assert.equal(state.playback, null);
+  state = core.reduce(state, envelope(2, 'playback', { item_id: 7, position_secs: 42 }));
+  assert.deepEqual(state.playback, { item_id: 7, position_secs: 42 });
+  const before = state.playback;
+  for (const bad of [{ item_id: '7', position_secs: 1 }, { item_id: 7, position_secs: -1 }, { item_id: 7, position_secs: 1.5 }, { item_id: 7 }, null]) {
+    state = core.reduce(state, envelope(state.seq + 1, 'playback', bad));
+    assert.deepEqual(state.playback, before, JSON.stringify(bad));
+  }
+  state = core.reduce(state, hello(50, { queue: { pending: [], approved: [], now_playing: item(7) } }));
+  assert.equal(state.playback, null);
+});
+
+test('the position shown is only for the video that is playing, and never past its end', () => {
+  const base = core.reduce(core.initialState(), hello(1, { queue: { pending: [], approved: [], now_playing: item(7) } }));
+  assert.equal(core.playbackPosition(base), 0, 'nothing reported yet');
+  const at = (p) => core.reduce(base, envelope(2, 'playback', p));
+  assert.equal(core.playbackPosition(at({ item_id: 7, position_secs: 60 })), 60);
+  assert.equal(core.playbackPosition(at({ item_id: 8, position_secs: 60 })), 0, 'another video');
+  assert.equal(core.playbackPosition(at({ item_id: 7, position_secs: 9999 })), 213, 'the length of the video');
+  const idle = core.reduce(core.initialState(), hello(1));
+  assert.equal(core.playbackPosition(idle), 0);
+});
+
+test('waiting times are measured on the given clock', () => {
+  const a = { requested_at_ms: 1_000_000 };
+  assert.equal(core.waitingSeconds(a, 1_252_900), 252);
+  assert.equal(core.waitingSeconds(a, 900_000), 0, 'a clock that is behind never gives a negative time');
+  assert.equal(core.waitingSeconds({ requested_at_ms: 0 }, 5), null, 'unknown time');
+  assert.equal(core.waitingSeconds(null, 5), null);
+  const items = [{ requested_at_ms: 1_200_000 }, { requested_at_ms: 1_000_000 }, { requested_at_ms: 0 }];
+  assert.equal(core.oldestWaiting(items, 1_300_000), 300);
+  assert.equal(core.oldestWaiting([{ requested_at_ms: 0 }], 1), null);
+  assert.equal(core.oldestWaiting([], 1), null);
+});
+
+test('formatWaiting uses the right template for seconds, minutes and hours', () => {
+  assert.equal(core.formatWaiting(0, TIMES), '0 s');
+  assert.equal(core.formatWaiting(59, TIMES), '59 s');
+  assert.equal(core.formatWaiting(60, TIMES), '1 min 0 s');
+  assert.equal(core.formatWaiting(252, TIMES), '4 min 12 s');
+  assert.equal(core.formatWaiting(3599, TIMES), '59 min 59 s');
+  assert.equal(core.formatWaiting(3600, TIMES), '1 h 0 min');
+  assert.equal(core.formatWaiting(7384, TIMES), '2 h 3 min');
+  assert.equal(core.formatWaiting(-5, TIMES), '0 s');
+  assert.equal(core.formatWaiting('oops', TIMES), '0 s');
+});
+
+test('a viewer always gets the same colour, within the palette', () => {
+  const seen = new Set();
+  for (const name of ['Budi', '@minho_k', 'Sari', '', 'x'.repeat(500), '\u{1F600}']) {
+    const tint = core.tintIndex(name);
+    assert.ok(Number.isInteger(tint) && tint >= 0 && tint < core.TINTS, name);
+    assert.equal(core.tintIndex(name), tint);
+    seen.add(tint);
+  }
+  assert.ok(seen.size > 1, 'the names are not all the same colour');
+});
+
+test('the avatar letter skips @, keeps whole characters, and has a fallback', () => {
+  assert.equal(core.initial('@minho_k'), 'M');
+  assert.equal(core.initial('budi'), 'B');
+  assert.equal(core.initial('  sari'), 'S');
+  assert.equal(core.initial('\u{1F600} happy'), '\u{1F600}');
+  for (const none of ['', '   ', '@', '@@']) assert.equal(core.initial(none), '?', JSON.stringify(none));
+});
+
+test('the clock time is HH:MM:SS in local time, or empty when unknown', () => {
+  assert.equal(core.formatClock(new Date(2026, 0, 5, 19, 51, 24).getTime()), '19:51:24');
+  assert.equal(core.formatClock(new Date(2026, 0, 5, 3, 4, 5).getTime()), '03:04:05');
+  assert.equal(core.formatClock(0), '');
+  assert.equal(core.formatClock(NaN), '');
+  assert.equal(core.formatClock(1e20), '');
+});
+
+test('the rules in force are listed as short texts', () => {
+  const say = (key, values) => `${key}${JSON.stringify(values)}`;
+  const moderation = { mode: 'manual', min_role: 'subscriber', min_gifter_level: 0, min_fan_club_level: 0, cooldown_secs: 90, max_duration_secs: 600, max_queue_len: 20 };
+  const lists = { video_ids: ['a', 'b'], channels: ['c'], title_words: [] };
+  assert.deepEqual(core.ruleChips({ moderation, blacklist: lists }, say), [
+    'dashboard.rules.role{"role":"role.subscriber{}"}',
+    'dashboard.rules.cooldown{"seconds":90}',
+    'dashboard.rules.max_duration{"duration":"10:00"}',
+    'dashboard.rules.max_queue{"count":20}',
+    'dashboard.rules.blocked{"count":3}',
+  ]);
+  const all = core.ruleChips({ moderation: { ...moderation, mode: 'auto', min_role: 'everyone', min_gifter_level: 3, min_fan_club_level: 2, cooldown_secs: 0 }, blacklist: { video_ids: [], channels: [], title_words: [] } }, say);
+  assert.deepEqual(all, [
+    'dashboard.rules.everyone{}',
+    'dashboard.rules.mode_auto{}',
+    'dashboard.rules.gifter{"level":3}',
+    'dashboard.rules.fan_club{"level":2}',
+    'dashboard.rules.no_cooldown{}',
+    'dashboard.rules.max_duration{"duration":"10:00"}',
+    'dashboard.rules.max_queue{"count":20}',
+  ]);
+  assert.deepEqual(core.ruleChips(null, say), []);
+  assert.deepEqual(core.ruleChips({}, say), []);
+});
+
+test('the address bar picks a page, and anything else means the queue', () => {
+  for (const view of core.VIEWS) assert.equal(core.parseView('#' + view), view);
+  assert.deepEqual(core.VIEWS, ['queue', 'blacklist', 'rules', 'overlay', 'settings']);
+  for (const other of ['', '#', '#token=abc', '#nope', '#QUEUE', '#queue?x=1', undefined, null, '#__proto__', '#constructor']) {
+    assert.equal(core.parseView(other), 'queue', String(other));
+  }
+});
+
+test('moving the choice stays inside the list', () => {
+  const ids = [10, 20, 30];
+  assert.equal(core.selectAfter(ids, 10, 1), 20);
+  assert.equal(core.selectAfter(ids, 20, 1), 30);
+  assert.equal(core.selectAfter(ids, 30, 1), 30, 'stops at the end');
+  assert.equal(core.selectAfter(ids, 10, -1), 10, 'stops at the start');
+  assert.equal(core.selectAfter(ids, 99, 1), 10, 'an unknown choice starts at the top');
+  assert.equal(core.selectAfter(ids, null, -1), 10);
+  assert.equal(core.selectAfter([], 10, 1), null);
+});
+
+test('only plain presses of the shortcut keys are commands', () => {
+  const press = (key, extra = {}) => core.keyCommand({ key, ...extra });
+  assert.equal(press('ArrowUp'), 'up');
+  assert.equal(press('ArrowDown'), 'down');
+  for (const key of ['a', 'A']) assert.equal(press(key), 'approve');
+  for (const key of ['r', 'R']) assert.equal(press(key), 'reject');
+  for (const key of ['s', 'S']) assert.equal(press(key), 'skip');
+  for (const key of ['a', 'r', 's', 'ArrowDown']) {
+    for (const modifier of ['ctrlKey', 'metaKey', 'altKey']) {
+      assert.equal(press(key, { [modifier]: true }), null, `${modifier}+${key}`);
+    }
+  }
+  for (const key of ['x', 'Enter', ' ', 'Tab', 'ArrowLeft', '']) assert.equal(press(key), null, key);
+  assert.equal(core.keyCommand(null), null);
+});
+
+test('the overlay address uses localhost for a loopback IP and carries the token', () => {
+  assert.equal(core.overlayUrl('http:', '127.0.0.1:8787', ''), 'http://localhost:8787/overlay/');
+  assert.equal(core.overlayUrl('http:', '[::1]:8787', ''), 'http://localhost:8787/overlay/');
+  assert.equal(core.overlayUrl('http:', '127.0.0.1', ''), 'http://localhost/overlay/');
+  assert.equal(core.overlayUrl('http:', 'localhost:8787', ''), 'http://localhost:8787/overlay/');
+  assert.equal(core.overlayUrl('https:', 'stream.example:8443', 'a b&c'), 'https://stream.example:8443/overlay/?token=a%20b%26c');
+  // Only a bare loopback host is rewritten, never something that merely starts like one.
+  assert.equal(core.overlayUrl('http:', '127.0.0.10:8787', ''), 'http://127.0.0.10:8787/overlay/');
+  assert.equal(core.overlayUrl('http:', '127.0.0.1.evil.example', ''), 'http://127.0.0.1.evil.example/overlay/');
 });

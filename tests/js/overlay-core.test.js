@@ -21,7 +21,9 @@ function setup({ connected = true, texts = {} } = {}) {
   const calls = [];
   const sent = [];
   let open = connected;
+  let position = null;
   const player = {
+    position: () => position,
     play: (videoId, volume) => calls.push(['play', videoId, volume]),
     stop: () => calls.push(['stop']),
     setVolume: (volume) => calls.push(['setVolume', volume]),
@@ -42,6 +44,9 @@ function setup({ connected = true, texts = {} } = {}) {
     sent,
     setConnected: (value) => {
       open = value;
+    },
+    setPosition: (value) => {
+      position = value;
     },
     names: () => calls.map((c) => c[0]),
   };
@@ -306,4 +311,61 @@ test('player_ready is announced when the socket opens', () => {
   const t = setup();
   t.controller.onSocketOpen();
   assert.deepEqual(t.sent, [{ type: 'player_ready' }]);
+});
+
+// --- playback progress ---
+
+test('tick reports the whole second the video has reached', () => {
+  const t = setup();
+  t.controller.handle(hello(0, item(5)));
+  t.setPosition(12.9);
+  t.controller.tick();
+  assert.deepEqual(t.sent.at(-1), { type: 'progress', item_id: 5, position_secs: 12 });
+  t.setPosition(0);
+  t.controller.tick();
+  assert.deepEqual(t.sent.at(-1), { type: 'progress', item_id: 5, position_secs: 0 });
+});
+
+test('tick says nothing without a video, once it ended or failed, or without a usable position', () => {
+  const t = setup();
+  t.setPosition(5);
+  t.controller.tick();
+  assert.deepEqual(t.sent, [], 'nothing is playing');
+
+  t.controller.handle(hello(0, item(5)));
+  for (const bad of [null, undefined, NaN, Infinity, -1, '5']) {
+    t.setPosition(bad);
+    t.controller.tick();
+  }
+  assert.deepEqual(t.sent, [], 'no usable position');
+
+  t.setPosition(30);
+  t.controller.onPlayerEnded();
+  t.controller.tick();
+  assert.deepEqual(t.sent, [{ type: 'ended', item_id: 5 }], 'already reported as ended');
+});
+
+test('tick follows the current video and stops when the screen is cleared', () => {
+  const t = setup();
+  t.controller.handle(hello(0, item(5)));
+  t.setPosition(3);
+  t.controller.handle(envelope(1, 'play', { item: item(6, ID_B), volume: 50 }));
+  t.controller.tick();
+  assert.deepEqual(t.sent.at(-1), { type: 'progress', item_id: 6, position_secs: 3 });
+  t.controller.handle(envelope(2, 'stop', {}));
+  const count = t.sent.length;
+  t.controller.tick();
+  assert.equal(t.sent.length, count);
+});
+
+test('tick is harmless when the player cannot tell its position', () => {
+  const calls = [];
+  const controller = core.createController({
+    player: { play() {}, stop() {}, setVolume() {} },
+    ui: { show() {}, hide() {} },
+    send: (m) => calls.push(m),
+  });
+  controller.handle(hello(0, item(5)));
+  controller.tick();
+  assert.deepEqual(calls, []);
 });

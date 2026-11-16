@@ -22,6 +22,10 @@
   var MAX_CHAT_LINES = 200;
   var MAX_CHAT_HISTORY = 200;
   var NOTICE_LEVELS = ['info', 'warning', 'error'];
+  /* The pages of the dashboard, in the order of the menu. */
+  var VIEWS = ['queue', 'blacklist', 'rules', 'overlay', 'settings'];
+  /* Colours for viewers' avatars and names: see .tint-N in dashboard.css. */
+  var TINTS = 6;
   var THUMBNAIL = /^https:\/\/i\.ytimg\.com\/vi\/[A-Za-z0-9_-]{11}\/[A-Za-z0-9_]+\.jpg$/;
 
   /* The moderation settings the form edits (volume has its own slider). */
@@ -120,11 +124,17 @@
       channel: typeof item.channel === 'string' ? item.channel : '',
       duration_secs: Number.isFinite(item.duration_secs) ? item.duration_secs : 0,
       thumbnail_url: typeof item.thumbnail_url === 'string' ? item.thumbnail_url : '',
+      requested_at_ms: wholeNumber(item.requested_at_ms),
       requested_by: {
         name: typeof by.name === 'string' ? by.name : '',
         role: typeof by.role === 'string' ? by.role : 'everyone',
       },
     };
+  }
+
+  /* A whole number of at least zero, otherwise 0. */
+  function wholeNumber(value) {
+    return typeof value === 'number' && isFinite(value) && value > 0 ? Math.floor(value) : 0;
   }
 
   function cleanList(list) {
@@ -154,6 +164,7 @@
       name: typeof line.name === 'string' ? line.name : '',
       role: typeof line.role === 'string' ? line.role : 'everyone',
       text: line.text,
+      at_ms: wholeNumber(line.at_ms),
       command: line.command === true,
       skipped: Number.isInteger(line.skipped) && line.skipped > 0 ? line.skipped : 0,
     };
@@ -161,6 +172,16 @@
 
   function cleanLines(list) {
     return Array.isArray(list) ? list.map(cleanLine).filter(Boolean).slice(-MAX_CHAT_LINES) : [];
+  }
+
+  function cleanStats(stats) {
+    var s = isObject(stats) ? stats : {};
+    return {
+      since_ms: wholeNumber(s.since_ms),
+      received: wholeNumber(s.received),
+      approved: wholeNumber(s.approved),
+      rejected: wholeNumber(s.rejected),
+    };
   }
 
   function clampVolume(value, fallback) {
@@ -178,6 +199,9 @@
       chat: null,
       messages: [],
       notices: [],
+      stats: cleanStats(null),
+      /* { item_id, position_secs } of the video that is playing, or null. */
+      playback: null,
     };
   }
 
@@ -197,6 +221,8 @@
         queue: cleanQueue(data.queue),
         chat: isObject(data.chat) ? data.chat : null,
         messages: cleanLines(data.chat_log),
+        stats: cleanStats(data.stats),
+        playback: null,
       });
     }
 
@@ -219,6 +245,14 @@
         var line = cleanLine(data);
         if (line) next.messages = state.messages.concat([line]).slice(-MAX_CHAT_LINES);
         break;
+      case 'stats_updated':
+        next.stats = cleanStats(data);
+        break;
+      case 'playback':
+        if (Number.isInteger(data.item_id) && Number.isInteger(data.position_secs) && data.position_secs >= 0) {
+          next.playback = { item_id: data.item_id, position_secs: data.position_secs };
+        }
+        break;
       case 'notice':
         next.notices = [
           {
@@ -235,6 +269,150 @@
         break; // play, skip, stop: queue_updated follows and carries the result
     }
     return next;
+  }
+
+  /* How far the video that is playing has got, in seconds. Zero until the
+   * overlay has reported for this very video, and never past its length. */
+  function playbackPosition(state) {
+    var playing = state.queue.now_playing;
+    var playback = state.playback;
+    if (!playing || !playback || playback.item_id !== playing.id) return 0;
+    return Math.min(playback.position_secs, playing.duration_secs);
+  }
+
+  /* Whole seconds a request has waited, or null when its time is not known.
+   * `nowMs` is the server's clock, so a moderator's own clock does not matter. */
+  function waitingSeconds(item, nowMs) {
+    if (!item || !item.requested_at_ms) return null;
+    return Math.max(0, Math.floor((nowMs - item.requested_at_ms) / 1000));
+  }
+
+  /* How long the oldest of `items` has waited, or null. */
+  function oldestWaiting(items, nowMs) {
+    var oldest = null;
+    items.forEach(function (item) {
+      var seconds = waitingSeconds(item, nowMs);
+      if (seconds !== null && (oldest === null || seconds > oldest)) oldest = seconds;
+    });
+    return oldest;
+  }
+
+  /* 252 -> "4 min 12 s" with templates from the language file:
+   * { seconds, minutes_seconds, hours_minutes }. */
+  function formatWaiting(totalSeconds, templates) {
+    var seconds = Math.max(0, Math.floor(Number(totalSeconds) || 0));
+    if (seconds < 60) return format(templates.seconds, { seconds: seconds });
+    if (seconds < 3600) {
+      return format(templates.minutes_seconds, { minutes: Math.floor(seconds / 60), seconds: seconds % 60 });
+    }
+    return format(templates.hours_minutes, {
+      hours: Math.floor(seconds / 3600),
+      minutes: Math.floor((seconds % 3600) / 60),
+    });
+  }
+
+  /* A stable colour number (0 to TINTS - 1) for a viewer's name. */
+  function tintIndex(name) {
+    var hash = 5381;
+    var text = String(name);
+    for (var i = 0; i < text.length; i += 1) {
+      hash = ((hash * 33) ^ text.charCodeAt(i)) >>> 0;
+    }
+    return hash % TINTS;
+  }
+
+  /* The first letter of a name, without a leading @, for the avatar. */
+  function initial(name) {
+    var letters = Array.from(String(name).replace(/^@+/, '').trim());
+    return letters.length ? letters[0].toUpperCase() : '?';
+  }
+
+  /* Local time of day as HH:MM:SS, or '' when the time is not known. */
+  function formatClock(ms) {
+    if (!ms) return '';
+    var date = new Date(ms);
+    if (isNaN(date.getTime())) return '';
+    var pad = function (n) {
+      return n < 10 ? '0' + n : String(n);
+    };
+    return pad(date.getHours()) + ':' + pad(date.getMinutes()) + ':' + pad(date.getSeconds());
+  }
+
+  /* The short list of rules in force, as text. `text(key, values)` gives a
+   * translated, filled-in text. */
+  function ruleChips(settings, text) {
+    if (!settings || !isObject(settings.moderation)) return [];
+    var m = settings.moderation;
+    var chips = [];
+    chips.push(
+      m.min_role === 'everyone'
+        ? text('dashboard.rules.everyone', {})
+        : text('dashboard.rules.role', { role: text('role.' + m.min_role, {}) })
+    );
+    if (m.mode === 'auto') chips.push(text('dashboard.rules.mode_auto', {}));
+    if (m.min_gifter_level > 0) chips.push(text('dashboard.rules.gifter', { level: m.min_gifter_level }));
+    if (m.min_fan_club_level > 0) chips.push(text('dashboard.rules.fan_club', { level: m.min_fan_club_level }));
+    chips.push(
+      m.cooldown_secs > 0
+        ? text('dashboard.rules.cooldown', { seconds: m.cooldown_secs })
+        : text('dashboard.rules.no_cooldown', {})
+    );
+    chips.push(text('dashboard.rules.max_duration', { duration: formatDuration(m.max_duration_secs) }));
+    chips.push(text('dashboard.rules.max_queue', { count: m.max_queue_len }));
+    var lists = isObject(settings.blacklist) ? settings.blacklist : {};
+    var blocked = BLACKLIST_FIELDS.reduce(function (sum, field) {
+      return sum + (Array.isArray(lists[field.key]) ? lists[field.key].length : 0);
+    }, 0);
+    if (blocked > 0) chips.push(text('dashboard.rules.blocked', { count: blocked }));
+    return chips;
+  }
+
+  /* Which page the address bar asks for; the queue when it asks for nothing
+   * known (a `#token=...` fragment, for one). */
+  function parseView(hash) {
+    var name = String(hash || '').replace(/^#/, '');
+    return VIEWS.indexOf(name) >= 0 ? name : 'queue';
+  }
+
+  /* The ID in `ids` that is `delta` places from `current`, kept inside the
+   * list; the first when `current` is not in it; null for an empty list. */
+  function selectAfter(ids, current, delta) {
+    if (ids.length === 0) return null;
+    var at = ids.indexOf(current);
+    if (at < 0) return ids[0];
+    return ids[Math.min(ids.length - 1, Math.max(0, at + delta))];
+  }
+
+  /* What a key press asks for on the queue page, or null: up, down,
+   * approve, reject or skip. Presses with Ctrl, Alt or Meta are left to the
+   * browser. */
+  function keyCommand(event) {
+    if (!event || event.ctrlKey || event.metaKey || event.altKey) return null;
+    switch (event.key) {
+      case 'ArrowUp':
+        return 'up';
+      case 'ArrowDown':
+        return 'down';
+      case 'a':
+      case 'A':
+        return 'approve';
+      case 'r':
+      case 'R':
+        return 'reject';
+      case 's':
+      case 'S':
+        return 'skip';
+      default:
+        return null;
+    }
+  }
+
+  /* The overlay's address to give to OBS. A loopback IP is turned into
+   * `localhost`: YouTube's player refuses every video on a page opened by an
+   * IP address. The token, when there is one, goes in the query. */
+  function overlayUrl(protocol, host, token) {
+    var shown = String(host).replace(/^(127\.0\.0\.1|\[::1\])(?=:|$)/, 'localhost');
+    return protocol + '//' + shown + '/overlay/' + (token ? '?token=' + encodeURIComponent(token) : '');
   }
 
   /* The fields of `desired` that differ from `current`. */
@@ -306,11 +484,25 @@
     MAX_NOTICES: MAX_NOTICES,
     MAX_CHAT_LINES: MAX_CHAT_LINES,
     MAX_CHAT_HISTORY: MAX_CHAT_HISTORY,
+    VIEWS: VIEWS,
+    TINTS: TINTS,
     SETTINGS_FIELDS: SETTINGS_FIELDS,
     BLACKLIST_FIELDS: BLACKLIST_FIELDS,
     format: format,
     formatDuration: formatDuration,
     thumbnailUrl: thumbnailUrl,
+    playbackPosition: playbackPosition,
+    waitingSeconds: waitingSeconds,
+    oldestWaiting: oldestWaiting,
+    formatWaiting: formatWaiting,
+    tintIndex: tintIndex,
+    initial: initial,
+    formatClock: formatClock,
+    ruleChips: ruleChips,
+    parseView: parseView,
+    selectAfter: selectAfter,
+    keyCommand: keyCommand,
+    overlayUrl: overlayUrl,
     initialState: initialState,
     reduce: reduce,
     diffSettings: diffSettings,

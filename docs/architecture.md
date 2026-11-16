@@ -51,7 +51,10 @@ overlay and the moderator dashboard) from the same process.
 | `text` | `sanitize_text`: control characters replaced, length capped. Applied to everything that comes from other people before it is stored or shown. |
 
 The pages live in `static/overlay/` and `static/dashboard/` as plain HTML, CSS
-and JavaScript, embedded with `rust-embed`. Each page has a `*-core.js` file
+and JavaScript, embedded with `rust-embed`. The dashboard is one page with five
+views chosen by the address fragment (`#queue`, `#blacklist`, `#rules`,
+`#overlay`, `#settings`); its fonts are served from `static/dashboard/fonts/`
+so it needs nothing from other sites. Each page has a `*-core.js` file
 with no browser dependencies (state handling, parsing) and a thin `*.js` file
 that connects it to the DOM, the REST API and the WebSocket. The core files are
 tested with Node (`tests/js/`).
@@ -83,6 +86,17 @@ matter, so at most 20 messages per second are let through (the rest are still
 parsed as commands, only not displayed, and the next message shown says how many
 were left out). The last few messages are kept in memory (`chat_history`, 0 to
 200) and sent with `hello`; nothing is written to disk.
+
+**The dashboard shows counters and progress without keeping them itself.**
+The server counts the requests that entered the queue and what the moderators
+decided (`StatsView`; at any moment `received = approved + rejected + waiting`)
+and sends them as `stats_updated`. The overlay reports the playback position
+once a second as `progress`; the server checks that it belongs to the video
+that is playing, limits it to the video's length, drops repeats and sends it on
+to the dashboards as `playback`. Neither is sent to the overlay, which only
+gets the events that change what is on screen. The dashboard page counts
+waiting times itself, but on the server's clock (taken from the `ts` of the
+events it receives), so a moderator's wrong clock does not show.
 
 **One event stream, versioned.** Everything the pages show comes from the
 events described in [`websocket-events.md`](websocket-events.md). A client

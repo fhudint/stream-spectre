@@ -97,6 +97,11 @@ impl PlayQueue {
         Err(QueueError::NotFound(id))
     }
 
+    /// Whether `id` is waiting for approval (not yet approved, not playing).
+    pub fn is_pending(&self, id: ItemId) -> bool {
+        self.pending.iter().any(|item| item.id == id)
+    }
+
     /// Removes an entry that is pending or approved and returns it.
     /// The video that is playing is stopped with `skip` instead.
     pub fn reject(&mut self, id: ItemId) -> Result<QueueItem, QueueError> {

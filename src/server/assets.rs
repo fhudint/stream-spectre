@@ -228,6 +228,10 @@ mod tests {
         let reference = Regex::new(r#"(?i)\b(?:src|href)\s*=\s*"([^"]+)""#).unwrap();
         for caps in reference.captures_iter(&html) {
             let target = &caps[1];
+            // A link to a place on the same page is not a file.
+            if target.starts_with('#') {
+                continue;
+            }
             assert!(
                 !target.contains("://") && !target.starts_with("//"),
                 "{section}: external reference {target}"

@@ -11,6 +11,7 @@ pub use autosave::{SETTLE, autosave};
 pub use bus::EventBus;
 pub use events::{
     ChatLineView, ChatState, ChatStatusView, Envelope, Event, Hello, ItemView, NoticeLevel,
-    OverlayMessage, PROTOCOL_VERSION, QueueView, SenderView, SettingsView, SkipReason, unix_ms,
+    OverlayMessage, PROTOCOL_VERSION, QueueView, SenderView, SettingsView, SkipReason, StatsView,
+    unix_ms,
 };
 pub use pipeline::Pipeline;

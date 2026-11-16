@@ -108,13 +108,16 @@ Sent once to each client, first.
     "volume": 50,
     "queue": { "pending": [], "approved": [], "now_playing": null },
     "chat": { "state": "connected", "channel": "streamer", "text": "..." },
-    "chat_log": [ ChatLine ]
+    "chat_log": [ ChatLine ],
+    "stats": { "since_ms": 1700000000000, "received": 30, "approved": 15, "rejected": 9 }
 } }
 ```
 
 `chat` is `null` until the chat connection has reported its first status.
 `chat_log` holds the most recent chat messages, oldest first, at most
 `settings.dashboard.chat_history` of them (see [`chat_message`](#chat_message)).
+`stats` is described under [`stats_updated`](#stats_updated). The overlay's
+`hello` carries `stats` with every number zero, like its empty `chat_log`.
 
 ### `queue_updated`
 
@@ -245,12 +248,14 @@ A message in the chat (dashboard only; the overlay never receives chat).
     "name": "Budi",
     "role": "follower",
     "text": "!v dQw4w9WgXcQ",
+    "at_ms": 1700000000123,
     "command": true,
     "skipped": 0
 } }
 ```
 
-This is the `ChatLine` shape that `hello.chat_log` also uses.
+This is the `ChatLine` shape that `hello.chat_log` also uses. `at_ms` is when
+the message arrived, in milliseconds since the Unix epoch.
 
 - `name` and `text` are written by viewers: show them as plain text
   (`textContent`), never as HTML. The server has already replaced control
@@ -270,6 +275,48 @@ This is the `ChatLine` shape that `hello.chat_log` also uses.
   `[dashboard].chat_history` in `config.toml` (0 to 200, default 20) and can be
   changed with `PATCH /api/dashboard` (the new value is saved with the other
   dashboard settings, see "Saved settings" in the README). Lowering it forgets the older messages.
+
+### `stats_updated`
+
+The counters of what the moderators decided since the program started
+(dashboard only). Sent whenever one of them changes.
+
+```json
+{ "type": "stats_updated", "data": {
+    "since_ms": 1700000000000,
+    "received": 30,
+    "approved": 15,
+    "rejected": 9
+} }
+```
+
+- `since_ms`: when counting started (the program's start), in milliseconds
+  since the Unix epoch.
+- `received`: requests that passed the rules and entered the queue. Requests
+  that were turned away by the rules (role, cooldown, blacklist, too long, ...)
+  are not counted; they only produce a `notice`.
+- `approved`: requests approved by a moderator, or automatically in
+  `auto` mode, and not rejected afterwards. It includes the video playing now
+  and the ones already played.
+- `rejected`: requests a moderator rejected, before or after approving them.
+
+At any moment `received = approved + rejected + waiting`, where `waiting` is
+the length of `queue.pending`. The counters live in memory only.
+
+### `playback`
+
+How far the video that is playing has got (dashboard only).
+
+```json
+{ "type": "playback", "data": { "item_id": 7, "position_secs": 23 } }
+```
+
+The overlay reports its position about once a second while a video plays (see
+[Messages from the overlay](#messages-from-the-overlay)); the server passes it
+on. `position_secs` never exceeds the video's `duration_secs`, a repeat of the
+last position is not sent again, and a report for a video that is not the one
+playing is dropped. A dashboard that opens in the middle of a video learns the
+position from the next event; `hello` does not carry it.
 
 ### `chat_status`
 
@@ -295,9 +342,10 @@ The overlay sends JSON text messages with a `type`:
 | `{"type":"player_ready"}` | The page loaded and is listening. |
 | `{"type":"ended","item_id":7}` | The video finished. The server then plays the next one or sends `stop`. |
 | `{"type":"player_error","item_id":7,"code":"150"}` | The YouTube player could not play the video. `code` is the player's error code (at most 16 characters of `A-Z a-z 0-9 _ - .`; anything else is dropped). |
+| `{"type":"progress","item_id":7,"position_secs":23}` | How far the video has got, in whole seconds, about once a second while it plays (not while it loads, is paused or buffers). The server publishes it as [`playback`](#playback). |
 
-An `ended` or `player_error` for a video that is not the one playing (for
-example a late message after a skip) is ignored.
+An `ended`, `player_error` or `progress` for a video that is not the one
+playing (for example a late message after a skip) is ignored.
 
 Messages that are not valid JSON, or miss a field, are rejected and change
 nothing.

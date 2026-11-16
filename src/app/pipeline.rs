@@ -7,11 +7,13 @@ use tokio::sync::broadcast;
 use super::bus::EventBus;
 use super::events::{
     ChatLineView, ChatState, ChatStatusView, Envelope, Event, Hello, ItemView, NoticeLevel,
-    QueueView, SettingsView, SkipReason,
+    QueueView, SettingsView, SkipReason, StatsView, unix_ms,
 };
 use crate::chat::{ChatEvent, ChatMessage, ChatSource, ChatStatus, Sender};
 use crate::command::{CommandParser, Parsed};
-use crate::config::{BlacklistConfig, Config, ConfigError, DashboardConfig, ModerationConfig};
+use crate::config::{
+    BlacklistConfig, Config, ConfigError, DashboardConfig, ModerationConfig, ModerationMode,
+};
 use crate::i18n::I18n;
 use crate::queue::{Blacklist, Denial, Gatekeeper, ItemId, PlayQueue, QueueError};
 use crate::text::sanitize_text;
@@ -65,6 +67,9 @@ struct Inner {
     chat: Option<ChatStatusView>,
     chat_log: VecDeque<ChatLineView>,
     chat_rate: ChatRate,
+    stats: StatsView,
+    /// The last playback position published, to skip repeats.
+    progress: Option<(ItemId, u64)>,
 }
 
 /// Connects chat, YouTube lookups, moderation and the play queue, and
@@ -106,6 +111,11 @@ impl<S: VideoSource> Pipeline<S> {
                 chat: None,
                 chat_log: VecDeque::new(),
                 chat_rate: ChatRate::default(),
+                stats: StatsView {
+                    since_ms: unix_ms(SystemTime::now()),
+                    ..StatsView::default()
+                },
+                progress: None,
             }),
         })
     }
@@ -205,8 +215,13 @@ impl<S: VideoSource> Pipeline<S> {
                         .submit(sender.clone(), details, SystemTime::now(), &settings)
                     {
                         Ok(_) => {
+                            inner.stats.received += 1;
+                            if settings.mode == ModerationMode::Auto {
+                                inner.stats.approved += 1;
+                            }
                             self.advance(&mut inner);
                             self.publish_queue(&inner);
+                            self.publish_stats(&inner);
                             Ok(())
                         }
                         Err(denial) => {
@@ -237,6 +252,7 @@ impl<S: VideoSource> Pipeline<S> {
             name: sanitize_text(&sender.name),
             role: sender.role,
             text,
+            at_ms: unix_ms(SystemTime::now()),
             command,
             skipped,
         };
@@ -266,16 +282,25 @@ impl<S: VideoSource> Pipeline<S> {
     pub fn approve(&self, id: ItemId) -> Result<(), QueueError> {
         let mut inner = self.lock();
         inner.queue.approve(id)?;
+        inner.stats.approved += 1;
         self.advance(&mut inner);
         self.publish_queue(&inner);
+        self.publish_stats(&inner);
         Ok(())
     }
 
     /// Removes a pending or approved request.
     pub fn reject(&self, id: ItemId) -> Result<(), QueueError> {
         let mut inner = self.lock();
+        let was_pending = inner.queue.is_pending(id);
         inner.queue.reject(id)?;
+        if !was_pending {
+            // It had been approved and counted as such.
+            inner.stats.approved = inner.stats.approved.saturating_sub(1);
+        }
+        inner.stats.rejected += 1;
         self.publish_queue(&inner);
+        self.publish_stats(&inner);
         Ok(())
     }
 
@@ -360,6 +385,27 @@ impl<S: VideoSource> Pipeline<S> {
         Ok(())
     }
 
+    /// The overlay reports how far `id` has got. Reports for a video that is
+    /// not playing are errors and change nothing; repeats of the last position
+    /// are dropped. The position is limited to the video's length.
+    pub fn player_progress(&self, id: ItemId, position_secs: u64) -> Result<(), QueueError> {
+        let mut inner = self.lock();
+        let duration = match inner.queue.now_playing() {
+            Some(item) if item.id == id => item.video.duration_secs,
+            _ => return Err(QueueError::NotPlaying(id)),
+        };
+        let position_secs = position_secs.min(duration);
+        if inner.progress == Some((id, position_secs)) {
+            return Ok(());
+        }
+        inner.progress = Some((id, position_secs));
+        self.bus.publish(Event::Playback {
+            item_id: id.0,
+            position_secs,
+        });
+        Ok(())
+    }
+
     /// The overlay could not play `id`. Skips it and tells the moderators.
     /// `code` comes from the browser and is reduced to a short safe token.
     pub fn player_error(&self, id: ItemId, code: &str) -> Result<(), QueueError> {
@@ -424,6 +470,7 @@ impl<S: VideoSource> Pipeline<S> {
             queue: QueueView::from(&inner.queue.snapshot()),
             chat: inner.chat.clone(),
             chat_log: inner.chat_log.iter().cloned().collect(),
+            stats: inner.stats,
         }
     }
 
@@ -439,6 +486,10 @@ impl<S: VideoSource> Pipeline<S> {
             blacklist: inner.blacklist.clone(),
             dashboard: inner.dashboard.clone(),
         }
+    }
+
+    fn publish_stats(&self, inner: &Inner) {
+        self.bus.publish(Event::StatsUpdated(inner.stats));
     }
 
     fn publish_queue(&self, inner: &Inner) {
@@ -622,11 +673,11 @@ mod tests {
         out
     }
 
-    /// Everything published so far except the chat lines, which every chat
-    /// message produces and which have tests of their own.
+    /// Everything published so far except the chat lines and the counters,
+    /// which every request produces and which have tests of their own.
     fn drain(rx: &mut broadcast::Receiver<Arc<Envelope>>) -> Vec<Arc<Envelope>> {
         let mut events = drain_all(rx);
-        events.retain(|e| !matches!(e.event, Event::ChatMessage(_)));
+        events.retain(|e| !matches!(e.event, Event::ChatMessage(_) | Event::StatsUpdated(_)));
         events
     }
 
@@ -1476,7 +1527,7 @@ mod tests {
 
         let mut rx = p.subscribe();
         say(&p, sender(1, Role::Follower), &format!("!v {ID_A}")).await;
-        let events = drain(&mut rx);
+        let events = drain_all(&mut rx);
         let after = p.hello();
         assert_eq!(after.seq, events.last().unwrap().seq);
         assert_eq!(after.queue.pending.len(), 1);
@@ -1546,5 +1597,171 @@ mod tests {
             FakeSource::default(),
         );
         assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn chat_lines_carry_the_time_they_arrived() {
+        let p = default_pipeline();
+        let mut rx = p.subscribe();
+        let before = unix_ms(SystemTime::now());
+        say(&p, sender(1, Role::Follower), "hello").await;
+        let after = unix_ms(SystemTime::now());
+        let events = drain_all(&mut rx);
+        let at = data(&events[0])["at_ms"].as_u64().unwrap();
+        assert!(
+            (before..=after).contains(&at),
+            "{before} <= {at} <= {after}"
+        );
+        assert_eq!(p.hello().chat_log[0].at_ms, at);
+    }
+
+    // --- counters and playback progress ---
+
+    fn stats(p: &Pipeline<FakeSource>) -> StatsView {
+        p.hello().stats
+    }
+
+    /// The counters always add up: every request that entered the queue is
+    /// approved, rejected or still waiting for approval.
+    fn assert_adds_up(p: &Pipeline<FakeSource>) {
+        let s = stats(p);
+        let waiting = p.hello().queue.pending.len() as u64;
+        assert_eq!(s.received, s.approved + s.rejected + waiting, "{s:?}");
+    }
+
+    #[tokio::test]
+    async fn the_counters_follow_every_decision_and_always_add_up() {
+        let p = default_pipeline();
+        let mut rx = p.subscribe();
+        for (n, id) in [(1, ID_A), (2, ID_B), (3, ID_C)] {
+            say(&p, sender(n, Role::Follower), &format!("!v {id}")).await;
+            assert_adds_up(&p);
+        }
+        assert_eq!((stats(&p).received, stats(&p).approved), (3, 0));
+        let ids = pending_ids(&p);
+
+        p.approve(ItemId(ids[0])).unwrap();
+        p.approve(ItemId(ids[1])).unwrap();
+        assert_eq!((stats(&p).approved, stats(&p).rejected), (2, 0));
+        assert_adds_up(&p);
+
+        // Rejecting a pending request and an already approved one.
+        p.reject(ItemId(ids[2])).unwrap();
+        assert_eq!((stats(&p).approved, stats(&p).rejected), (2, 1));
+        assert_adds_up(&p);
+        p.reject(ItemId(ids[1])).unwrap();
+        assert_eq!((stats(&p).approved, stats(&p).rejected), (1, 2));
+        assert_adds_up(&p);
+
+        // Skipping and finishing a video do not touch the counters.
+        let before = stats(&p);
+        assert!(p.skip());
+        assert_eq!(stats(&p), before);
+
+        // The last event carries the same numbers as the snapshot.
+        let last = drain_all(&mut rx)
+            .into_iter()
+            .rev()
+            .find_map(|e| match &e.event {
+                Event::StatsUpdated(view) => Some(*view),
+                _ => None,
+            })
+            .unwrap();
+        assert_eq!(last, stats(&p));
+        assert!(stats(&p).since_ms > 0);
+    }
+
+    #[tokio::test]
+    async fn auto_mode_counts_a_request_as_approved_at_once() {
+        let p = pipeline(&config(|m| m.mode = ModerationMode::Auto));
+        say(&p, sender(1, Role::Follower), &format!("!v {ID_A}")).await;
+        assert_eq!((stats(&p).received, stats(&p).approved), (1, 1));
+        assert_adds_up(&p);
+    }
+
+    #[tokio::test]
+    async fn requests_that_never_enter_the_queue_are_not_counted() {
+        let p = pipeline(&config(|m| m.max_queue_len = 1));
+        say(&p, sender(1, Role::Follower), &format!("!v {ID_A}")).await;
+        // Queue full, below the minimum role, invalid link, plain chat.
+        say(&p, sender(2, Role::Follower), &format!("!v {ID_B}")).await;
+        say(&p, sender(3, Role::Everyone), &format!("!v {ID_C}")).await;
+        say(&p, sender(4, Role::Follower), "!v not-an-id").await;
+        say(&p, sender(5, Role::Follower), "hello").await;
+        assert_eq!(stats(&p).received, 1);
+        assert_adds_up(&p);
+    }
+
+    #[tokio::test]
+    async fn a_failed_action_changes_no_counter_and_publishes_nothing() {
+        let p = default_pipeline();
+        say(&p, sender(1, Role::Follower), &format!("!v {ID_A}")).await;
+        let before = stats(&p);
+        let mut rx = p.subscribe();
+        assert!(p.approve(ItemId(999)).is_err());
+        assert!(p.reject(ItemId(999)).is_err());
+        assert_eq!(stats(&p), before);
+        assert!(drain_all(&mut rx).is_empty());
+    }
+
+    async fn playing(p: &Pipeline<FakeSource>) -> ItemId {
+        say(p, sender(1, Role::Follower), &format!("!v {ID_A}")).await;
+        let id = ItemId(pending_ids(p)[0]);
+        p.approve(id).unwrap();
+        id
+    }
+
+    #[tokio::test]
+    async fn progress_is_published_for_the_video_that_is_playing() {
+        let p = default_pipeline();
+        let id = playing(&p).await;
+        let mut rx = p.subscribe();
+
+        p.player_progress(id, 12).unwrap();
+        let events = drain_all(&mut rx);
+        assert_eq!(kinds(&events), vec!["playback"]);
+        assert_eq!(
+            data(&events[0]),
+            serde_json::json!({"item_id": id.0, "position_secs": 12})
+        );
+
+        // The same second again is not repeated; the next one is published.
+        p.player_progress(id, 12).unwrap();
+        assert!(drain_all(&mut rx).is_empty());
+        p.player_progress(id, 13).unwrap();
+        assert_eq!(kinds(&drain_all(&mut rx)), vec!["playback"]);
+    }
+
+    #[tokio::test]
+    async fn progress_never_passes_the_length_of_the_video() {
+        let p = default_pipeline();
+        let id = playing(&p).await;
+        let mut rx = p.subscribe();
+        // The fake video is 200 seconds long.
+        p.player_progress(id, u64::MAX).unwrap();
+        let events = drain_all(&mut rx);
+        assert_eq!(data(&events[0])["position_secs"], 200);
+    }
+
+    #[tokio::test]
+    async fn progress_for_a_video_that_is_not_playing_is_refused() {
+        let p = default_pipeline();
+        say(&p, sender(1, Role::Follower), &format!("!v {ID_A}")).await;
+        let waiting = ItemId(pending_ids(&p)[0]);
+        let mut rx = p.subscribe();
+        assert_eq!(
+            p.player_progress(waiting, 1),
+            Err(QueueError::NotPlaying(waiting))
+        );
+        assert_eq!(
+            p.player_progress(ItemId(999), 1),
+            Err(QueueError::NotPlaying(ItemId(999)))
+        );
+        assert!(drain_all(&mut rx).is_empty());
+
+        // After it was skipped, a late report is refused too.
+        p.approve(waiting).unwrap();
+        assert!(p.skip());
+        assert!(p.player_progress(waiting, 5).is_err());
     }
 }

@@ -33,9 +33,13 @@ for what plays on your stream.
   and fan club level, per-viewer cooldown, maximum duration, queue length limit,
   blacklist (video IDs, channel names, words in the title), skip button, and a
   volume limit.
-- A dashboard for moderators (approval queue, settings, and a live view of the
-  chat with video requests highlighted) and a transparent overlay page for OBS,
-  both served by the same single binary. No installation of Node or a web server.
+- A dashboard for moderators (the video playing with its progress, the approval
+  queue with keyboard shortcuts, a live view of the chat with video requests
+  highlighted, counters for the session, the rules in force, settings and the
+  blacklist) that also works on a phone, and a transparent overlay page for OBS,
+  both served by the same single binary. No installation of Node or a web server,
+  and nothing loaded from the internet by the dashboard except video pictures
+  from YouTube.
 - Dashboard and overlay in English or Indonesian.
 - Chat sources sit behind a trait, so Twitch or YouTube Live chat can be added
   later. TikTok Live is the only one for now.
@@ -144,6 +148,27 @@ while live. Settings changed in the dashboard are kept across restarts: they
 are saved to `config.settings.toml` next to `config.toml`, which the program
 writes and `config.toml` never is. See [Saved settings](#saved-settings).
 
+#### Using the dashboard
+
+The menu has five pages: **Queue** (the video playing and how far it has got,
+the requests waiting for a decision, the play queue, the rules in force, the
+chat, and counters for this session), **Blacklist**, **Rules** (the moderation
+settings), **Overlay** (the address to copy into OBS, and the volume) and
+**Settings** (how much chat the dashboard remembers). Each page has its own
+address (`#queue`, `#blacklist`, `#rules`, `#overlay`, `#settings`). On a phone
+the menu is at the bottom and the queue page shows the waiting requests, the
+chat and the notices as three tabs.
+
+On the Queue page the keyboard works when you are not typing in a field:
+**↑ ↓** choose a waiting request, **A** approves it, **R** rejects it and **S**
+skips the video that is playing.
+
+How long a request has waited is measured on the program's clock, so it is
+right even when a moderator's computer has the wrong time. The session counters
+count only requests that passed the rules and entered the queue; they start from
+zero each time the program starts. "Copy overlay URL" copies the address with
+`localhost` and, if you use a token, the token.
+
 #### Saved settings
 
 `config.toml` is yours: the program only reads it, so your comments stay. When
@@ -245,3 +270,7 @@ node --test "tests/js/*.test.js"      # Node 22 or newer
 
 [AGPL-3.0-only](LICENSE). If you run a modified version as a network service,
 you must offer its source to the people who use it.
+
+The dashboard includes the fonts Inter and Fira Code (latin subsets), under the
+SIL Open Font License 1.1. Their license texts are in
+[`static/dashboard/fonts/`](static/dashboard/fonts/).

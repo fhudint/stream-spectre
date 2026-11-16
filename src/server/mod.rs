@@ -300,6 +300,8 @@ mod tests {
             ("/dashboard/dashboard.js", "javascript"),
             ("/dashboard/dashboard-core.js", "javascript"),
             ("/dashboard/dashboard.css", "text/css"),
+            ("/dashboard/fonts/inter-latin.woff2", "font/woff2"),
+            ("/dashboard/fonts/firacode-latin.woff2", "font/woff2"),
         ] {
             // Pages and their files need no token; they hold nothing secret.
             let response = server.http.get(server.url(path)).send().await.unwrap();
@@ -716,6 +718,9 @@ mod tests {
         assert_eq!(update["type"], "queue_updated");
         assert_eq!(update["seq"].as_u64().unwrap(), hello_seq + 2);
         assert_eq!(update["data"]["pending"].as_array().unwrap().len(), 2);
+        let stats = next_json(&mut ws).await;
+        assert_eq!(stats["type"], "stats_updated");
+        assert_eq!(stats["data"]["received"], 2);
 
         server.pipeline.set_volume(10);
         assert_eq!(next_json(&mut ws).await["type"], "volume");
@@ -783,6 +788,37 @@ mod tests {
             .unwrap();
         assert_eq!(next_json(&mut ws).await["type"], "stop");
         assert_eq!(server.pipeline.hello().queue.now_playing, None);
+    }
+
+    #[tokio::test]
+    async fn playback_progress_goes_from_the_overlay_to_the_dashboard_only() {
+        let server = start(None).await;
+        server.submit(1, ID_A).await;
+        server.pipeline.approve(crate::queue::ItemId(1)).unwrap();
+        let mut overlay = connect(&server, "/ws/overlay", None).await.unwrap();
+        next_json(&mut overlay).await;
+        let mut dashboard = connect(&server, "/ws/dashboard", None).await.unwrap();
+        next_json(&mut dashboard).await;
+
+        overlay
+            .send(Message::text(
+                r#"{"type":"progress","item_id":1,"position_secs":7}"#,
+            ))
+            .await
+            .unwrap();
+        let event = next_json(&mut dashboard).await;
+        assert_eq!(event["type"], "playback");
+        assert_eq!(event["data"], json!({"item_id": 1, "position_secs": 7}));
+        expect_silence(&mut overlay).await;
+
+        // A report for another video is dropped.
+        overlay
+            .send(Message::text(
+                r#"{"type":"progress","item_id":99,"position_secs":1}"#,
+            ))
+            .await
+            .unwrap();
+        expect_silence(&mut dashboard).await;
     }
 
     #[tokio::test]
