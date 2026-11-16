@@ -18,7 +18,8 @@ CONFIG LOOKUP (when --config is not given):
     $STREAM_SPECTRE_CONFIG, then ./config.toml, then the per-user config directory.
 
 SECRETS (environment variables or a .env file):
-    YOUTUBE_API_KEY        required
+    YOUTUBE_API_KEY        optional: a key entered on the dashboard's Account page
+                           is saved next to the config and wins over this one
     DASHBOARD_TOKEN        required when the server binds beyond 127.0.0.1
 ";
 

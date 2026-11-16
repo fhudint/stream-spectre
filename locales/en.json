@@ -134,5 +134,6 @@
   "dashboard.tiktok.username": "TikTok username (without @)",
   "dashboard.tiktok.hint": "The program reads the live chat of this account and follows a change at once, without a restart. Leave it empty to stop reading chat.",
   "dashboard.tiktok.save": "Save username",
-  "dashboard.tiktok.saved": "TikTok username saved"
+  "dashboard.tiktok.saved": "TikTok username saved",
+  "error.no_api_key": "No YouTube API key is set. Enter one on the Account page to accept video requests."
 }

@@ -36,9 +36,6 @@ pub enum ConfigError {
     #[error("invalid config value `{field}`: {reason}")]
     Invalid { field: String, reason: String },
 
-    #[error("missing required secret {name}: set it as an environment variable or in a .env file")]
-    MissingSecret { name: &'static str },
-
     #[error("invalid secret {name}: {reason}")]
     InvalidSecret { name: &'static str, reason: String },
 }

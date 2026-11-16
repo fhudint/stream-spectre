@@ -12,7 +12,9 @@
 # the same table here. Delete the table or that file to go back to this one.
 #
 # Secrets do NOT go here. Set them as environment variables or in a `.env`
-# file (see `.env.example`): YOUTUBE_API_KEY, DASHBOARD_TOKEN.
+# file (see `.env.example`): YOUTUBE_API_KEY, DASHBOARD_TOKEN. A YouTube API key
+# entered on the dashboard is saved in `config.secrets.toml` next to this file
+# (private to your user, git-ignored) and wins over YOUTUBE_API_KEY.
 #
 # Every key is optional; the values below are the defaults, except that
 # `chat.tiktok.username` has no useful default: leave it empty and the program

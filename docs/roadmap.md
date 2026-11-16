@@ -127,6 +127,26 @@ program refuses to start without a valid config and an API key.
   must hold for the setup screen too: saving a key is more sensitive than
   approving a video.
 
+**Decided for the account menu (the avatar at the top right)**
+- The avatar opens a small menu with the channel name and three entries
+  (TikTok username, YouTube API key, dashboard token), each leading to an
+  `#account` page. The username form moves there from Settings.
+- The API key is stored in a separate secrets file readable only by its owner
+  (mode 0600 on Linux and macOS). It is never sent back to the browser (the
+  page only learns that it is set, and its last four characters), is checked
+  with one cheap YouTube request before it is saved, and never appears in a
+  log, a response or an event.
+- A key saved from the dashboard wins over the environment variable, and the
+  log at startup says so, as for the saved settings. The program may start
+  without a key: video requests are then refused with a clear notice until one
+  is entered. A new key takes effect at once, and the lookup cache and the
+  "quota exhausted" pause are cleared.
+- Credentials can only be changed from the computer the program runs on
+  (a loopback connection), even when the dashboard is opened to the network
+  with a token.
+- The dashboard token is only *shown* (in use or not) for now; it is still set
+  in `.env`. See item 8.
+
 **Order.** Items 3 and 4 depend on each other only partly: saving settings and a
 first-run screen can be built into the existing web dashboard first, and the
 native window added around it later.
@@ -189,3 +209,50 @@ executable has no icon anyway.
 **Order.** Not needed until Windows users exist. If item 3 is built, its
 installer tooling may do this on its own, which would make this item
 unnecessary.
+
+## 7. Stronger storage for secrets
+
+**Goal.** Keep the YouTube API key (and later other secrets) somewhere safer
+than a plain file.
+
+**Today (planned).** The first version stores secrets in a file only its owner
+can read (0600). That protects against other users of the same computer, but
+the key is still plain text on disk, and on Windows the 0600 mode does not
+exist: protection there comes only from the user's profile folder.
+
+**Ideas**
+- The operating system's keychain (macOS Keychain, Windows Credential Manager,
+  the Secret Service on Linux), probably through a crate such as `keyring`. Its
+  maintenance must be checked on crates.io first. On Linux it needs a running
+  Secret Service, which a bare server or a minimal desktop may not have, so a
+  fallback to the file would still be needed.
+- On Windows, set an access control list on the secrets file so only the
+  current user can read it.
+- Rewriting `.env` was considered and not chosen: the program would be writing
+  to a file the user edits by hand, with the same problems as `config.toml`.
+
+**Decision needed.** Whether the extra complexity is worth it for a program
+that runs on the streamer's own computer. Most useful once the desktop app
+(item 3) exists, because installers can ask the system for the keychain.
+
+## 8. Regenerating the dashboard token from the dashboard
+
+**Goal.** Replace a leaked or old `DASHBOARD_TOKEN` without editing `.env` and
+restarting.
+
+**Today (planned).** The account page only shows whether a token is in use.
+
+**Decided.** The token can only be *regenerated*, not typed in: a button makes
+a new random token, shows it once, and the old one stops working at once. It
+is never sent to the browser again afterwards.
+
+**What it needs**
+- A clear warning before and after: the overlay address in OBS contains the
+  token, so it must be updated or the overlay stops working, and every
+  moderator's session needs the new token.
+- The same rule as other credentials: only from the computer the program runs
+  on.
+- Saving the new token to the secrets file, and a decision on what happens to
+  open WebSocket connections (probably closed, so they sign in again).
+- Care when no token was set at all: the program refuses to listen beyond
+  loopback without one, so a token must never be removed while it is.

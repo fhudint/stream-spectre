@@ -10,6 +10,8 @@ pub enum YoutubeError {
     RateLimited,
     #[error("YouTube API key rejected")]
     InvalidApiKey,
+    #[error("no YouTube API key is set")]
+    NoApiKey,
     #[error("YouTube API access denied ({reason})")]
     AccessDenied { reason: String },
     #[error("YouTube API unavailable (HTTP {status})")]
@@ -29,6 +31,7 @@ impl YoutubeError {
     pub fn notice_key(&self) -> &'static str {
         match self {
             Self::QuotaExceeded => "error.quota_exceeded",
+            Self::NoApiKey => "error.no_api_key",
             _ => "error.youtube_unavailable",
         }
     }
@@ -36,6 +39,9 @@ impl YoutubeError {
     /// The streamer has to fix something (key, API enablement); retrying
     /// will not help.
     pub fn is_config_problem(&self) -> bool {
-        matches!(self, Self::InvalidApiKey | Self::AccessDenied { .. })
+        matches!(
+            self,
+            Self::InvalidApiKey | Self::NoApiKey | Self::AccessDenied { .. }
+        )
     }
 }

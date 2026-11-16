@@ -7,7 +7,7 @@ use anyhow::Context;
 use stream_spectre::app::{Pipeline, SETTLE, autosave};
 use stream_spectre::chat::tiktok_source;
 use stream_spectre::cli::{self, Command};
-use stream_spectre::config::{self, LoadOptions, Loaded};
+use stream_spectre::config::{self, KeySource, LoadOptions, Loaded};
 use stream_spectre::i18n::I18n;
 use stream_spectre::youtube::YoutubeClient;
 use stream_spectre::{platform, server};
@@ -61,6 +61,7 @@ async fn serve(loaded: Loaded) -> anyhow::Result<()> {
         baseline,
         saved_path,
         saved_tables,
+        api_key_source,
         ..
     } = loaded;
     if config.chat.tiktok.username().is_empty() {
@@ -77,8 +78,17 @@ async fn serve(loaded: Loaded) -> anyhow::Result<()> {
     }
 
     let i18n = I18n::load(config.general.language)?;
+    match api_key_source {
+        KeySource::None => tracing::warn!(
+            "no YouTube API key: video requests are refused until one is entered on the dashboard's Account page (or YOUTUBE_API_KEY is set)"
+        ),
+        KeySource::Environment => tracing::info!("YouTube API key: from the environment"),
+        KeySource::Saved => tracing::info!(
+            "YouTube API key: saved from the dashboard (it replaces YOUTUBE_API_KEY, if set)"
+        ),
+    }
     let youtube = YoutubeClient::new(
-        &secrets.youtube_api_key,
+        secrets.youtube_api_key.as_ref(),
         Duration::from_secs(config.youtube.request_timeout_secs),
     )?;
     let pipeline = Arc::new(Pipeline::new(&config, i18n, youtube)?);

@@ -101,6 +101,14 @@ impl<S: VideoSource> VideoLookup<S> {
         &self.source
     }
 
+    /// Forgets every cached answer and lifts any pause after a quota or rate
+    /// limit. Used when the API key changes: what was learned with the old
+    /// key says nothing about the new one.
+    pub fn reset(&self) {
+        self.cache.invalidate_all();
+        *self.breaker() = Breaker::default();
+    }
+
     /// `Ok(None)` means YouTube has no such (visible) video.
     pub async fn lookup(&self, id: &VideoId) -> Result<Option<VideoDetails>, YoutubeError> {
         self.lookup_at(id, Instant::now()).await
@@ -196,6 +204,34 @@ mod tests {
 
     fn lookup(source: FakeSource) -> VideoLookup<FakeSource> {
         VideoLookup::new(source, Duration::from_secs(3_600), 100)
+    }
+
+    #[tokio::test]
+    async fn reset_forgets_cached_answers_and_lifts_a_quota_pause() {
+        let service = lookup(FakeSource::with_script(vec![
+            Ok(Some(details(&id("ccccccccccc")))),
+            Err(YoutubeError::QuotaExceeded),
+        ]));
+        let cached = id("ccccccccccc");
+        let other = id("ddddddddddd");
+        service.lookup(&cached).await.unwrap();
+        assert_eq!(
+            service.lookup(&other).await,
+            Err(YoutubeError::QuotaExceeded)
+        );
+        // Paused now: this does not even reach the source.
+        assert_eq!(service.source().calls(), 2);
+        assert_eq!(
+            service.lookup(&other).await,
+            Err(YoutubeError::QuotaExceeded)
+        );
+        assert_eq!(service.source().calls(), 2);
+
+        service.reset();
+        // The pause is gone, and the cached video is asked for again.
+        assert!(service.lookup(&other).await.unwrap().is_some());
+        assert!(service.lookup(&cached).await.unwrap().is_some());
+        assert_eq!(service.source().calls(), 4);
     }
 
     #[tokio::test]

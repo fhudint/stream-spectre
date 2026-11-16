@@ -7,6 +7,7 @@ mod model;
 mod paths;
 mod saved;
 mod secrets;
+mod secrets_file;
 mod validate;
 
 use std::path::{Path, PathBuf};
@@ -20,7 +21,11 @@ pub use model::{
 pub use paths::{CONFIG_FILE_NAME, ENV_CONFIG_PATH};
 pub use saved::{SavedSettings, read as read_saved, saved_path, write as write_saved};
 pub use secrets::{
-    ENV_DASHBOARD_TOKEN, ENV_YOUTUBE_API_KEY, MIN_DASHBOARD_TOKEN_LEN, Secret, Secrets,
+    ENV_DASHBOARD_TOKEN, ENV_YOUTUBE_API_KEY, KeySource, MIN_DASHBOARD_TOKEN_LEN, Secret, Secrets,
+};
+pub use secrets_file::{
+    SavedSecrets, is_too_open as secrets_file_is_too_open, read as read_saved_secrets,
+    secrets_path, write as write_saved_secrets,
 };
 
 use crate::platform;
@@ -39,6 +44,13 @@ pub struct Loaded {
     pub saved_path: PathBuf,
     /// Tables of `config.toml` that saved settings replaced at startup.
     pub saved_tables: Vec<&'static str>,
+    /// Where secrets entered on the dashboard are saved.
+    pub secrets_path: PathBuf,
+    /// Where the API key in `secrets` came from.
+    pub api_key_source: KeySource,
+    /// The API key from the environment or `.env`, whether or not a saved
+    /// key replaced it: what is used again when the saved key is removed.
+    pub env_api_key: Option<Secret>,
 }
 
 #[derive(Debug, Default)]
@@ -74,6 +86,9 @@ pub fn load(options: LoadOptions) -> Result<Loaded, ConfigError> {
             .ok()
             .or_else(|| dotenv_vars.get(key).cloned())
     })?;
+    let env_api_key = secrets.youtube_api_key.clone();
+    let secrets_path = secrets_file::secrets_path(&path);
+    let (secrets, api_key_source) = with_saved_secrets(secrets, &secrets_path)?;
     config.validate_with_secrets(&secrets)?;
 
     Ok(Loaded {
@@ -83,6 +98,9 @@ pub fn load(options: LoadOptions) -> Result<Loaded, ConfigError> {
         baseline,
         saved_path,
         saved_tables,
+        secrets_path,
+        api_key_source,
+        env_api_key,
     })
 }
 
@@ -105,6 +123,32 @@ fn with_saved_settings(
             reason: err.to_string(),
         })?;
     Ok((config, saved.tables()))
+}
+
+/// `secrets` with the YouTube API key from the secrets file put on top, if
+/// the file has one: a key entered on the dashboard wins over the environment.
+/// Also says where the key now in use came from.
+fn with_saved_secrets(
+    mut secrets: Secrets,
+    secrets_path: &Path,
+) -> Result<(Secrets, KeySource), ConfigError> {
+    let saved = secrets_file::read(secrets_path)?;
+    if saved.is_some() && secrets_file::is_too_open(secrets_path) {
+        tracing::warn!(
+            path = %secrets_path.display(),
+            "other users of this computer can read the secrets file; make it private (chmod 600)"
+        );
+    }
+    if let Some(key) = saved.and_then(|saved| saved.youtube_api_key) {
+        secrets.youtube_api_key = Some(key);
+        return Ok((secrets, KeySource::Saved));
+    }
+    let source = if secrets.youtube_api_key.is_some() {
+        KeySource::Environment
+    } else {
+        KeySource::None
+    };
+    Ok((secrets, source))
 }
 
 /// Parses TOML text. The error carries the problem and its position but never
@@ -145,6 +189,59 @@ mod tests {
 
     /// The one setting a config must have to be valid.
     const USER: &str = "[chat.tiktok]\nusername = \"someone\"\n";
+
+    fn secrets_from(env_key: Option<&str>) -> Secrets {
+        Secrets::from_lookup(|name| match name {
+            ENV_YOUTUBE_API_KEY => env_key.map(str::to_owned),
+            _ => None,
+        })
+        .unwrap()
+    }
+
+    #[test]
+    fn a_saved_key_wins_over_the_environment_and_the_source_is_reported() {
+        let dir = secrets_file::tests_dir("layer-secrets");
+        let path = dir.join("config.secrets.toml");
+
+        // Nothing saved: the environment decides.
+        let (s, source) = with_saved_secrets(secrets_from(Some("env-key")), &path).unwrap();
+        assert_eq!(s.youtube_api_key.unwrap().expose(), "env-key");
+        assert_eq!(source, KeySource::Environment);
+        let (s, source) = with_saved_secrets(secrets_from(None), &path).unwrap();
+        assert!(s.youtube_api_key.is_none());
+        assert_eq!(source, KeySource::None);
+
+        // A saved key replaces the environment's, or fills the gap.
+        write_saved_secrets(
+            &path,
+            &SavedSecrets {
+                youtube_api_key: Some(Secret::new("saved-key")),
+            },
+        )
+        .unwrap();
+        for env in [Some("env-key"), None] {
+            let (s, source) = with_saved_secrets(secrets_from(env), &path).unwrap();
+            assert_eq!(s.youtube_api_key.unwrap().expose(), "saved-key");
+            assert_eq!(source, KeySource::Saved);
+        }
+
+        // A file without a key changes nothing.
+        write_saved_secrets(&path, &SavedSecrets::default()).unwrap();
+        let (s, source) = with_saved_secrets(secrets_from(Some("env-key")), &path).unwrap();
+        assert_eq!(s.youtube_api_key.unwrap().expose(), "env-key");
+        assert_eq!(source, KeySource::Environment);
+    }
+
+    #[test]
+    fn a_damaged_secrets_file_stops_startup_without_showing_its_content() {
+        let dir = secrets_file::tests_dir("layer-secrets-bad");
+        let path = dir.join("config.secrets.toml");
+        std::fs::write(&path, "youtube_api_key = AIzaSy-leaky\n").unwrap();
+        let err = with_saved_secrets(secrets_from(Some("env-key")), &path).unwrap_err();
+        let text = err.to_string();
+        assert!(text.contains("config.secrets.toml"), "{text}");
+        assert!(!text.contains("AIzaSy-leaky"), "{text}");
+    }
 
     #[test]
     fn without_a_saved_file_the_config_is_used_as_it_is() {

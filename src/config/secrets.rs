@@ -27,10 +27,24 @@ impl fmt::Debug for Secret {
     }
 }
 
-/// Secrets read from environment variables or a `.env` file.
+/// Where the YouTube API key in use came from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum KeySource {
+    /// No key: video requests are refused until one is entered.
+    None,
+    /// The `YOUTUBE_API_KEY` environment variable or `.env`.
+    Environment,
+    /// Entered on the dashboard and saved in the secrets file.
+    Saved,
+}
+
+/// Secrets read from environment variables or a `.env` file, with the ones
+/// saved from the dashboard put on top (see `secrets_file`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Secrets {
-    pub youtube_api_key: Secret,
+    /// `None` is allowed: the program starts, refuses video requests with a
+    /// clear notice, and waits for a key to be entered on the dashboard.
+    pub youtube_api_key: Option<Secret>,
     /// Token protecting the dashboard when it is exposed beyond loopback.
     pub dashboard_token: Option<Secret>,
 }
@@ -38,10 +52,7 @@ pub struct Secrets {
 impl Secrets {
     /// Builds secrets from a key lookup (environment first, then `.env`).
     pub fn from_lookup(lookup: impl Fn(&str) -> Option<String>) -> Result<Self, ConfigError> {
-        let youtube_api_key =
-            non_empty(lookup(ENV_YOUTUBE_API_KEY)).ok_or(ConfigError::MissingSecret {
-                name: ENV_YOUTUBE_API_KEY,
-            })?;
+        let youtube_api_key = non_empty(lookup(ENV_YOUTUBE_API_KEY)).map(Secret::new);
 
         let dashboard_token = non_empty(lookup(ENV_DASHBOARD_TOKEN));
         if dashboard_token
@@ -55,7 +66,7 @@ impl Secrets {
         }
 
         Ok(Self {
-            youtube_api_key: Secret::new(youtube_api_key),
+            youtube_api_key,
             dashboard_token: dashboard_token.map(Secret::new),
         })
     }
@@ -87,7 +98,7 @@ mod tests {
     fn reads_both_secrets_and_trims() {
         let s =
             Secrets::from_lookup(lookup(Some("  AIzaSy-test-key-value\n"), Some(TOKEN))).unwrap();
-        assert_eq!(s.youtube_api_key.expose(), KEY);
+        assert_eq!(s.youtube_api_key.unwrap().expose(), KEY);
         assert_eq!(s.dashboard_token.unwrap().expose(), TOKEN);
     }
 
@@ -100,12 +111,10 @@ mod tests {
     }
 
     #[test]
-    fn missing_or_blank_api_key_is_an_error() {
+    fn a_missing_or_blank_api_key_is_allowed_and_means_no_key() {
         for key in [None, Some(""), Some("   ")] {
-            let err = Secrets::from_lookup(lookup(key, None)).unwrap_err();
-            assert!(
-                matches!(err, ConfigError::MissingSecret { name } if name == ENV_YOUTUBE_API_KEY)
-            );
+            let s = Secrets::from_lookup(lookup(key, None)).unwrap();
+            assert!(s.youtube_api_key.is_none());
         }
     }
 

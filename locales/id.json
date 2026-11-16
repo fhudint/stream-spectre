@@ -134,5 +134,6 @@
   "dashboard.tiktok.username": "Username TikTok (tanpa @)",
   "dashboard.tiktok.hint": "Program membaca chat langsung akun ini dan langsung mengikuti kalau diganti, tanpa restart. Kosongkan untuk berhenti membaca chat.",
   "dashboard.tiktok.save": "Simpan username",
-  "dashboard.tiktok.saved": "Username TikTok disimpan"
+  "dashboard.tiktok.saved": "Username TikTok disimpan",
+  "error.no_api_key": "Belum ada API key YouTube. Isi di halaman Akun agar permintaan video bisa diterima."
 }

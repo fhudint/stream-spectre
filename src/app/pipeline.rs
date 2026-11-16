@@ -14,12 +14,12 @@ use crate::chat::{ChatEvent, ChatMessage, ChatSource, ChatStatus, Sender};
 use crate::command::{CommandParser, Parsed};
 use crate::config::{
     BlacklistConfig, Config, ConfigError, DashboardConfig, ModerationConfig, ModerationMode,
-    TiktokConfig,
+    Secret, TiktokConfig,
 };
 use crate::i18n::I18n;
 use crate::queue::{Blacklist, Denial, Gatekeeper, ItemId, PlayQueue, QueueError};
 use crate::text::sanitize_text;
-use crate::youtube::{Rejection, VideoLookup, VideoSource};
+use crate::youtube::{Rejection, VideoLookup, VideoSource, YoutubeError};
 
 /// Events kept for slow clients before they are told they lagged.
 const BUS_CAPACITY: usize = 256;
@@ -516,6 +516,20 @@ impl<S: VideoSource> Pipeline<S> {
     /// `seq <= hello.seq`: nothing is missed and nothing is applied twice.
     pub fn subscribe(&self) -> broadcast::Receiver<Arc<Envelope>> {
         self.bus.subscribe()
+    }
+
+    /// Switches to another YouTube API key (`None`: no key) and forgets what
+    /// was learned with the old one: cached answers, and a pause after a quota
+    /// or rate limit. A key that cannot be used changes nothing.
+    pub fn set_youtube_key(&self, key: Option<&Secret>) -> Result<(), YoutubeError> {
+        self.lookup.source().set_api_key(key)?;
+        self.lookup.reset();
+        Ok(())
+    }
+
+    /// Tries a YouTube API key with one real request, without switching to it.
+    pub async fn check_youtube_key(&self, key: &Secret) -> Result<(), YoutubeError> {
+        self.lookup.source().check_api_key(key).await
     }
 
     /// The settings in effect now (moderation including the current volume,
@@ -1850,6 +1864,53 @@ mod tests {
         p.approve(waiting).unwrap();
         assert!(p.skip());
         assert!(p.player_progress(waiting, 5).is_err());
+    }
+
+    // --- the YouTube API key, changed while running ---
+
+    #[tokio::test]
+    async fn changing_the_key_forgets_what_was_looked_up_with_the_old_one() {
+        let p = default_pipeline();
+        say(&p, sender(1, Role::Follower), &format!("!v {ID_A}")).await;
+        say(&p, sender(2, Role::Follower), &format!("!v {ID_A}")).await;
+        assert_eq!(
+            p.lookup.source().calls(),
+            1,
+            "the second one came from the cache"
+        );
+
+        p.set_youtube_key(Some(&Secret::new("AIzaSy-new-key")))
+            .unwrap();
+        say(&p, sender(3, Role::Follower), &format!("!v {ID_A}")).await;
+        assert_eq!(p.lookup.source().calls(), 2, "asked again with the new key");
+
+        p.set_youtube_key(None).unwrap();
+        say(&p, sender(4, Role::Follower), &format!("!v {ID_A}")).await;
+        assert_eq!(p.lookup.source().calls(), 3, "no memory of the old answers");
+    }
+
+    #[tokio::test]
+    async fn a_missing_key_is_reported_to_the_moderators_and_gives_the_cooldown_back() {
+        let p = pipeline(&config(|m| m.cooldown_secs = 60));
+        *p.lookup.source().failure.lock().unwrap() = Some(YoutubeError::NoApiKey);
+        let mut rx = p.subscribe();
+        say(&p, sender(1, Role::Follower), &format!("!v {ID_A}")).await;
+        let events = drain(&mut rx);
+        assert_eq!(kinds(&events), vec!["notice"]);
+        assert_eq!(data(&events[0])["code"], "error.no_api_key");
+        assert_eq!(data(&events[0])["level"], "error");
+        assert!(
+            data(&events[0])["text"]
+                .as_str()
+                .unwrap()
+                .contains("API key")
+        );
+        assert!(pending_ids(&p).is_empty());
+
+        // Not the viewer's fault: they may try again at once.
+        *p.lookup.source().failure.lock().unwrap() = None;
+        say(&p, sender(1, Role::Follower), &format!("!v {ID_A}")).await;
+        assert_eq!(pending_ids(&p).len(), 1);
     }
 
     // --- the TikTok username, changed while running ---

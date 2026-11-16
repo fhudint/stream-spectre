@@ -1,4 +1,5 @@
 use std::future::Future;
+use std::sync::{Arc, PoisonError, RwLock};
 use std::time::Duration;
 
 use reqwest::header::{HeaderMap, HeaderValue};
@@ -18,7 +19,26 @@ pub trait VideoSource: Send + Sync {
         &self,
         id: &VideoId,
     ) -> impl Future<Output = Result<Option<VideoDetails>, YoutubeError>> + Send;
+
+    /// Uses another API key from now on (`None`: no key). Sources that have
+    /// no key ignore this. On an error nothing changes.
+    fn set_api_key(&self, _key: Option<&Secret>) -> Result<(), YoutubeError> {
+        Ok(())
+    }
+
+    /// Tries `key` with one real request (1 quota unit) without switching to
+    /// it. `Ok` means YouTube accepted it. Sources that have no key accept
+    /// anything.
+    fn check_api_key(
+        &self,
+        _key: &Secret,
+    ) -> impl Future<Output = Result<(), YoutubeError>> + Send {
+        async { Ok(()) }
+    }
 }
+
+/// A video that is certain to exist, for trying a key.
+const CHECK_VIDEO_ID: &str = "dQw4w9WgXcQ";
 
 const DEFAULT_BASE_URL: &str = "https://www.googleapis.com/";
 const VIDEOS_PATH: &str = "youtube/v3/videos";
@@ -33,12 +53,17 @@ const MAX_BODY_BYTES: usize = 1024 * 1024;
 /// cannot show up in URLs, error messages or logs.
 #[derive(Debug, Clone)]
 pub struct YoutubeClient {
-    http: reqwest::Client,
+    /// `None` while there is no key. Shared by every clone, so a key set on
+    /// one is used by all.
+    http: Arc<RwLock<Option<reqwest::Client>>>,
     base_url: Url,
+    timeout: Duration,
 }
 
 impl YoutubeClient {
-    pub fn new(api_key: &Secret, timeout: Duration) -> Result<Self, YoutubeError> {
+    /// A client with `api_key`, or without one (every lookup then fails with
+    /// `NoApiKey` until `set_api_key` gives it one).
+    pub fn new(api_key: Option<&Secret>, timeout: Duration) -> Result<Self, YoutubeError> {
         let base = Url::parse(DEFAULT_BASE_URL)
             .map_err(|_| YoutubeError::BadResponse("invalid built-in base URL"))?;
         Self::with_base_url(api_key, timeout, base)
@@ -46,35 +71,25 @@ impl YoutubeClient {
 
     /// Like `new`, against another server (used by tests).
     pub fn with_base_url(
-        api_key: &Secret,
+        api_key: Option<&Secret>,
         timeout: Duration,
         base_url: Url,
     ) -> Result<Self, YoutubeError> {
-        let mut key =
-            HeaderValue::from_str(api_key.expose()).map_err(|_| YoutubeError::InvalidApiKey)?;
-        key.set_sensitive(true);
-        let mut headers = HeaderMap::new();
-        headers.insert(API_KEY_HEADER, key);
+        let http = api_key
+            .map(|key| build_http(key, timeout, &base_url))
+            .transpose()?;
+        Ok(Self {
+            http: Arc::new(RwLock::new(http)),
+            base_url,
+            timeout,
+        })
+    }
 
-        let mut builder = reqwest::Client::builder()
-            .timeout(timeout)
-            .user_agent(concat!(
-                env!("CARGO_PKG_NAME"),
-                "/",
-                env!("CARGO_PKG_VERSION")
-            ))
-            .default_headers(headers)
-            .redirect(reqwest::redirect::Policy::none())
-            .https_only(base_url.scheme() == "https");
-        if is_loopback_host(&base_url) {
-            // Never send local traffic through a configured proxy.
-            builder = builder.no_proxy();
-        }
-        let http = builder
-            .build()
-            .map_err(|_| YoutubeError::Network("cannot build HTTP client"))?;
-
-        Ok(Self { http, base_url })
+    fn current_http(&self) -> Option<reqwest::Client> {
+        self.http
+            .read()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
     }
 
     fn request_url(&self, id: &VideoId) -> Url {
@@ -86,6 +101,60 @@ impl YoutubeClient {
             .append_pair("id", id.as_str());
         url
     }
+
+    async fn fetch_via(
+        &self,
+        http: &reqwest::Client,
+        id: &VideoId,
+    ) -> Result<Option<VideoDetails>, YoutubeError> {
+        let mut response = http
+            .get(self.request_url(id))
+            .send()
+            .await
+            .map_err(|e| describe(&e))?;
+        let status = response.status().as_u16();
+
+        let mut body: Vec<u8> = Vec::new();
+        while let Some(chunk) = response.chunk().await.map_err(|e| describe(&e))? {
+            if body.len() + chunk.len() > MAX_BODY_BYTES {
+                return Err(YoutubeError::ResponseTooLarge);
+            }
+            body.extend_from_slice(&chunk);
+        }
+
+        interpret_response(id, status, &body)
+    }
+}
+
+/// An HTTP client that sends `api_key` with every request.
+fn build_http(
+    api_key: &Secret,
+    timeout: Duration,
+    base_url: &Url,
+) -> Result<reqwest::Client, YoutubeError> {
+    let mut key =
+        HeaderValue::from_str(api_key.expose()).map_err(|_| YoutubeError::InvalidApiKey)?;
+    key.set_sensitive(true);
+    let mut headers = HeaderMap::new();
+    headers.insert(API_KEY_HEADER, key);
+
+    let mut builder = reqwest::Client::builder()
+        .timeout(timeout)
+        .user_agent(concat!(
+            env!("CARGO_PKG_NAME"),
+            "/",
+            env!("CARGO_PKG_VERSION")
+        ))
+        .default_headers(headers)
+        .redirect(reqwest::redirect::Policy::none())
+        .https_only(base_url.scheme() == "https");
+    if is_loopback_host(base_url) {
+        // Never send local traffic through a configured proxy.
+        builder = builder.no_proxy();
+    }
+    builder
+        .build()
+        .map_err(|_| YoutubeError::Network("cannot build HTTP client"))
 }
 
 fn is_loopback_host(url: &Url) -> bool {
@@ -110,23 +179,27 @@ fn describe(error: &reqwest::Error) -> YoutubeError {
 
 impl VideoSource for YoutubeClient {
     async fn fetch(&self, id: &VideoId) -> Result<Option<VideoDetails>, YoutubeError> {
-        let mut response = self
-            .http
-            .get(self.request_url(id))
-            .send()
-            .await
-            .map_err(|e| describe(&e))?;
-        let status = response.status().as_u16();
+        let Some(http) = self.current_http() else {
+            return Err(YoutubeError::NoApiKey);
+        };
+        self.fetch_via(&http, id).await
+    }
 
-        let mut body: Vec<u8> = Vec::new();
-        while let Some(chunk) = response.chunk().await.map_err(|e| describe(&e))? {
-            if body.len() + chunk.len() > MAX_BODY_BYTES {
-                return Err(YoutubeError::ResponseTooLarge);
-            }
-            body.extend_from_slice(&chunk);
-        }
+    fn set_api_key(&self, key: Option<&Secret>) -> Result<(), YoutubeError> {
+        // Built first: a key that cannot be used leaves the old one in place.
+        let http = key
+            .map(|key| build_http(key, self.timeout, &self.base_url))
+            .transpose()?;
+        *self.http.write().unwrap_or_else(PoisonError::into_inner) = http;
+        Ok(())
+    }
 
-        interpret_response(id, status, &body)
+    async fn check_api_key(&self, key: &Secret) -> Result<(), YoutubeError> {
+        let http = build_http(key, self.timeout, &self.base_url)?;
+        let id = VideoId::parse(CHECK_VIDEO_ID)
+            .map_err(|_| YoutubeError::BadResponse("invalid built-in video ID"))?;
+        // Whether the video is found hardly matters: the key was accepted.
+        self.fetch_via(&http, &id).await.map(|_| ())
     }
 }
 
@@ -182,7 +255,7 @@ mod tests {
     }
 
     fn client(base: Url) -> YoutubeClient {
-        YoutubeClient::with_base_url(&Secret::new(KEY), Duration::from_secs(5), base).unwrap()
+        YoutubeClient::with_base_url(Some(&Secret::new(KEY)), Duration::from_secs(5), base).unwrap()
     }
 
     #[tokio::test]
@@ -218,6 +291,114 @@ mod tests {
             .find(|l| l.to_ascii_lowercase().starts_with("x-goog-api-key:"))
             .expect("api key header");
         assert!(header_line.ends_with(KEY));
+    }
+
+    fn header_of(head: &str, name: &str) -> Option<String> {
+        head.lines()
+            .find(|l| l.to_ascii_lowercase().starts_with(&format!("{name}:")))
+            .map(|l| l.split_once(':').unwrap().1.trim().to_owned())
+    }
+
+    #[tokio::test]
+    async fn without_a_key_nothing_is_sent_and_the_error_says_so() {
+        // Nothing listens here: a request would fail with a network error.
+        let base = Url::parse("http://127.0.0.1:1/").unwrap();
+        let client = YoutubeClient::with_base_url(None, Duration::from_secs(1), base).unwrap();
+        assert_eq!(client.fetch(&id()).await, Err(YoutubeError::NoApiKey));
+        assert!(YoutubeError::NoApiKey.is_config_problem());
+        assert_eq!(YoutubeError::NoApiKey.notice_key(), "error.no_api_key");
+    }
+
+    #[tokio::test]
+    async fn a_key_set_later_is_used_by_every_clone() {
+        let (base, server) = serve_once("200 OK", ok_json()).await;
+        let client = YoutubeClient::with_base_url(None, Duration::from_secs(5), base).unwrap();
+        let clone = client.clone();
+        client.set_api_key(Some(&Secret::new(KEY))).unwrap();
+        clone.fetch(&id()).await.unwrap();
+        let head = server.await.unwrap();
+        assert_eq!(header_of(&head, "x-goog-api-key").as_deref(), Some(KEY));
+    }
+
+    #[tokio::test]
+    async fn a_replaced_key_is_the_one_sent_and_removing_it_stops_requests() {
+        let (base, server) = serve_once("200 OK", ok_json()).await;
+        let client = client(base);
+        client
+            .set_api_key(Some(&Secret::new("AIzaSy-the-new-key")))
+            .unwrap();
+        client.fetch(&id()).await.unwrap();
+        let head = server.await.unwrap();
+        assert_eq!(
+            header_of(&head, "x-goog-api-key").as_deref(),
+            Some("AIzaSy-the-new-key")
+        );
+        assert!(!head.contains(KEY), "the old key is no longer sent");
+
+        client.set_api_key(None).unwrap();
+        assert_eq!(client.fetch(&id()).await, Err(YoutubeError::NoApiKey));
+    }
+
+    #[tokio::test]
+    async fn a_key_that_cannot_be_used_changes_nothing() {
+        let (base, server) = serve_once("200 OK", ok_json()).await;
+        let client = client(base);
+        for bad in ["bad\nkey", "bad\r\nkey", "k\u{e9}y\u{0}"] {
+            assert_eq!(
+                client.set_api_key(Some(&Secret::new(bad))),
+                Err(YoutubeError::InvalidApiKey),
+                "{bad:?}"
+            );
+        }
+        client.fetch(&id()).await.unwrap();
+        let head = server.await.unwrap();
+        assert_eq!(header_of(&head, "x-goog-api-key").as_deref(), Some(KEY));
+    }
+
+    #[tokio::test]
+    async fn trying_a_key_sends_that_key_and_does_not_switch_to_it() {
+        let (base, server) = serve_once("200 OK", ok_json()).await;
+        let client = YoutubeClient::with_base_url(None, Duration::from_secs(5), base).unwrap();
+        client
+            .check_api_key(&Secret::new("AIzaSy-candidate"))
+            .await
+            .unwrap();
+        let head = server.await.unwrap();
+        assert_eq!(
+            header_of(&head, "x-goog-api-key").as_deref(),
+            Some("AIzaSy-candidate")
+        );
+        // It was only tried: there is still no key in use.
+        assert_eq!(client.fetch(&id()).await, Err(YoutubeError::NoApiKey));
+    }
+
+    #[tokio::test]
+    async fn a_key_is_accepted_when_the_video_is_not_found_and_refused_when_youtube_refuses_it() {
+        let (base, _s) = serve_once("200 OK", r#"{"items":[]}"#.to_owned()).await;
+        let client1 = YoutubeClient::with_base_url(None, Duration::from_secs(5), base).unwrap();
+        assert_eq!(client1.check_api_key(&Secret::new(KEY)).await, Ok(()));
+
+        let body = r#"{"error":{"code":400,"errors":[{"reason":"badRequest"}],"details":[{"reason":"API_KEY_INVALID"}]}}"#.to_owned();
+        let (base, _s) = serve_once("400 Bad Request", body).await;
+        let client2 = YoutubeClient::with_base_url(None, Duration::from_secs(5), base).unwrap();
+        assert_eq!(
+            client2.check_api_key(&Secret::new(KEY)).await,
+            Err(YoutubeError::InvalidApiKey)
+        );
+
+        let body = r#"{"error":{"code":403,"errors":[{"reason":"quotaExceeded"}]}}"#.to_owned();
+        let (base, _s) = serve_once("403 Forbidden", body).await;
+        let client3 = YoutubeClient::with_base_url(None, Duration::from_secs(5), base).unwrap();
+        assert_eq!(
+            client3.check_api_key(&Secret::new(KEY)).await,
+            Err(YoutubeError::QuotaExceeded)
+        );
+        // A key that cannot even be put in a header is refused without a request.
+        let client4 = YoutubeClient::new(None, Duration::from_secs(1)).unwrap();
+        assert_eq!(
+            client4.check_api_key(&Secret::new("a\nb")).await,
+            Err(YoutubeError::InvalidApiKey)
+        );
     }
 
     #[tokio::test]
@@ -279,7 +460,7 @@ mod tests {
         });
 
         let client =
-            YoutubeClient::with_base_url(&Secret::new(KEY), Duration::from_millis(200), base)
+            YoutubeClient::with_base_url(Some(&Secret::new(KEY)), Duration::from_millis(200), base)
                 .unwrap();
         assert_eq!(
             client.fetch(&id()).await,
@@ -290,14 +471,14 @@ mod tests {
     #[test]
     fn keys_that_cannot_be_a_header_are_rejected_without_echoing_them() {
         let secret = Secret::new("bad\nkey-value");
-        let err = YoutubeClient::new(&secret, Duration::from_secs(1)).unwrap_err();
+        let err = YoutubeClient::new(Some(&secret), Duration::from_secs(1)).unwrap_err();
         assert_eq!(err, YoutubeError::InvalidApiKey);
         assert!(!format!("{err:?}").contains("bad"));
     }
 
     #[test]
     fn debug_output_of_the_client_has_no_key() {
-        let c = YoutubeClient::new(&Secret::new(KEY), Duration::from_secs(1)).unwrap();
+        let c = YoutubeClient::new(Some(&Secret::new(KEY)), Duration::from_secs(1)).unwrap();
         assert!(!format!("{c:?}").contains(KEY));
     }
 
