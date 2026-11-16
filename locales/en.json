@@ -49,6 +49,7 @@
   "reject.role_too_low": "Only {role} and above can submit videos",
   "reject.level_too_low": "Gifter or fan club level is too low",
   "status.chat.connected": "Connected to TikTok chat @{username}",
+  "status.chat.waiting_for_live": "Waiting for @{username} to go live",
   "status.chat.reconnecting": "Reconnecting to chat…",
   "status.chat.disconnected": "Chat connection lost",
   "error.quota_exceeded": "YouTube API quota exhausted, try again later",

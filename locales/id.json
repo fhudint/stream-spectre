@@ -49,6 +49,7 @@
   "reject.role_too_low": "Hanya {role} ke atas yang boleh mengirim video",
   "reject.level_too_low": "Level gifter atau fan club belum cukup",
   "status.chat.connected": "Terhubung ke chat TikTok @{username}",
+  "status.chat.waiting_for_live": "Menunggu @{username} mulai siaran langsung",
   "status.chat.reconnecting": "Menyambung ulang ke chat…",
   "status.chat.disconnected": "Koneksi chat terputus",
   "error.quota_exceeded": "Kuota YouTube API habis, coba lagi nanti",

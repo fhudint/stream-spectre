@@ -6,8 +6,9 @@ use serde::Deserialize;
 
 use super::duration::parse_iso8601_duration;
 use super::error::YoutubeError;
-use super::model::{LiveStatus, VideoDetails, sanitize_text};
+use super::model::{LiveStatus, VideoDetails};
 use super::video_id::VideoId;
+use crate::text::sanitize_text;
 
 /// `part` parameter: the three resource sections we read. Per the API docs a
 /// call costs 1 quota unit regardless of the parts requested.
