@@ -1,0 +1,67 @@
+# stream-spectre configuration.
+#
+# Copy this file to `config.toml` (next to the binary) or to the per-user config
+# directory (Linux: ~/.config/stream-spectre/config.toml,
+# Windows: %APPDATA%\stream-spectre\config.toml,
+# macOS: ~/Library/Application Support/stream-spectre/config.toml).
+# You can also point to it with `--config <path>` or STREAM_SPECTRE_CONFIG.
+#
+# Secrets do NOT go here. Set them as environment variables or in a `.env`
+# file (see `.env.example`): YOUTUBE_API_KEY, DASHBOARD_TOKEN.
+#
+# Every key is optional; the values below are the defaults, except
+# `chat.tiktok.username`, which you must set.
+
+[general]
+# Language of the dashboard and overlay: "id" or "en".
+language = "id"
+
+[server]
+# Address for the dashboard and the OBS overlay. Keep 127.0.0.1 unless you need
+# network access; any other address requires the DASHBOARD_TOKEN secret.
+bind = "127.0.0.1"
+port = 8787
+
+[chat]
+# Only "tiktok" is supported for now.
+source = "tiktok"
+
+[chat.tiktok]
+# Username of the streamer whose LIVE chat is read, with or without "@".
+username = "your_tiktok_username"
+
+[command]
+# Viewers send: <prefix><name> <YouTube ID or link>, for example "!v dQw4w9WgXcQ".
+prefix = "!"
+name = "v"
+
+[youtube]
+# How long video lookups are cached, and how many are kept.
+cache_ttl_secs = 21600
+cache_max_entries = 1000
+request_timeout_secs = 10
+
+[moderation]
+# "manual": every request waits for approval in the dashboard.
+# "auto": requests that pass validation are approved automatically.
+mode = "manual"
+# Minimum role allowed to submit: "everyone", "follower", "subscriber" or "moderator".
+min_role = "follower"
+# Minimum TikTok gifter level and fan club level. 0 turns the check off.
+min_gifter_level = 0
+min_fan_club_level = 0
+# Seconds a user must wait between submissions. 0 turns it off.
+cooldown_secs = 60
+# Longest video accepted, in seconds.
+max_duration_secs = 600
+# Most requests waiting in the queue at once.
+max_queue_len = 20
+# Initial volume and the highest volume the dashboard may set (0-100).
+volume = 50
+max_volume = 80
+
+[blacklist]
+# Anything listed here is rejected.
+video_ids = []       # YouTube video IDs, e.g. ["dQw4w9WgXcQ"]
+channels = []        # YouTube channel names
+title_words = []     # words that must not appear in a video title

@@ -1,0 +1,169 @@
+use std::net::{IpAddr, Ipv4Addr};
+
+use serde::Deserialize;
+
+use crate::chat::Role;
+
+/// Contents of `config.toml`. Secrets are not part of it; see `Secrets`.
+#[derive(Debug, Clone, PartialEq, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Config {
+    pub general: GeneralConfig,
+    pub server: ServerConfig,
+    pub chat: ChatConfig,
+    pub command: CommandConfig,
+    pub youtube: YoutubeConfig,
+    pub moderation: ModerationConfig,
+    pub blacklist: BlacklistConfig,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Language {
+    #[default]
+    Id,
+    En,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct GeneralConfig {
+    pub language: Language,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct ServerConfig {
+    /// Address the dashboard and overlay bind to. Loopback by default; any
+    /// other address requires `DASHBOARD_TOKEN`.
+    pub bind: IpAddr,
+    pub port: u16,
+}
+
+impl Default for ServerConfig {
+    fn default() -> Self {
+        Self {
+            bind: IpAddr::V4(Ipv4Addr::LOCALHOST),
+            port: 8787,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ChatSourceKind {
+    #[default]
+    Tiktok,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct ChatConfig {
+    pub source: ChatSourceKind,
+    pub tiktok: TiktokConfig,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct TiktokConfig {
+    /// Username of the streamer whose LIVE chat is read, with or without `@`.
+    pub username: String,
+}
+
+impl TiktokConfig {
+    /// Username with surrounding whitespace and a leading `@` removed.
+    pub fn username(&self) -> &str {
+        self.username.trim().trim_start_matches('@')
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct CommandConfig {
+    pub prefix: String,
+    pub name: String,
+}
+
+impl Default for CommandConfig {
+    fn default() -> Self {
+        Self {
+            prefix: "!".to_owned(),
+            name: "v".to_owned(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct YoutubeConfig {
+    pub cache_ttl_secs: u64,
+    pub cache_max_entries: usize,
+    pub request_timeout_secs: u64,
+}
+
+impl Default for YoutubeConfig {
+    fn default() -> Self {
+        Self {
+            cache_ttl_secs: 6 * 60 * 60,
+            cache_max_entries: 1000,
+            request_timeout_secs: 10,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ModerationMode {
+    /// Every request waits for approval in the dashboard.
+    #[default]
+    Manual,
+    /// Requests that pass validation are approved automatically.
+    Auto,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct ModerationConfig {
+    pub mode: ModerationMode,
+    /// Minimum role allowed to submit videos.
+    pub min_role: Role,
+    /// Minimum TikTok gifter level; 0 disables the check.
+    pub min_gifter_level: u32,
+    /// Minimum TikTok fan club level; 0 disables the check.
+    pub min_fan_club_level: u32,
+    /// Seconds a user must wait between submissions; 0 disables it.
+    pub cooldown_secs: u64,
+    pub max_duration_secs: u64,
+    pub max_queue_len: usize,
+    /// Initial volume, 0-100.
+    pub volume: u8,
+    /// Upper bound for the volume, 0-100.
+    pub max_volume: u8,
+}
+
+impl Default for ModerationConfig {
+    fn default() -> Self {
+        Self {
+            mode: ModerationMode::Manual,
+            min_role: Role::Follower,
+            min_gifter_level: 0,
+            min_fan_club_level: 0,
+            cooldown_secs: 60,
+            max_duration_secs: 10 * 60,
+            max_queue_len: 20,
+            volume: 50,
+            max_volume: 80,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct BlacklistConfig {
+    /// YouTube video IDs.
+    pub video_ids: Vec<String>,
+    /// YouTube channel names.
+    pub channels: Vec<String>,
+    /// Words that must not appear in a video title.
+    pub title_words: Vec<String>,
+}

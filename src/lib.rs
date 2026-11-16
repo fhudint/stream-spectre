@@ -3,6 +3,11 @@
 //! Seluruh logika berada di library ini supaya mudah diuji;
 //! `main.rs` hanya bootstrap.
 
+pub mod chat;
+pub mod cli;
+pub mod config;
+pub mod platform;
+
 /// Nama aplikasi, diambil dari `Cargo.toml`.
 pub const APP_NAME: &str = env!("CARGO_PKG_NAME");
 
