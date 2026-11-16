@@ -32,7 +32,8 @@ player; the queue, moderation and events all assume a YouTube video.
 TikTok video, a second lookup implementation behind the existing `VideoSource`
 idea, a `source` field on queue items and `play` events (a protocol addition,
 so clients that ignore unknown fields keep working), and a second player in the
-overlay behind one small interface.
+overlay behind one small interface. The chat word that selects the source is
+item 5.
 
 ## 2. Check YouTube IDs cheaply before using the API key
 
@@ -121,3 +122,41 @@ valid config and an API key.
 **Order.** Items 3 and 4 depend on each other only partly: saving settings and a
 first-run screen can be built into the existing web dashboard first, and the
 native window added around it later.
+
+## 5. One configurable command per video source
+
+**Goal.** The streamer chooses which chat word means which source, for example
+`!yt` for YouTube and `!vt` for TikTok, or any other words they like. It also
+makes a settings screen in a future app (items 3 and 4) simple: a small table of
+"word, source" rows.
+
+**Today.** Prefix and name are already configurable (`[command]` in
+`config.toml`, default `!v`), but there is exactly one command and it means
+YouTube. The name is checked at startup (1 to 32 characters), the prefix too,
+and matching is case-insensitive on the name and whole-word, so `!vid` is not
+`!v`.
+
+**What it needs**
+- Config for several commands, each with a name and a source, for example a
+  list of `{ name, source }` entries next to the shared prefix. The current
+  `name` keeps working as one entry (an additive change, so existing configs do
+  not break).
+- Startup validation: names must be unique (ignoring case), and each source must
+  be one the program has. A name that is the start of another one is fine,
+  because names match as whole words.
+- The parser returns which source was asked for, and the queue and events carry
+  it. This is the same `source` field that item 1 sketches, so the two should be
+  designed together; this item can be built first with YouTube as the only
+  source.
+- Dashboard and notice text that says "`!v`" must read the configured names
+  from the config instead of assuming one.
+
+**Decided**
+- **Strict.** A command only accepts links of its own source: `!yt` with a
+  TikTok link is rejected as the wrong command, not guessed from the link.
+- **One shared prefix** for all commands (`!yt`, `!vt`), not one per command.
+  Each entry is just a name and a source.
+- **No separate alias feature.** Several words for one source (`!v` and `!yt`
+  both meaning YouTube) are written as several entries with the same source.
+- **The rejection notice names the right command** ("use `!vt` for TikTok
+  links"), read from the same list of commands, not written into the text.
