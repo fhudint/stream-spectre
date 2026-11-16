@@ -52,6 +52,7 @@
   "status.chat.waiting_for_live": "Menunggu @{username} mulai siaran langsung",
   "status.chat.reconnecting": "Menyambung ulang ke chat…",
   "status.chat.disconnected": "Koneksi chat terputus",
-  "error.quota_exceeded": "Kuota YouTube API habis, coba lagi nanti",
+  "error.player_failed": "Video “{title}” gagal diputar (kode {code})",
+  "error.quota_exceeded":"Kuota YouTube API habis, coba lagi nanti",
   "error.youtube_unavailable": "YouTube API tidak bisa dihubungi"
 }

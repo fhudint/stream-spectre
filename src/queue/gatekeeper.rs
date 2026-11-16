@@ -29,6 +29,29 @@ pub enum Denial {
 }
 
 impl Denial {
+    /// Key of this denial's message in the locale catalogs.
+    pub fn i18n_key(&self) -> &'static str {
+        match self {
+            Self::RoleTooLow { .. } => "reject.role_too_low",
+            Self::LevelTooLow => "reject.level_too_low",
+            Self::QueueFull => "reject.queue_full",
+            Self::BlacklistedVideo => "reject.blacklisted_video",
+            Self::BlacklistedChannel => "reject.blacklisted_channel",
+            Self::BlacklistedWord => "reject.blacklisted_word",
+            Self::Cooldown { .. } => "reject.cooldown",
+            Self::Video(rejection) => rejection.i18n_key(),
+        }
+    }
+
+    /// Denials that are everyday noise rather than news for the moderators:
+    /// viewers who may not submit, and viewers who submit too often.
+    pub fn is_silent(&self) -> bool {
+        matches!(
+            self,
+            Self::RoleTooLow { .. } | Self::LevelTooLow | Self::Cooldown { .. }
+        )
+    }
+
     /// Message for the sender or moderators, in the language of `i18n`.
     pub fn message(&self, i18n: &I18n) -> String {
         match self {
@@ -110,6 +133,11 @@ impl Gatekeeper {
 
     pub fn set_blacklist(&mut self, blacklist: Blacklist) {
         self.blacklist = blacklist;
+    }
+
+    /// Whether the sender's role and levels allow submitting at all.
+    pub fn check_sender(&self, sender: &Sender) -> Result<(), Denial> {
+        check_sender(&self.settings, sender)
     }
 
     /// Stage 1, before the YouTube lookup.
@@ -494,6 +522,55 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn keys_exist_in_both_catalogs_and_only_everyday_noise_is_silent() {
+        let denials = [
+            (
+                Denial::RoleTooLow {
+                    min: Role::Follower,
+                },
+                true,
+            ),
+            (Denial::LevelTooLow, true),
+            (
+                Denial::Cooldown {
+                    remaining: Duration::from_secs(1),
+                },
+                true,
+            ),
+            (Denial::QueueFull, false),
+            (Denial::BlacklistedVideo, false),
+            (Denial::BlacklistedChannel, false),
+            (Denial::BlacklistedWord, false),
+            (Denial::Video(Rejection::NotEmbeddable), false),
+            (Denial::Video(Rejection::TooLong { max_secs: 60 }), false),
+        ];
+        for language in [Language::Id, Language::En] {
+            let i18n = I18n::load(language).unwrap();
+            for (denial, silent) in denials {
+                assert_ne!(
+                    i18n.t(denial.i18n_key()),
+                    denial.i18n_key(),
+                    "{denial:?} {language:?}"
+                );
+                assert_eq!(denial.is_silent(), silent, "{denial:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn check_sender_is_available_without_starting_a_cooldown() {
+        let g = gatekeeper(settings());
+        let viewer = Sender::new("v", "Vic", Role::Everyone);
+        assert_eq!(
+            g.check_sender(&viewer),
+            Err(Denial::RoleTooLow {
+                min: Role::Follower
+            })
+        );
+        assert_eq!(g.check_sender(&follower()), Ok(()));
     }
 
     #[test]

@@ -1,6 +1,6 @@
 use std::net::{IpAddr, Ipv4Addr};
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use crate::chat::Role;
 
@@ -17,7 +17,7 @@ pub struct Config {
     pub blacklist: BlacklistConfig,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Language {
     #[default]
@@ -111,7 +111,7 @@ impl Default for YoutubeConfig {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ModerationMode {
     /// Every request waits for approval in the dashboard.
@@ -121,7 +121,7 @@ pub enum ModerationMode {
     Auto,
 }
 
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct ModerationConfig {
     pub mode: ModerationMode,
@@ -169,7 +169,7 @@ impl Default for ModerationConfig {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Default, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Default, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct BlacklistConfig {
     /// YouTube video IDs.

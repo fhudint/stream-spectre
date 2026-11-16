@@ -3,6 +3,7 @@
 //! Seluruh logika berada di library ini supaya mudah diuji;
 //! `main.rs` hanya bootstrap.
 
+pub mod app;
 pub mod chat;
 pub mod cli;
 pub mod command;

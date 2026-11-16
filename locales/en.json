@@ -52,6 +52,7 @@
   "status.chat.waiting_for_live": "Waiting for @{username} to go live",
   "status.chat.reconnecting": "Reconnecting to chat…",
   "status.chat.disconnected": "Chat connection lost",
-  "error.quota_exceeded": "YouTube API quota exhausted, try again later",
+  "error.player_failed": "Video “{title}” failed to play (code {code})",
+  "error.quota_exceeded":"YouTube API quota exhausted, try again later",
   "error.youtube_unavailable": "Cannot reach the YouTube API"
 }
