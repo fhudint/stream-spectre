@@ -167,9 +167,15 @@ address (`#queue`, `#blacklist`, `#rules`, `#overlay`, `#settings`). On a phone
 the menu is at the bottom and the queue page shows the waiting requests, the
 chat and the notices as three tabs.
 
-The avatar at the top right opens the **Account** page (`#account`), with three
-parts: your **TikTok username**, the **YouTube API key** and the **dashboard
-token**.
+The avatar at the top right opens a small menu with two items:
+
+- **Account settings** leads to the **Account** page (`#account`), with three
+  parts: your **TikTok username**, the **YouTube API key** and the **dashboard
+  token**.
+- **Disconnect chat** stops reading the live chat of the running session, so no
+  new video requests arrive; the username stays. The item then reads **Connect
+  chat** to read it again. This only lasts for the current run: after a restart
+  the chat connects by itself. It is not shown while no username is set.
 
 - The username can be set, changed or emptied there, and the program follows it
   **without a restart**: it drops the old chat connection and connects to the

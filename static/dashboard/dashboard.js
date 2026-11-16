@@ -412,6 +412,13 @@
     $('menu-channel').textContent = channel;
     $('menu-channel').classList[channel ? 'remove' : 'add']('hidden');
     $('account-button').setAttribute('aria-label', t('dashboard.account.menu_label') + ': ' + shownName);
+    // Disconnect or connect the chat: only when there is a chat to switch.
+    var chatState = state.chat && typeof state.chat.state === 'string' ? state.chat.state : '';
+    var switchable = chatState !== '' && chatState !== 'not_configured';
+    $('menu-disconnect').classList[switchable ? 'remove' : 'add']('hidden');
+    $('menu-disconnect').textContent = t(
+      chatState === 'paused' ? 'dashboard.account.menu.connect' : 'dashboard.account.menu.disconnect'
+    );
   }
 
   function renderSummary() {
@@ -893,6 +900,15 @@
     // A choice in the menu leads to another page (or part of this one).
     insideMenu = true;
     closeMenu(false);
+  });
+  /* Disconnects the chat, or connects it again, for as long as the program
+   * runs. It is only for this run: after a restart the chat connects by itself. */
+  $('menu-disconnect').addEventListener('click', function () {
+    var wasPaused = state.chat !== null && state.chat.state === 'paused';
+    act('PUT', '/api/chat/connection', { connected: wasPaused }, function (result) {
+      adopt(result.data);
+      flash(t(wasPaused ? 'dashboard.chat.connecting' : 'dashboard.chat.disconnected'));
+    });
   });
   document.addEventListener('click', function () {
     if (!insideMenu) closeMenu(false);

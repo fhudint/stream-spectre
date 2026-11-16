@@ -298,7 +298,18 @@ input[type='range'] { flex: 1; accent-color: var(--accent); min-width: 0; }
   color: var(--text);
 }
 
-.menu a:hover { background: #1f2327; }
+.menu a:hover, .menu button:hover { background: #1f2327; }
+
+.menu button {
+  width: 100%;
+  height: auto;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text);
+  font-weight: 400;
+  text-align: left;
+}
 
 .status-line { font-weight: 500; }
 .hint-warn { padding: 10px 14px; border-radius: 12px; background: var(--warn-bg); color: var(--warn); }

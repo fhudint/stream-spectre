@@ -100,6 +100,7 @@ pub fn router<S: VideoSource + 'static>(state: ServerState<S>, guard: Arc<Guard>
         .route("/api/blacklist", patch(api::blacklist::<S>))
         .route("/api/dashboard", patch(api::dashboard::<S>))
         .route("/api/chat/tiktok", patch(api::tiktok::<S>))
+        .route("/api/chat/connection", put(api::chat_connection::<S>))
         .route("/api/account", get(api::account::<S>))
         .route(
             "/api/account/youtube-key",
@@ -981,6 +982,49 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(emptied["settings"]["chat"]["tiktok"]["username"], "");
+    }
+
+    #[tokio::test]
+    async fn the_chat_is_disconnected_and_connected_from_the_dashboard() {
+        let server = start(None).await;
+        let put = |body: Value| {
+            server
+                .http
+                .put(server.url("/api/chat/connection"))
+                .json(&body)
+                .send()
+        };
+        let off: Value = put(json!({"connected": false}))
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        assert_eq!(off["chat"]["state"], "paused");
+        assert_eq!(off["chat"]["channel"], "streamer");
+
+        let on: Value = put(json!({"connected": true}))
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        assert_eq!(on["chat"]["state"], "reconnecting");
+
+        for bad in [
+            json!({}),
+            json!({"connected": "yes"}),
+            json!({"connected": 1}),
+            json!(["x"]),
+            json!(null),
+        ] {
+            let refused = put(bad.clone()).await.unwrap();
+            assert_eq!(refused.status(), 400, "{bad}");
+            assert_eq!(
+                refused.json::<Value>().await.unwrap()["code"],
+                "bad_request"
+            );
+        }
     }
 
     #[tokio::test]

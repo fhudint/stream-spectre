@@ -138,9 +138,6 @@
   "error.no_api_key": "No YouTube API key is set. Enter one on the Account page to accept video requests.",
   "dashboard.account.title": "Account",
   "dashboard.account.menu_label": "Account menu",
-  "dashboard.account.menu.tiktok": "TikTok username",
-  "dashboard.account.menu.youtube": "YouTube API key",
-  "dashboard.account.menu.token": "Dashboard token",
   "dashboard.account.hint": "The channel and the credentials this program uses. Credentials can only be changed from the computer the program runs on.",
   "dashboard.account.locked": "You are connected from another computer, so you can see what is set but not change it. Open the dashboard on the computer that runs the program to change it.",
   "dashboard.account.youtube.title": "YouTube API key",
@@ -166,5 +163,11 @@
   "dashboard.account.token.title": "Dashboard token",
   "dashboard.account.token.set": "A token protects this dashboard.",
   "dashboard.account.token.unset": "No token is set. The dashboard only accepts connections from this computer.",
-  "dashboard.account.token.hint": "The token is set with DASHBOARD_TOKEN in .env. Making a new one from here will come later."
+  "dashboard.account.token.hint": "The token is set with DASHBOARD_TOKEN in .env. Making a new one from here will come later.",
+  "status.chat.paused": "Chat disconnected. Choose Connect chat in the account menu to read it again.",
+  "dashboard.account.menu.settings": "Account settings",
+  "dashboard.account.menu.disconnect": "Disconnect chat",
+  "dashboard.account.menu.connect": "Connect chat",
+  "dashboard.chat.disconnected": "Chat disconnected",
+  "dashboard.chat.connecting": "Connecting the chat"
 }

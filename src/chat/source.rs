@@ -29,6 +29,8 @@ pub enum ChatStatus {
     Disconnected,
     /// No TikTok username is set, so no chat is being read.
     NoUsername,
+    /// A moderator disconnected the chat from the account menu.
+    Paused,
 }
 
 impl ChatStatus {
@@ -44,6 +46,7 @@ impl ChatStatus {
             Self::Reconnecting { .. } => i18n.t("status.chat.reconnecting").to_owned(),
             Self::Disconnected => i18n.t("status.chat.disconnected").to_owned(),
             Self::NoUsername => i18n.t("status.chat.no_username").to_owned(),
+            Self::Paused => i18n.t("status.chat.paused").to_owned(),
         }
     }
 }
@@ -83,6 +86,7 @@ mod tests {
             },
             ChatStatus::Disconnected,
             ChatStatus::NoUsername,
+            ChatStatus::Paused,
         ];
         for language in [Language::Id, Language::En] {
             let i18n = I18n::load(language).unwrap();

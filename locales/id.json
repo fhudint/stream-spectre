@@ -138,9 +138,6 @@
   "error.no_api_key": "Belum ada API key YouTube. Isi di halaman Akun agar permintaan video bisa diterima.",
   "dashboard.account.title": "Akun",
   "dashboard.account.menu_label": "Menu akun",
-  "dashboard.account.menu.tiktok": "Username TikTok",
-  "dashboard.account.menu.youtube": "API key YouTube",
-  "dashboard.account.menu.token": "Token dashboard",
   "dashboard.account.hint": "Channel dan kredensial yang dipakai program ini. Kredensial hanya bisa diubah dari komputer yang menjalankan program.",
   "dashboard.account.locked": "Kamu tersambung dari komputer lain, jadi bisa melihat apa yang sudah diisi tapi tidak bisa mengubahnya. Buka dashboard di komputer yang menjalankan program untuk mengubahnya.",
   "dashboard.account.youtube.title": "API key YouTube",
@@ -166,5 +163,11 @@
   "dashboard.account.token.title": "Token dashboard",
   "dashboard.account.token.set": "Sebuah token melindungi dashboard ini.",
   "dashboard.account.token.unset": "Tidak ada token. Dashboard hanya menerima sambungan dari komputer ini.",
-  "dashboard.account.token.hint": "Token diatur lewat DASHBOARD_TOKEN di .env. Membuat token baru dari sini akan menyusul."
+  "dashboard.account.token.hint": "Token diatur lewat DASHBOARD_TOKEN di .env. Membuat token baru dari sini akan menyusul.",
+  "status.chat.paused": "Chat diputus. Pilih Sambungkan chat di menu akun untuk membacanya lagi.",
+  "dashboard.account.menu.settings": "Pengaturan akun",
+  "dashboard.account.menu.disconnect": "Putuskan chat",
+  "dashboard.account.menu.connect": "Sambungkan chat",
+  "dashboard.chat.disconnected": "Chat diputus",
+  "dashboard.chat.connecting": "Menyambungkan chat"
 }

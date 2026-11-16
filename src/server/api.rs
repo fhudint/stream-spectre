@@ -181,6 +181,23 @@ pub async fn dashboard<S: VideoSource + 'static>(
     Ok(Json(state.pipeline.hello()))
 }
 
+/// `PUT /api/chat/connection` with `{"connected": true|false}`: disconnects
+/// the chat or connects it again, for as long as the program runs.
+pub async fn chat_connection<S: VideoSource + 'static>(
+    State(state): State<ServerState<S>>,
+    Json(body): Json<Value>,
+) -> ApiResult<Json<Hello>> {
+    let Some(connected) = body.get("connected").and_then(Value::as_bool) else {
+        return Err(ApiError::new(
+            StatusCode::BAD_REQUEST,
+            "the body must be {\"connected\": true or false}",
+        )
+        .coded("bad_request"));
+    };
+    state.pipeline.set_chat_paused(!connected);
+    Ok(Json(state.pipeline.hello()))
+}
+
 /// Credentials can only be changed from the computer the program runs on,
 /// even when the dashboard is opened to the network with a token: a moderator
 /// who has the token can approve videos but not swap the YouTube key.

@@ -122,6 +122,9 @@ pub enum ChatState {
     Disconnected,
     /// No username is set, so nothing is being read.
     NotConfigured,
+    /// A moderator disconnected the chat; it stays so until they connect it
+    /// again (or the program restarts).
+    Paused,
 }
 
 impl From<&ChatStatus> for ChatState {
@@ -132,6 +135,7 @@ impl From<&ChatStatus> for ChatState {
             ChatStatus::Reconnecting { .. } => Self::Reconnecting,
             ChatStatus::Disconnected => Self::Disconnected,
             ChatStatus::NoUsername => Self::NotConfigured,
+            ChatStatus::Paused => Self::Paused,
         }
     }
 }

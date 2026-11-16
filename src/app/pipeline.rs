@@ -70,6 +70,9 @@ struct Inner {
     chat_log: VecDeque<ChatLineView>,
     chat_rate: ChatRate,
     tiktok: TiktokConfig,
+    /// The chat was disconnected from the account menu. Only for this run: it
+    /// is neither saved nor part of the settings.
+    chat_paused: bool,
     stats: StatsView,
     /// The last playback position published, to skip repeats.
     progress: Option<(ItemId, u64)>,
@@ -86,9 +89,11 @@ pub struct Pipeline<S> {
     lookup: VideoLookup<S>,
     i18n: I18n,
     bus: EventBus,
-    /// The TikTok username being read, normalized; empty for none. Changed
-    /// together with `Inner::tiktok`, under its lock.
-    chat_names: watch::Sender<String>,
+    /// What the chat connection should be doing: the TikTok username to read
+    /// (normalized; empty for none) and whether the moderators switched it
+    /// off. Changed together with `Inner::tiktok` and `Inner::chat_paused`,
+    /// under their lock.
+    chat_target: watch::Sender<ChatTarget>,
     inner: Mutex<Inner>,
 }
 
@@ -109,7 +114,11 @@ impl<S: VideoSource> Pipeline<S> {
             lookup,
             i18n,
             bus: EventBus::new(BUS_CAPACITY),
-            chat_names: watch::channel(tiktok.username.clone()).0,
+            chat_target: watch::channel(ChatTarget {
+                username: tiktok.username.clone(),
+                paused: false,
+            })
+            .0,
             inner: Mutex::new(Inner {
                 queue: PlayQueue::new(),
                 gatekeeper: Gatekeeper::new(config.moderation.clone(), blacklist),
@@ -119,6 +128,7 @@ impl<S: VideoSource> Pipeline<S> {
                 chat_log: VecDeque::new(),
                 chat_rate: ChatRate::default(),
                 tiktok,
+                chat_paused: false,
                 stats: StatsView {
                     since_ms: unix_ms(SystemTime::now()),
                     ..StatsView::default()
@@ -169,25 +179,23 @@ impl<S: VideoSource> Pipeline<S> {
         C: ChatSource,
         F: Fn(&str) -> C,
     {
-        let mut names = self.chat_names.subscribe();
+        let mut targets = self.chat_target.subscribe();
         loop {
-            let name = names.borrow_and_update().clone();
-            if name.is_empty() {
-                self.chat_status(&ChatStatus::NoUsername);
-            } else {
-                // Until the new source reports, do not show the old channel.
-                self.chat_status(&ChatStatus::Reconnecting {
-                    retry_in: Duration::ZERO,
-                });
+            let target = targets.borrow_and_update().clone();
+            self.chat_status(&target.waiting_status());
+            if target.should_read() {
                 let changed = async {
-                    let _ = names.changed().await;
+                    let _ = targets.changed().await;
                 };
-                if self.run_chat_until(make_source(&name), changed).await {
+                if self
+                    .run_chat_until(make_source(&target.username), changed)
+                    .await
+                {
                     continue;
                 }
             }
-            // No username, or the source ended for good: wait for a new name.
-            if names.changed().await.is_err() {
+            // Nothing to read, or the source ended for good: wait for a change.
+            if targets.changed().await.is_err() {
                 return;
             }
         }
@@ -444,10 +452,33 @@ impl<S: VideoSource> Pipeline<S> {
             return Ok(());
         }
         inner.tiktok = new.clone();
-        self.chat_names.send_replace(new.username);
+        let paused = inner.chat_paused;
+        self.chat_target.send_replace(ChatTarget {
+            username: new.username,
+            paused,
+        });
         self.bus
             .publish(Event::SettingsUpdated(Self::settings_view(&inner)));
         Ok(())
+    }
+
+    /// Disconnects the chat (`paused`) or connects it again. Only for this
+    /// run: after a restart the chat connects by itself. Saying what is
+    /// already so changes nothing. The chat status is published at once, so
+    /// whoever asked sees the result in the answer.
+    pub fn set_chat_paused(&self, paused: bool) {
+        let mut inner = self.lock();
+        if inner.chat_paused == paused {
+            return;
+        }
+        inner.chat_paused = paused;
+        let target = ChatTarget {
+            username: inner.tiktok.username.clone(),
+            paused,
+        };
+        drop(inner);
+        self.chat_status(&target.waiting_status());
+        self.chat_target.send_replace(target);
     }
 
     // --- reports from the overlay ---
@@ -645,6 +676,32 @@ impl<S: VideoSource> Pipeline<S> {
             text,
             sender: sender.map(|s| s.name.clone()),
         });
+    }
+}
+
+/// What the chat connection should be doing.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ChatTarget {
+    username: String,
+    paused: bool,
+}
+
+impl ChatTarget {
+    fn should_read(&self) -> bool {
+        !self.username.is_empty() && !self.paused
+    }
+
+    /// What to tell the moderators until a connection reports for itself.
+    fn waiting_status(&self) -> ChatStatus {
+        if self.username.is_empty() {
+            ChatStatus::NoUsername
+        } else if self.paused {
+            ChatStatus::Paused
+        } else {
+            ChatStatus::Reconnecting {
+                retry_in: Duration::ZERO,
+            }
+        }
     }
 }
 
@@ -2180,6 +2237,114 @@ mod tests {
             "no new source for an empty name"
         );
         task.abort();
+    }
+
+    fn chat_state(p: &Pipeline<FakeSource>) -> Option<ChatState> {
+        p.hello().chat.map(|c| c.state)
+    }
+
+    #[tokio::test]
+    async fn disconnecting_the_chat_drops_the_source_and_connecting_makes_a_new_one() {
+        let mut cfg = config(|_| {});
+        cfg.chat.tiktok.username = "first".to_owned();
+        let p = Arc::new(pipeline(&cfg));
+        let sources = Sources::default();
+        let task = tokio::spawn({
+            let p = Arc::clone(&p);
+            let make = sources.factory();
+            async move { p.run_chat_sources(make).await }
+        });
+        eventually(|| waiting_videos(&p).len() == 1).await;
+
+        let mut rx = p.subscribe();
+        p.set_chat_paused(true);
+        // The answer is there at once, for whoever asked.
+        let chat = p.hello().chat.unwrap();
+        assert_eq!(chat.state, ChatState::Paused);
+        assert_eq!(chat.channel, "first", "the username is kept");
+        eventually(|| sources.is_dropped(0)).await;
+        assert_eq!(sources.names(), vec!["first"], "no new source while paused");
+        let announced: Vec<_> = drain_all(&mut rx)
+            .into_iter()
+            .filter_map(|e| match &e.event {
+                Event::ChatStatus(view) => Some(view.state),
+                _ => None,
+            })
+            .collect();
+        assert!(announced.contains(&ChatState::Paused), "{announced:?}");
+
+        // Saying it again changes nothing.
+        let before = p.hello().seq;
+        p.set_chat_paused(true);
+        assert_eq!(p.hello().seq, before);
+
+        p.set_chat_paused(false);
+        assert_eq!(chat_state(&p), Some(ChatState::Reconnecting));
+        eventually(|| sources.names() == vec!["first", "first"]).await;
+        eventually(|| waiting_videos(&p).len() == 2).await;
+        assert!(!sources.is_dropped(1));
+        task.abort();
+    }
+
+    #[tokio::test]
+    async fn a_username_changed_while_the_chat_is_disconnected_is_not_read_until_it_is_connected() {
+        let mut cfg = config(|_| {});
+        cfg.chat.tiktok.username = "first".to_owned();
+        let p = Arc::new(pipeline(&cfg));
+        let sources = Sources::default();
+        let task = tokio::spawn({
+            let p = Arc::clone(&p);
+            let make = sources.factory();
+            async move { p.run_chat_sources(make).await }
+        });
+        eventually(|| sources.names().len() == 1).await;
+
+        p.set_chat_paused(true);
+        p.update_tiktok(tiktok("second")).unwrap();
+        eventually(|| p.hello().chat.is_some_and(|c| c.channel == "second")).await;
+        assert_eq!(chat_state(&p), Some(ChatState::Paused));
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        assert_eq!(
+            sources.names(),
+            vec!["first"],
+            "nothing is read while disconnected"
+        );
+
+        p.set_chat_paused(false);
+        eventually(|| sources.names() == vec!["first", "second"]).await;
+        task.abort();
+    }
+
+    #[tokio::test]
+    async fn connecting_without_a_username_still_says_there_is_none() {
+        let mut cfg = config(|_| {});
+        cfg.chat.tiktok.username = String::new();
+        let p = Arc::new(pipeline(&cfg));
+        let sources = Sources::default();
+        let task = tokio::spawn({
+            let p = Arc::clone(&p);
+            let make = sources.factory();
+            async move { p.run_chat_sources(make).await }
+        });
+        eventually(|| chat_state(&p) == Some(ChatState::NotConfigured)).await;
+        p.set_chat_paused(true);
+        assert_eq!(
+            chat_state(&p),
+            Some(ChatState::NotConfigured),
+            "nothing to disconnect"
+        );
+        p.set_chat_paused(false);
+        assert_eq!(chat_state(&p), Some(ChatState::NotConfigured));
+        assert!(sources.names().is_empty());
+        task.abort();
+    }
+
+    #[test]
+    fn a_new_run_starts_connected() {
+        let p = default_pipeline();
+        assert!(!p.lock().chat_paused);
+        assert!(!p.chat_target.borrow().paused);
+        assert_eq!(p.chat_target.borrow().username, "streamer");
     }
 
     #[tokio::test]

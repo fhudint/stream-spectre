@@ -1428,7 +1428,7 @@ const KEY = 'AIzaSyA-1234567890abcdefghijklmnopqrstu';
 const accountRoute = (body) => ({ status: 200, body });
 const menuOpen = (page) => !page.elements['account-menu'].hidden;
 
-test('the avatar opens a menu with the three entries, and closes it again', async () => {
+test('the avatar opens a menu with the settings link and the disconnect item, and closes it again', async () => {
   const page = await ready();
   const button = page.elements['account-button'];
   assert.ok(!menuOpen(page));
@@ -1440,10 +1440,9 @@ test('the avatar opens a menu with the three entries, and closes it again', asyn
   page.click(button);
   assert.ok(menuOpen(page), 'opened');
   assert.equal(button.attrs['aria-expanded'], 'true');
-  assert.deepEqual(
-    ['menu-tiktok', 'menu-youtube', 'menu-token'].map((id) => page.elements[id].textContent),
-    ['TikTok username', 'YouTube API key', 'Dashboard token'],
-  );
+  assert.equal(page.elements['menu-settings'].textContent, 'Account settings');
+  assert.equal(page.elements['menu-disconnect'].textContent, 'Disconnect chat');
+  assert.ok(!page.elements['menu-disconnect'].hidden);
 
   page.click(button);
   assert.ok(!menuOpen(page), 'the button closes it too');
@@ -1465,7 +1464,7 @@ test('the menu closes on a click elsewhere, on Escape (with the focus back on th
   assert.equal(button.attrs['aria-expanded'], 'false');
 
   page.click(button);
-  page.click(page.elements['menu-youtube']);
+  page.click(page.elements['menu-settings']);
   assert.ok(!menuOpen(page), 'a choice');
 
   // Escape with the menu closed is left alone.
@@ -1474,10 +1473,12 @@ test('the menu closes on a click elsewhere, on Escape (with the focus back on th
   assert.ok(!button.focused);
 });
 
-test('the links of the menu lead to the three parts of the account page', () => {
-  for (const [id, href] of [['menu-tiktok', '#account/tiktok'], ['menu-youtube', '#account/youtube'], ['menu-token', '#account/token']]) {
-    assert.match(html, new RegExp(`id="${id}" href="${href}"`));
-  }
+test('the menu has one settings link, to the account page, and no separate entries for each credential', () => {
+  assert.match(html, /id="menu-settings" href="#account"/);
+  for (const gone of ['menu-tiktok', 'menu-youtube', 'menu-token']) assert.ok(!html.includes(`id="${gone}"`), gone);
+  const menu = /<div id="account-menu"[\s\S]*?<\/div>/.exec(html)[0];
+  assert.equal([...menu.matchAll(/<a /g)].length, 1);
+  assert.match(menu, /<button id="menu-disconnect" type="button"/);
 });
 
 test('without a channel the avatar says Account, and still opens the menu', async () => {
@@ -1718,4 +1719,71 @@ test('the key field never lets a browser fill it in or spell-check it', () => {
   assert.match(input, /autocomplete="off"/);
   assert.match(input, /spellcheck="false"/);
   assert.match(input, /maxlength="200"/);
+});
+
+// --- disconnecting the chat from the menu ---
+
+const connectionCalls = (page) => page.log.requests.filter((r) => r.path === '/api/chat/connection');
+
+test('the menu offers to disconnect the chat while it is connected, and sends it', async () => {
+  const page = await ready();
+  assert.ok(!page.elements['menu-disconnect'].hidden);
+  assert.equal(page.elements['menu-disconnect'].textContent, 'Disconnect chat');
+
+  const paused = snapshot({ chat: { state: 'paused', channel: 'streamer', text: 'Chat disconnected. Choose Connect chat in the account menu to read it again.' } });
+  page.table['PUT /api/chat/connection'] = { status: 200, body: paused };
+  page.click(page.elements['account-button']);
+  page.click(page.elements['menu-disconnect']);
+  await settle();
+
+  assert.equal(connectionCalls(page).length, 1);
+  assert.equal(connectionCalls(page)[0].method, 'PUT');
+  assert.deepEqual(connectionCalls(page)[0].body, { connected: false });
+  assert.equal(page.elements.flash.textContent, 'Chat disconnected');
+  assert.ok(!menuOpen(page), 'the menu closes');
+  assert.equal(page.elements['menu-disconnect'].textContent, 'Connect chat');
+  assert.match(page.elements['chat-status'].textContent, /Chat disconnected/);
+  assert.ok(page.elements['chat-status'].classes.has('state-bad'));
+});
+
+test('while it is disconnected the same item connects it again', async () => {
+  const body = snapshot({ chat: { state: 'paused', channel: 'streamer', text: 'Chat disconnected.' } });
+  const page = await ready({ routes: { 'GET /api/state': () => ({ status: 200, body }) } });
+  assert.equal(page.elements['menu-disconnect'].textContent, 'Connect chat');
+
+  const back = snapshot({ chat: { state: 'reconnecting', channel: 'streamer', text: 'Reconnecting to chat…' } });
+  page.table['PUT /api/chat/connection'] = { status: 200, body: back };
+  page.click(page.elements['menu-disconnect']);
+  await settle();
+  assert.deepEqual(connectionCalls(page)[0].body, { connected: true });
+  assert.equal(page.elements.flash.textContent, 'Connecting the chat');
+  assert.equal(page.elements['menu-disconnect'].textContent, 'Disconnect chat');
+});
+
+test('the item follows the chat status as it changes, and is not there with nothing to switch', async () => {
+  const page = await ready();
+  page.socket().receive(envelope(6, 'chat_status', { state: 'paused', channel: 'streamer', text: 'x' }));
+  assert.equal(page.elements['menu-disconnect'].textContent, 'Connect chat');
+  page.socket().receive(envelope(7, 'chat_status', { state: 'waiting_for_live', channel: 'streamer', text: 'y' }));
+  assert.equal(page.elements['menu-disconnect'].textContent, 'Disconnect chat');
+  assert.ok(!page.elements['menu-disconnect'].hidden);
+  page.socket().receive(envelope(8, 'chat_status', { state: 'not_configured', channel: '', text: 'z' }));
+  assert.ok(page.elements['menu-disconnect'].hidden, 'no username: nothing to disconnect');
+
+  const noChat = await ready({ routes: { 'GET /api/state': () => ({ status: 200, body: snapshot({ chat: null }) }) } });
+  assert.ok(noChat.elements['menu-disconnect'].hidden, 'no status known yet');
+});
+
+test('a refused disconnect shows the error and leaves the item as it was', async () => {
+  const page = await ready();
+  page.table['PUT /api/chat/connection'] = { status: 500, body: { error: 'broke' } };
+  page.click(page.elements['menu-disconnect']);
+  await settle();
+  assert.equal(page.elements.error.textContent, 'Request failed: broke');
+  assert.equal(page.elements['menu-disconnect'].textContent, 'Disconnect chat');
+
+  page.table['PUT /api/chat/connection'] = { status: 401, body: { error: 'missing or wrong token' } };
+  page.click(page.elements['menu-disconnect']);
+  await settle();
+  assert.ok(!page.elements.login.hidden);
 });

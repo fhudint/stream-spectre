@@ -259,3 +259,29 @@ is never sent to the browser again afterwards.
   open WebSocket connections (probably closed, so they sign in again).
 - Care when no token was set at all: the program refuses to listen beyond
   loopback without one, so a token must never be removed while it is.
+
+## 9. Several chat sessions at once (for example YouTube Live chat)
+
+**Goal.** Read the chat of more than one platform in the same run, for example
+TikTok Live and YouTube Live, with each one connected or disconnected on its
+own.
+
+**Today.** One chat source runs at a time, chosen by `chat.source` (only
+`tiktok` exists). The `ChatSource` trait and the reconnecting supervisor are
+platform-independent, so another source is an implementation of the trait. The
+account menu's "Disconnect chat" switches that one source off and on; the
+username is the TikTok one.
+
+**What it needs**
+- A decision on how sources are chosen: a list in the config instead of a single
+  `chat.source`, each with its own settings table.
+- The pipeline to run one supervisor per source, and the chat status
+  (`chat_status`, `hello.chat`) to say which source it is about, which is a
+  change to the protocol.
+- "Disconnect chat" to become one switch per source, in the menu or on the
+  account page.
+- The command parser, the sender gate (role and levels) and the cooldowns to
+  work across sources: a viewer's identity on one platform is not the same
+  identity on another.
+- YouTube Live chat has its own rules and quota (the chat API costs quota units),
+  which must be checked before it is built; none of that has been looked at.
