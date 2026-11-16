@@ -133,6 +133,18 @@ the program with a message that names it. Whole tables are stored, so a saved
 table replaces the table in `config.toml` entirely. A failed write is logged and
 shown to the moderators as a notice.
 
+**A YouTube API key can be replaced while the program runs.** `Credentials`
+(in `app`) holds the key saved from the dashboard. Changing it checks the new
+key with one real request, writes it to the secrets file (created readable only
+by its owner, through a temporary file that is renamed, so the key is never in a
+file others can read), and only then switches the client over; `VideoLookup`
+forgets its cache and any quota pause, since they belong to the old key. A key
+YouTube refuses, or a file that cannot be written, leaves everything as it was.
+The key is write-only: the dashboard learns whether a key is set, where it came
+from and its last four characters, never the key. Only a connection from the
+computer the program runs on may change it. With no key at all the program still
+starts and refuses video requests with a notice (`NoApiKey`).
+
 **Secrets stay out of config, URLs and logs.** API keys come from the
 environment or `.env`, are wrapped in a `Secret` type that does not print, and
 are sent to YouTube in the `x-goog-api-key` header rather than the URL.

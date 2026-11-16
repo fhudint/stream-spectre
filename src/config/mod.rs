@@ -19,6 +19,9 @@ pub use model::{
     TiktokConfig, YoutubeConfig,
 };
 pub use paths::{CONFIG_FILE_NAME, ENV_CONFIG_PATH};
+/// A new empty folder under the system temp folder, for tests.
+#[cfg(test)]
+pub(crate) use saved::tests::temp_dir as test_temp_dir;
 pub use saved::{SavedSettings, read as read_saved, saved_path, write as write_saved};
 pub use secrets::{
     ENV_DASHBOARD_TOKEN, ENV_YOUTUBE_API_KEY, KeySource, MIN_DASHBOARD_TOKEN_LEN, Secret, Secrets,

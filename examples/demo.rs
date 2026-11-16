@@ -21,7 +21,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::Context;
-use stream_spectre::app::Pipeline;
+use stream_spectre::app::{Credentials, Pipeline};
 use stream_spectre::chat::{ChatMessage, ChatStatus, Role, Sender};
 use stream_spectre::config::{Config, Secret};
 use stream_spectre::i18n::I18n;
@@ -146,7 +146,18 @@ async fn main() -> anyhow::Result<()> {
         let _ = stop.send(true);
     });
 
-    server::serve(listener, pipeline, token, stopped).await?;
+    // The demo has no real key; anything entered on the Account page goes to a
+    // throwaway file and is never sent anywhere.
+    let credentials = Arc::new(Credentials::new(
+        std::env::temp_dir().join(format!(
+            "stream-spectre-demo-{}.secrets.toml",
+            std::process::id()
+        )),
+        None,
+        None,
+        token.is_some(),
+    ));
+    server::serve(listener, pipeline, credentials, token, stopped).await?;
     let _ = feeder.await;
     Ok(())
 }

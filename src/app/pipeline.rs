@@ -518,6 +518,12 @@ impl<S: VideoSource> Pipeline<S> {
         self.bus.subscribe()
     }
 
+    /// The video source, for tests that need to look at it.
+    #[cfg(test)]
+    pub(crate) fn lookup_source(&self) -> &S {
+        self.lookup.source()
+    }
+
     /// Switches to another YouTube API key (`None`: no key) and forgets what
     /// was learned with the old one: cached answers, and a pause after a quota
     /// or rate limit. A key that cannot be used changes nothing.

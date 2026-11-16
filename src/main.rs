@@ -4,7 +4,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::Context;
-use stream_spectre::app::{Pipeline, SETTLE, autosave};
+use stream_spectre::app::{Credentials, Pipeline, SETTLE, autosave};
 use stream_spectre::chat::tiktok_source;
 use stream_spectre::cli::{self, Command};
 use stream_spectre::config::{self, KeySource, LoadOptions, Loaded};
@@ -62,6 +62,8 @@ async fn serve(loaded: Loaded) -> anyhow::Result<()> {
         saved_path,
         saved_tables,
         api_key_source,
+        secrets_path,
+        env_api_key,
         ..
     } = loaded;
     if config.chat.tiktok.username().is_empty() {
@@ -92,6 +94,17 @@ async fn serve(loaded: Loaded) -> anyhow::Result<()> {
         Duration::from_secs(config.youtube.request_timeout_secs),
     )?;
     let pipeline = Arc::new(Pipeline::new(&config, i18n, youtube)?);
+    let credentials = Arc::new(Credentials::new(
+        secrets_path,
+        env_api_key,
+        // Only a key that came from the secrets file counts as saved.
+        if api_key_source == KeySource::Saved {
+            secrets.youtube_api_key.clone()
+        } else {
+            None
+        },
+        secrets.dashboard_token.is_some(),
+    ));
 
     let address = SocketAddr::new(config.server.bind, config.server.port);
     let listener = TcpListener::bind(address).await.with_context(|| {
@@ -136,7 +149,14 @@ async fn serve(loaded: Loaded) -> anyhow::Result<()> {
         let _ = stop.send(true);
     });
 
-    server::serve(listener, pipeline, secrets.dashboard_token.clone(), stopped).await?;
+    server::serve(
+        listener,
+        pipeline,
+        credentials,
+        secrets.dashboard_token.clone(),
+        stopped,
+    )
+    .await?;
     let _ = chat.await;
     // Writes any change that was still waiting to be saved.
     let _ = saver.await;

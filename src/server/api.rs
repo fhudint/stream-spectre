@@ -1,8 +1,11 @@
 //! The dashboard's JSON API. Every route here needs the token when one is set
-//! (see `guard`). Errors are `{"error": "..."}` with a fitting status.
+//! (see `guard`). Errors are `{"error": "..."}` with a fitting status, and
+//! sometimes a `"code"` for programs to tell them apart.
 
 use axum::Json;
-use axum::extract::{Path, State};
+use std::net::{IpAddr, SocketAddr};
+
+use axum::extract::{ConnectInfo, Path, State};
 use axum::http::{StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use serde::Serialize;
@@ -10,7 +13,7 @@ use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
 
 use super::ServerState;
-use crate::app::Hello;
+use crate::app::{AccountView, CredentialsError, Hello};
 use crate::config::{BlacklistConfig, DashboardConfig, ModerationConfig, TiktokConfig};
 use crate::i18n::catalog_json;
 use crate::queue::{ItemId, QueueError};
@@ -20,6 +23,7 @@ use crate::youtube::VideoSource;
 pub struct ApiError {
     status: StatusCode,
     message: String,
+    code: Option<&'static str>,
 }
 
 impl ApiError {
@@ -27,13 +31,37 @@ impl ApiError {
         Self {
             status,
             message: message.into(),
+            code: None,
         }
+    }
+
+    fn coded(mut self, code: &'static str) -> Self {
+        self.code = Some(code);
+        self
     }
 }
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
-        (self.status, Json(json!({ "error": self.message }))).into_response()
+        let mut body = json!({ "error": self.message });
+        if let Some(code) = self.code {
+            body["code"] = json!(code);
+        }
+        (self.status, Json(body)).into_response()
+    }
+}
+
+impl From<CredentialsError> for ApiError {
+    fn from(error: CredentialsError) -> Self {
+        let status = match error {
+            CredentialsError::Empty | CredentialsError::BadFormat | CredentialsError::Rejected => {
+                StatusCode::BAD_REQUEST
+            }
+            CredentialsError::CannotCheck(_) => StatusCode::BAD_GATEWAY,
+            CredentialsError::NotSaved(_) => StatusCode::INTERNAL_SERVER_ERROR,
+        };
+        // The message never holds the key: see `CredentialsError`.
+        Self::new(status, error.to_string()).coded(error.code())
     }
 }
 
@@ -151,6 +179,78 @@ pub async fn dashboard<S: VideoSource + 'static>(
         .update_dashboard(updated)
         .map_err(|error| ApiError::new(StatusCode::BAD_REQUEST, error.to_string()))?;
     Ok(Json(state.pipeline.hello()))
+}
+
+/// Credentials can only be changed from the computer the program runs on,
+/// even when the dashboard is opened to the network with a token: a moderator
+/// who has the token can approve videos but not swap the YouTube key.
+pub fn may_change_credentials(peer: IpAddr) -> bool {
+    peer.to_canonical().is_loopback()
+}
+
+fn only_here(peer: SocketAddr) -> Result<(), ApiError> {
+    if may_change_credentials(peer.ip()) {
+        Ok(())
+    } else {
+        Err(ApiError::new(
+            StatusCode::FORBIDDEN,
+            "credentials can only be changed from the computer the program runs on",
+        )
+        .coded("loopback_only"))
+    }
+}
+
+fn account_body(view: &AccountView, peer: SocketAddr) -> Value {
+    let mut body = serde_json::to_value(view).unwrap_or_else(|_| json!({}));
+    body["editable"] = json!(may_change_credentials(peer.ip()));
+    body
+}
+
+/// `GET /api/account`: what is set (never the secrets themselves), and
+/// whether this connection may change it.
+pub async fn account<S: VideoSource + 'static>(
+    State(state): State<ServerState<S>>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+) -> Json<Value> {
+    Json(account_body(&state.credentials.status().await, peer))
+}
+
+/// `PUT /api/account/youtube-key` with `{"key": "..."}`: checks the key with
+/// one YouTube request, saves it and starts using it.
+pub async fn set_youtube_key<S: VideoSource + 'static>(
+    State(state): State<ServerState<S>>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    Json(body): Json<Value>,
+) -> ApiResult<Json<Value>> {
+    only_here(peer)?;
+    let Some(key) = body.get("key").and_then(Value::as_str) else {
+        return Err(ApiError::new(
+            StatusCode::BAD_REQUEST,
+            "the body must be {\"key\": \"...\"}",
+        )
+        .coded("bad_request"));
+    };
+    let (checked, view) = state
+        .credentials
+        .set_youtube_key(&state.pipeline, key)
+        .await?;
+    let mut body = account_body(&view, peer);
+    body["checked"] = json!(checked);
+    Ok(Json(body))
+}
+
+/// `DELETE /api/account/youtube-key`: forgets the saved key and goes back to
+/// the one in the environment, if there is one.
+pub async fn remove_youtube_key<S: VideoSource + 'static>(
+    State(state): State<ServerState<S>>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+) -> ApiResult<Json<Value>> {
+    only_here(peer)?;
+    let view = state
+        .credentials
+        .remove_saved_youtube_key(&state.pipeline)
+        .await?;
+    Ok(Json(account_body(&view, peer)))
 }
 
 /// `PATCH /api/chat/tiktok`: changes the TikTok username (`username`; empty

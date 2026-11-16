@@ -26,11 +26,11 @@ use std::time::Duration;
 use axum::Router;
 use axum::extract::DefaultBodyLimit;
 use axum::middleware;
-use axum::routing::{get, patch, post};
+use axum::routing::{get, patch, post, put};
 use tokio::net::TcpListener;
 use tokio::sync::watch;
 
-use crate::app::Pipeline;
+use crate::app::{Credentials, Pipeline};
 use crate::config::Secret;
 use crate::youtube::VideoSource;
 
@@ -61,6 +61,7 @@ const SHUTDOWN_GRACE: Duration = Duration::from_secs(5);
 /// Shared by all handlers.
 pub struct ServerState<S> {
     pub(crate) pipeline: Arc<Pipeline<S>>,
+    pub(crate) credentials: Arc<Credentials>,
     pub(crate) shutdown: watch::Receiver<bool>,
     pub(crate) connections: Arc<AtomicUsize>,
 }
@@ -69,6 +70,7 @@ impl<S> Clone for ServerState<S> {
     fn clone(&self) -> Self {
         Self {
             pipeline: Arc::clone(&self.pipeline),
+            credentials: Arc::clone(&self.credentials),
             shutdown: self.shutdown.clone(),
             connections: Arc::clone(&self.connections),
         }
@@ -98,6 +100,11 @@ pub fn router<S: VideoSource + 'static>(state: ServerState<S>, guard: Arc<Guard>
         .route("/api/blacklist", patch(api::blacklist::<S>))
         .route("/api/dashboard", patch(api::dashboard::<S>))
         .route("/api/chat/tiktok", patch(api::tiktok::<S>))
+        .route("/api/account", get(api::account::<S>))
+        .route(
+            "/api/account/youtube-key",
+            put(api::set_youtube_key::<S>).delete(api::remove_youtube_key::<S>),
+        )
         .layer(DefaultBodyLimit::max(MAX_BODY_BYTES))
         .layer(middleware::from_fn_with_state(guard, guard::gate))
         .with_state(state)
@@ -110,6 +117,7 @@ pub fn router<S: VideoSource + 'static>(state: ServerState<S>, guard: Arc<Guard>
 pub async fn serve<S: VideoSource + 'static>(
     listener: TcpListener,
     pipeline: Arc<Pipeline<S>>,
+    credentials: Arc<Credentials>,
     token: Option<Secret>,
     shutdown: watch::Receiver<bool>,
 ) -> io::Result<()> {
@@ -117,13 +125,18 @@ pub async fn serve<S: VideoSource + 'static>(
     let guard = Arc::new(Guard::new(token.as_ref(), local.ip(), local.port()));
     let state = ServerState {
         pipeline,
+        credentials,
         shutdown: shutdown.clone(),
         connections: Arc::new(AtomicUsize::new(0)),
     };
     let app = router(state, guard);
 
     let mut graceful = shutdown.clone();
-    let server = axum::serve(listener, app).with_graceful_shutdown(async move {
+    let server = axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .with_graceful_shutdown(async move {
         let _ = graceful.wait_for(|stop| *stop).await;
     });
 
@@ -176,9 +189,31 @@ mod tests {
     const ID_A: &str = "aaaaaaaaaaa";
     const ID_B: &str = "bbbbbbbbbbb";
 
-    struct TestVideos;
+    /// Finds every video, and lets a test decide whether a YouTube API key is
+    /// accepted and see which keys were put to use.
+    #[derive(Default)]
+    struct TestVideos {
+        verdict: std::sync::Mutex<Option<YoutubeError>>,
+        used: std::sync::Mutex<Vec<Option<String>>>,
+    }
 
     impl VideoSource for TestVideos {
+        fn set_api_key(&self, key: Option<&Secret>) -> Result<(), YoutubeError> {
+            self.used
+                .lock()
+                .unwrap()
+                .push(key.map(|k| k.expose().to_owned()));
+            Ok(())
+        }
+
+        fn check_api_key(
+            &self,
+            _key: &Secret,
+        ) -> impl std::future::Future<Output = Result<(), YoutubeError>> + Send {
+            let verdict = self.verdict.lock().unwrap().clone();
+            async move { verdict.map_or(Ok(()), Err) }
+        }
+
         async fn fetch(&self, id: &VideoId) -> Result<Option<VideoDetails>, YoutubeError> {
             Ok(Some(VideoDetails {
                 id: id.clone(),
@@ -196,6 +231,8 @@ mod tests {
     struct Running {
         addr: SocketAddr,
         pipeline: Arc<Pipeline<TestVideos>>,
+        credentials: Arc<Credentials>,
+        secrets_path: std::path::PathBuf,
         stop: watch::Sender<bool>,
         task: JoinHandle<io::Result<()>>,
         http: reqwest::Client,
@@ -223,14 +260,27 @@ mod tests {
         config.general.language = Language::En;
         config.moderation.cooldown_secs = 0;
         let pipeline = Arc::new(
-            Pipeline::new(&config, I18n::load(Language::En).unwrap(), TestVideos).unwrap(),
+            Pipeline::new(
+                &config,
+                I18n::load(Language::En).unwrap(),
+                TestVideos::default(),
+            )
+            .unwrap(),
         );
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
         let (stop, rx) = watch::channel(false);
+        let secrets_path = crate::config::test_temp_dir("server").join("config.secrets.toml");
+        let credentials = Arc::new(Credentials::new(
+            secrets_path.clone(),
+            None,
+            None,
+            token.is_some(),
+        ));
         let task = tokio::spawn(serve(
             listener,
             Arc::clone(&pipeline),
+            Arc::clone(&credentials),
             token.map(Secret::new),
             rx,
         ));
@@ -242,6 +292,8 @@ mod tests {
         Running {
             addr,
             pipeline,
+            credentials,
+            secrets_path,
             stop,
             task,
             http,
@@ -612,6 +664,263 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(bad.status(), 400);
+    }
+
+    // --- the account: credentials changed from the dashboard ---
+
+    const GOOD_KEY: &str = "AIzaSyA-1234567890abcdefghijklmnopqrstu";
+
+    async fn put_key(server: &Running, body: Value) -> reqwest::Response {
+        server
+            .http
+            .put(server.url("/api/account/youtube-key"))
+            .json(&body)
+            .send()
+            .await
+            .unwrap()
+    }
+
+    fn keys_used(server: &Running) -> Vec<Option<String>> {
+        server.pipeline.lookup_source().used.lock().unwrap().clone()
+    }
+
+    #[tokio::test]
+    async fn the_account_says_what_is_set_and_never_the_secrets() {
+        let server = start(None).await;
+        let body: Value = server
+            .http
+            .get(server.url("/api/account"))
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        assert_eq!(
+            body,
+            json!({
+                "youtube_key": {"set": false, "source": "none", "last4": null},
+                "dashboard_token": {"set": false},
+                "editable": true
+            })
+        );
+        let protected = start(Some(TOKEN)).await;
+        let with_token: Value = protected
+            .http
+            .get(protected.url("/api/account"))
+            .bearer_auth(TOKEN)
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        assert_eq!(with_token["dashboard_token"], json!({"set": true}));
+        assert!(!with_token.to_string().contains(TOKEN));
+        // Like every API route, it needs the token when one is set.
+        let refused = protected
+            .http
+            .get(protected.url("/api/account"))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(refused.status(), 401);
+    }
+
+    #[tokio::test]
+    async fn a_good_key_is_saved_privately_used_at_once_and_never_sent_back() {
+        let server = start(None).await;
+        let response = put_key(&server, json!({"key": format!(" {GOOD_KEY} ")})).await;
+        assert_eq!(response.status(), 200);
+        let text = response.text().await.unwrap();
+        assert!(!text.contains(GOOD_KEY), "the key was sent back: {text}");
+        let body: Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(body["checked"], "valid");
+        assert_eq!(
+            body["youtube_key"],
+            json!({"set": true, "source": "saved", "last4": "rstu"})
+        );
+
+        assert_eq!(keys_used(&server), vec![Some(GOOD_KEY.to_owned())]);
+        let on_disk = std::fs::read_to_string(&server.secrets_path).unwrap();
+        assert!(on_disk.contains(GOOD_KEY));
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(&server.secrets_path)
+                .unwrap()
+                .permissions()
+                .mode();
+            assert_eq!(mode & 0o777, 0o600);
+        }
+
+        // Nothing a dashboard can read holds the key.
+        for path in ["/api/account", "/api/state", "/api/i18n"] {
+            let text = server
+                .http
+                .get(server.url(path))
+                .send()
+                .await
+                .unwrap()
+                .text()
+                .await
+                .unwrap();
+            assert!(!text.contains(GOOD_KEY), "{path} leaks the key");
+        }
+        let mut dashboard = connect(&server, "/ws/dashboard", None).await.unwrap();
+        let hello = next_json(&mut dashboard).await;
+        assert!(!hello.to_string().contains(GOOD_KEY));
+    }
+
+    #[tokio::test]
+    async fn a_key_youtube_refuses_or_that_cannot_be_checked_is_not_kept() {
+        let server = start(None).await;
+        *server.pipeline.lookup_source().verdict.lock().unwrap() =
+            Some(YoutubeError::InvalidApiKey);
+        let refused = put_key(&server, json!({"key": GOOD_KEY})).await;
+        assert_eq!(refused.status(), 400);
+        let body: Value = refused.json().await.unwrap();
+        assert_eq!(body["code"], "key_rejected");
+        assert!(!body.to_string().contains(GOOD_KEY));
+
+        *server.pipeline.lookup_source().verdict.lock().unwrap() =
+            Some(YoutubeError::Network("timeout"));
+        let offline = put_key(&server, json!({"key": GOOD_KEY})).await;
+        assert_eq!(offline.status(), 502);
+        assert_eq!(
+            offline.json::<Value>().await.unwrap()["code"],
+            "cannot_check"
+        );
+
+        assert!(!server.secrets_path.exists());
+        assert!(keys_used(&server).is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_key_that_hit_the_quota_limit_is_saved_with_a_note() {
+        let server = start(None).await;
+        *server.pipeline.lookup_source().verdict.lock().unwrap() =
+            Some(YoutubeError::QuotaExceeded);
+        let body: Value = put_key(&server, json!({"key": GOOD_KEY}))
+            .await
+            .json()
+            .await
+            .unwrap();
+        assert_eq!(body["checked"], "quota_exhausted");
+        assert_eq!(body["youtube_key"]["set"], true);
+    }
+
+    #[tokio::test]
+    async fn bad_requests_for_a_key_are_refused_with_a_code() {
+        let server = start(None).await;
+        for (body, code) in [
+            (json!({}), "bad_request"),
+            (json!({"key": 5}), "bad_request"),
+            (json!(["x"]), "bad_request"),
+            (json!({"key": ""}), "key_empty"),
+            (json!({"key": "  "}), "key_empty"),
+            (json!({"key": "has space"}), "key_bad_format"),
+            (json!({"key": "line\nbreak"}), "key_bad_format"),
+            (json!({"key": "x".repeat(500)}), "key_bad_format"),
+        ] {
+            let response = put_key(&server, body.clone()).await;
+            assert_eq!(response.status(), 400, "{body}");
+            assert_eq!(
+                response.json::<Value>().await.unwrap()["code"],
+                code,
+                "{body}"
+            );
+        }
+        assert!(!server.secrets_path.exists());
+        assert!(keys_used(&server).is_empty());
+    }
+
+    #[tokio::test]
+    async fn the_saved_key_can_be_removed() {
+        let server = start(None).await;
+        put_key(&server, json!({"key": GOOD_KEY})).await;
+        let response = server
+            .http
+            .delete(server.url("/api/account/youtube-key"))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), 200);
+        let body: Value = response.json().await.unwrap();
+        assert_eq!(body["youtube_key"]["set"], false);
+        assert_eq!(keys_used(&server).last(), Some(&None));
+        assert!(
+            !std::fs::read_to_string(&server.secrets_path)
+                .unwrap()
+                .contains(GOOD_KEY)
+        );
+    }
+
+    #[test]
+    fn only_connections_from_this_computer_may_change_credentials() {
+        use std::net::IpAddr;
+        for allowed in ["127.0.0.1", "127.9.9.9", "::1", "::ffff:127.0.0.1"] {
+            let ip: IpAddr = allowed.parse().unwrap();
+            assert!(api::may_change_credentials(ip), "{allowed}");
+        }
+        for refused in [
+            "192.168.1.5",
+            "10.0.0.2",
+            "8.8.8.8",
+            "0.0.0.0",
+            "::",
+            "fe80::1",
+            "2001:db8::1",
+            "::ffff:192.168.1.5",
+        ] {
+            let ip: IpAddr = refused.parse().unwrap();
+            assert!(!api::may_change_credentials(ip), "{refused}");
+        }
+    }
+
+    #[tokio::test]
+    async fn a_connection_from_the_network_may_look_but_not_change() {
+        use axum::extract::{ConnectInfo, State};
+        use axum::response::IntoResponse;
+
+        let server = start(Some(TOKEN)).await;
+        let state = ServerState {
+            pipeline: Arc::clone(&server.pipeline),
+            credentials: Arc::clone(&server.credentials),
+            shutdown: server.stop.subscribe(),
+            connections: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+        };
+        let lan: SocketAddr = "192.168.1.5:50000".parse().unwrap();
+
+        let view = api::account(State(state.clone()), ConnectInfo(lan)).await;
+        assert_eq!(view.0["editable"], false);
+        assert_eq!(view.0["dashboard_token"], json!({"set": true}));
+
+        let refused = api::set_youtube_key(
+            State(state.clone()),
+            ConnectInfo(lan),
+            axum::Json(json!({"key": GOOD_KEY})),
+        )
+        .await
+        .unwrap_err()
+        .into_response();
+        assert_eq!(refused.status(), 403);
+        let body = axum::body::to_bytes(refused.into_body(), 4096)
+            .await
+            .unwrap();
+        let body: Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(body["code"], "loopback_only");
+        assert!(!body.to_string().contains(GOOD_KEY));
+
+        let refused = api::remove_youtube_key(State(state), ConnectInfo(lan))
+            .await
+            .unwrap_err()
+            .into_response();
+        assert_eq!(refused.status(), 403);
+
+        // Nothing happened: no check, no file, no key switched.
+        assert!(!server.secrets_path.exists());
+        assert!(keys_used(&server).is_empty());
     }
 
     #[tokio::test]
