@@ -8,7 +8,7 @@ mod pipeline;
 
 pub use bus::EventBus;
 pub use events::{
-    ChatState, ChatStatusView, Envelope, Event, Hello, ItemView, NoticeLevel, OverlayMessage,
-    PROTOCOL_VERSION, QueueView, SenderView, SettingsView, SkipReason, unix_ms,
+    ChatLineView, ChatState, ChatStatusView, Envelope, Event, Hello, ItemView, NoticeLevel,
+    OverlayMessage, PROTOCOL_VERSION, QueueView, SenderView, SettingsView, SkipReason, unix_ms,
 };
 pub use pipeline::Pipeline;

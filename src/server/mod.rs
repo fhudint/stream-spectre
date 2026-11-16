@@ -81,6 +81,7 @@ pub fn router<S: VideoSource + 'static>(state: ServerState<S>, guard: Arc<Guard>
         .route("/api/queue/{id}/reject", post(api::reject::<S>))
         .route("/api/settings", patch(api::settings::<S>))
         .route("/api/blacklist", patch(api::blacklist::<S>))
+        .route("/api/dashboard", patch(api::dashboard::<S>))
         .layer(DefaultBodyLimit::max(MAX_BODY_BYTES))
         .layer(middleware::from_fn_with_state(guard, guard::gate))
         .with_state(state)
@@ -550,6 +551,47 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn the_chat_history_setting_is_patched_and_checked() {
+        let server = start(None).await;
+        let patch = |body: Value| {
+            server
+                .http
+                .patch(server.url("/api/dashboard"))
+                .json(&body)
+                .send()
+        };
+
+        let updated: Value = patch(json!({"chat_history": 5}))
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        assert_eq!(updated["settings"]["dashboard"]["chat_history"], 5);
+
+        for bad in [
+            json!({"chat_history": 100_000}),
+            json!({"chat_history": -1}),
+            json!({"chat_history": "many"}),
+            json!({"history": 5}),
+            json!([5]),
+        ] {
+            let refused = patch(bad.clone()).await.unwrap();
+            assert_eq!(refused.status(), 400, "{bad}");
+        }
+        let state: Value = server
+            .http
+            .get(server.url("/api/state"))
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        assert_eq!(state["settings"]["dashboard"]["chat_history"], 5);
+    }
+
+    #[tokio::test]
     async fn the_ui_texts_are_available_in_the_configured_language() {
         let server = start(None).await;
         let texts: Value = server
@@ -637,9 +679,14 @@ mod tests {
         assert_eq!(hello["data"]["seq"].as_u64().unwrap(), hello_seq);
 
         server.submit(2, ID_B).await;
+        let line = next_json(&mut ws).await;
+        assert_eq!(line["type"], "chat_message");
+        assert_eq!(line["seq"].as_u64().unwrap(), hello_seq + 1);
+        assert_eq!(line["data"]["name"], "Viewer 2");
+        assert_eq!(line["data"]["command"], true);
         let update = next_json(&mut ws).await;
         assert_eq!(update["type"], "queue_updated");
-        assert_eq!(update["seq"].as_u64().unwrap(), hello_seq + 1);
+        assert_eq!(update["seq"].as_u64().unwrap(), hello_seq + 2);
         assert_eq!(update["data"]["pending"].as_array().unwrap().len(), 2);
 
         server.pipeline.set_volume(10);
@@ -673,6 +720,8 @@ mod tests {
         assert_eq!(play["type"], "play");
         assert_eq!(play["data"]["item"]["video_id"], ID_A);
         assert_eq!(play["data"]["volume"], 50);
+        // Chat is for moderators only: nothing reaches the overlay.
+        server.submit(2, ID_B).await;
         expect_silence(&mut ws).await;
     }
 

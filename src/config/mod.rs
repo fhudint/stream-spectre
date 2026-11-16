@@ -12,8 +12,9 @@ use std::path::{Path, PathBuf};
 
 pub use error::ConfigError;
 pub use model::{
-    BlacklistConfig, ChatConfig, ChatSourceKind, CommandConfig, Config, GeneralConfig, Language,
-    ModerationConfig, ModerationMode, ServerConfig, TiktokConfig, YoutubeConfig,
+    BlacklistConfig, ChatConfig, ChatSourceKind, CommandConfig, Config, DashboardConfig,
+    GeneralConfig, Language, MAX_CHAT_HISTORY, ModerationConfig, ModerationMode, ServerConfig,
+    TiktokConfig, YoutubeConfig,
 };
 pub use paths::{CONFIG_FILE_NAME, ENV_CONFIG_PATH};
 pub use secrets::{
@@ -126,6 +127,15 @@ mod tests {
         assert_eq!(c.command.prefix, "!");
         assert_eq!(c.command.name, "v");
         assert_eq!(c.general.language, Language::Id);
+        assert_eq!(c.dashboard.chat_history, 20);
+    }
+
+    #[test]
+    fn dashboard_table_is_read_and_checked() {
+        let c = parse_str("[dashboard]\nchat_history = 50").unwrap();
+        assert_eq!(c.dashboard.chat_history, 50);
+        assert!(parse_str("[dashboard]\nchat_history = -1").is_err());
+        assert!(parse_str("[dashboard]\nhistory = 5").is_err());
     }
 
     #[test]

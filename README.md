@@ -33,8 +33,9 @@ for what plays on your stream.
   and fan club level, per-viewer cooldown, maximum duration, queue length limit,
   blacklist (video IDs, channel names, words in the title), skip button, and a
   volume limit.
-- A dashboard for moderators and a transparent overlay page for OBS, both
-  served by the same single binary. No installation of Node or a web server.
+- A dashboard for moderators (approval queue, settings, and a live view of the
+  chat with video requests highlighted) and a transparent overlay page for OBS,
+  both served by the same single binary. No installation of Node or a web server.
 - Dashboard and overlay in English or Indonesian.
 - Chat sources sit behind a trait, so Twitch or YouTube Live chat can be added
   later. TikTok Live is the only one for now.
@@ -175,6 +176,10 @@ trust, not across the internet.
   it has not been checked yet.
 - **Settings are in memory.** Changes made in the dashboard last until the
   program restarts.
+- **Chat is not stored.** The dashboard's chat view shows what arrives while it
+  is open, plus the last few messages the program remembers in memory (20 by
+  default, `chat_history` in `config.toml`). At most 20 messages per second are
+  shown; video requests are still handled when chat is faster than that.
 - **Windows and macOS** are built in CI but have not been tested by hand.
 
 ## For developers

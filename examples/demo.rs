@@ -40,6 +40,14 @@ const VIDEOS: [&str; 5] = [
 
 const VIEWERS: [&str; 4] = ["Budi", "Sari", "Dewi", "Agus"];
 
+/// Ordinary chat, so the dashboard's chat view has something besides requests.
+const SMALL_TALK: [&str; 4] = [
+    "hello from the demo",
+    "great stream!",
+    "what is this song?",
+    "first time here",
+];
+
 /// Answers every ID with an ordinary three-minute video.
 struct DemoVideos;
 
@@ -70,8 +78,20 @@ async fn request(pipeline: &Pipeline<DemoVideos>, round: usize) {
         .await;
 }
 
+async fn chatter(pipeline: &Pipeline<DemoVideos>, round: usize) {
+    let viewer = VIEWERS[(round + 1) % VIEWERS.len()];
+    let sender = Sender::new(format!("demo-{viewer}"), viewer, Role::Everyone);
+    pipeline
+        .handle_chat(ChatMessage {
+            sender,
+            text: SMALL_TALK[round % SMALL_TALK.len()].to_owned(),
+        })
+        .await;
+}
+
 async fn feed_chat(pipeline: Arc<Pipeline<DemoVideos>>, mut stopped: watch::Receiver<bool>) {
     for round in 0..3 {
+        chatter(&pipeline, round).await;
         request(&pipeline, round).await;
     }
     let mut round = 3;
@@ -80,6 +100,7 @@ async fn feed_chat(pipeline: Arc<Pipeline<DemoVideos>>, mut stopped: watch::Rece
         tokio::select! {
             () = async { let _ = stopped.wait_for(|stop| *stop).await; } => return,
             _ = tick.tick() => {
+                chatter(&pipeline, round).await;
                 request(&pipeline, round).await;
                 round += 1;
             }

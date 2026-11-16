@@ -1,3 +1,4 @@
+use std::collections::VecDeque;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant, SystemTime};
 
@@ -5,14 +6,15 @@ use tokio::sync::broadcast;
 
 use super::bus::EventBus;
 use super::events::{
-    ChatState, ChatStatusView, Envelope, Event, Hello, ItemView, NoticeLevel, QueueView,
-    SettingsView, SkipReason,
+    ChatLineView, ChatState, ChatStatusView, Envelope, Event, Hello, ItemView, NoticeLevel,
+    QueueView, SettingsView, SkipReason,
 };
 use crate::chat::{ChatEvent, ChatMessage, ChatSource, ChatStatus, Sender};
 use crate::command::{CommandParser, Parsed};
-use crate::config::{BlacklistConfig, Config, ConfigError, ModerationConfig};
+use crate::config::{BlacklistConfig, Config, ConfigError, DashboardConfig, ModerationConfig};
 use crate::i18n::I18n;
 use crate::queue::{Blacklist, Denial, Gatekeeper, ItemId, PlayQueue, QueueError};
+use crate::text::sanitize_text;
 use crate::youtube::{Rejection, VideoLookup, VideoSource};
 
 /// Events kept for slow clients before they are told they lagged.
@@ -21,11 +23,48 @@ const BUS_CAPACITY: usize = 256;
 /// Longest player error code accepted from the overlay.
 const MAX_ERROR_CODE_LEN: usize = 16;
 
+/// Chat messages let onto the event stream per `CHAT_RATE_WINDOW`. The rest
+/// are still handled as commands but not shown, so a flood of chat cannot
+/// crowd out the events that matter.
+const CHAT_RATE_LIMIT: u32 = 20;
+const CHAT_RATE_WINDOW: Duration = Duration::from_secs(1);
+
+/// Counts chat messages per window and the ones turned away.
+#[derive(Default)]
+struct ChatRate {
+    window_start: Option<Instant>,
+    in_window: u32,
+    skipped: u32,
+}
+
+impl ChatRate {
+    /// `Some(n)` when the message may be shown, where `n` is how many were
+    /// turned away since the last one that was; `None` when it may not.
+    fn admit(&mut self, now: Instant) -> Option<u32> {
+        let expired = self
+            .window_start
+            .is_none_or(|start| now.saturating_duration_since(start) >= CHAT_RATE_WINDOW);
+        if expired {
+            self.window_start = Some(now);
+            self.in_window = 0;
+        }
+        if self.in_window >= CHAT_RATE_LIMIT {
+            self.skipped = self.skipped.saturating_add(1);
+            return None;
+        }
+        self.in_window += 1;
+        Some(std::mem::take(&mut self.skipped))
+    }
+}
+
 struct Inner {
     queue: PlayQueue,
     gatekeeper: Gatekeeper,
     blacklist: BlacklistConfig,
+    dashboard: DashboardConfig,
     chat: Option<ChatStatusView>,
+    chat_log: VecDeque<ChatLineView>,
+    chat_rate: ChatRate,
 }
 
 /// Connects chat, YouTube lookups, moderation and the play queue, and
@@ -46,6 +85,7 @@ pub struct Pipeline<S> {
 impl<S: VideoSource> Pipeline<S> {
     pub fn new(config: &Config, i18n: I18n, video_source: S) -> Result<Self, ConfigError> {
         config.moderation.validate()?;
+        config.dashboard.validate()?;
         let blacklist = Blacklist::from_config(&config.blacklist)?;
         let lookup = VideoLookup::new(
             video_source,
@@ -62,7 +102,10 @@ impl<S: VideoSource> Pipeline<S> {
                 queue: PlayQueue::new(),
                 gatekeeper: Gatekeeper::new(config.moderation.clone(), blacklist),
                 blacklist: config.blacklist.clone(),
+                dashboard: config.dashboard.clone(),
                 chat: None,
+                chat_log: VecDeque::new(),
+                chat_rate: ChatRate::default(),
             }),
         })
     }
@@ -88,7 +131,10 @@ impl<S: VideoSource> Pipeline<S> {
     async fn handle_chat_at(&self, message: ChatMessage, now: Instant) {
         let ChatMessage { sender, text } = message;
 
-        let video_id = match self.parser.parse(&text) {
+        let parsed = self.parser.parse(&text);
+        self.show_chat(&sender, &text, !matches!(parsed, Parsed::NotACommand), now);
+
+        let video_id = match parsed {
             Parsed::NotACommand => return,
             Parsed::Invalid(_) => {
                 // Only worth telling the moderators when the sender could
@@ -174,6 +220,32 @@ impl<S: VideoSource> Pipeline<S> {
         if let Err(denial) = outcome {
             self.deny(&sender, denial);
         }
+    }
+
+    /// Shows a chat message on the dashboard, within the rate limit, and
+    /// remembers it for dashboards that open later.
+    fn show_chat(&self, sender: &Sender, text: &str, command: bool, now: Instant) {
+        let text = sanitize_text(text);
+        if text.is_empty() {
+            return;
+        }
+        let mut inner = self.lock();
+        let Some(skipped) = inner.chat_rate.admit(now) else {
+            return;
+        };
+        let line = ChatLineView {
+            name: sanitize_text(&sender.name),
+            role: sender.role,
+            text,
+            command,
+            skipped,
+        };
+        if inner.dashboard.chat_history > 0 {
+            inner.chat_log.push_back(line.clone());
+            let keep = inner.dashboard.chat_history;
+            trim_front(&mut inner.chat_log, keep);
+        }
+        self.bus.publish(Event::ChatMessage(line));
     }
 
     /// Records and publishes a change in the chat connection.
@@ -264,6 +336,18 @@ impl<S: VideoSource> Pipeline<S> {
         Ok(())
     }
 
+    /// Replaces the dashboard settings. Invalid values are refused and
+    /// nothing changes. Remembered chat beyond the new limit is forgotten.
+    pub fn update_dashboard(&self, new: DashboardConfig) -> Result<(), ConfigError> {
+        new.validate()?;
+        let mut inner = self.lock();
+        trim_front(&mut inner.chat_log, new.chat_history);
+        inner.dashboard = new;
+        self.bus
+            .publish(Event::SettingsUpdated(Self::settings_view(&inner)));
+        Ok(())
+    }
+
     // --- reports from the overlay ---
 
     /// The overlay finished playing `id`. A stale ID is an error and changes
@@ -322,6 +406,7 @@ impl<S: VideoSource> Pipeline<S> {
             volume: inner.gatekeeper.settings().volume,
             queue: QueueView::from(&inner.queue.snapshot()),
             chat: inner.chat.clone(),
+            chat_log: inner.chat_log.iter().cloned().collect(),
         }
     }
 
@@ -335,6 +420,7 @@ impl<S: VideoSource> Pipeline<S> {
         SettingsView {
             moderation: inner.gatekeeper.settings().clone(),
             blacklist: inner.blacklist.clone(),
+            dashboard: inner.dashboard.clone(),
         }
     }
 
@@ -394,6 +480,13 @@ impl<S: VideoSource> Pipeline<S> {
     }
 }
 
+/// Drops the oldest entries until at most `keep` remain.
+fn trim_front<T>(list: &mut VecDeque<T>, keep: usize) {
+    while list.len() > keep {
+        list.pop_front();
+    }
+}
+
 /// Reduces a browser-supplied error code to at most 16 characters of
 /// `A-Z a-z 0-9 _ - .`, or "unknown".
 fn sanitize_code(code: &str) -> String {
@@ -418,7 +511,7 @@ mod tests {
 
     use super::*;
     use crate::chat::Role;
-    use crate::config::{Language, ModerationMode};
+    use crate::config::{DashboardConfig, Language, ModerationMode};
     use crate::youtube::{LiveStatus, VideoDetails, VideoId, YoutubeError};
 
     // --- fakes ---
@@ -503,12 +596,21 @@ mod tests {
         p.handle_chat_at(chat(sender, text), Instant::now()).await;
     }
 
-    fn drain(rx: &mut broadcast::Receiver<Arc<Envelope>>) -> Vec<Arc<Envelope>> {
+    /// Everything published so far, including the chat lines.
+    fn drain_all(rx: &mut broadcast::Receiver<Arc<Envelope>>) -> Vec<Arc<Envelope>> {
         let mut out = Vec::new();
         while let Ok(envelope) = rx.try_recv() {
             out.push(envelope);
         }
         out
+    }
+
+    /// Everything published so far except the chat lines, which every chat
+    /// message produces and which have tests of their own.
+    fn drain(rx: &mut broadcast::Receiver<Arc<Envelope>>) -> Vec<Arc<Envelope>> {
+        let mut events = drain_all(rx);
+        events.retain(|e| !matches!(e.event, Event::ChatMessage(_)));
+        events
     }
 
     fn kinds(events: &[Arc<Envelope>]) -> Vec<String> {
@@ -527,6 +629,226 @@ mod tests {
 
     fn pending_ids(p: &Pipeline<FakeSource>) -> Vec<u64> {
         p.hello().queue.pending.iter().map(|i| i.id).collect()
+    }
+
+    // --- chat monitor ---
+
+    fn lines(events: &[Arc<Envelope>]) -> Vec<Value> {
+        events
+            .iter()
+            .filter(|e| matches!(e.event, Event::ChatMessage(_)))
+            .map(|e| data(e))
+            .collect()
+    }
+
+    fn with_history(history: usize) -> Pipeline<FakeSource> {
+        let mut c = config(|_| {});
+        c.dashboard.chat_history = history;
+        pipeline(&c)
+    }
+
+    #[tokio::test]
+    async fn every_message_is_shown_and_commands_are_marked() {
+        let p = default_pipeline();
+        let mut rx = p.subscribe();
+        say(&p, sender(1, Role::Everyone), "hello everyone").await;
+        say(&p, sender(2, Role::Follower), &format!("!v {ID_A}")).await;
+        say(&p, sender(3, Role::Moderator), "!v not-a-link").await;
+
+        let shown = lines(&drain_all(&mut rx));
+        assert_eq!(shown.len(), 3);
+        assert_eq!(shown[0]["name"], "Viewer 1");
+        assert_eq!(shown[0]["role"], "everyone");
+        assert_eq!(shown[0]["text"], "hello everyone");
+        assert_eq!(shown[0]["command"], false);
+        assert_eq!(shown[0]["skipped"], 0);
+        assert_eq!(shown[1]["command"], true);
+        assert_eq!(shown[1]["role"], "follower");
+        assert_eq!(
+            shown[2]["command"], true,
+            "an unusable argument is still a command"
+        );
+        assert_eq!(shown[2]["role"], "moderator");
+    }
+
+    #[tokio::test]
+    async fn names_and_text_are_cleaned_and_empty_messages_are_not_shown() {
+        let p = default_pipeline();
+        let mut rx = p.subscribe();
+        let rude = Sender::new("u", "Bu\ndi\u{7}", Role::Follower);
+        say(&p, rude.clone(), "hi\r\nthere\t!").await;
+        say(&p, rude.clone(), " \n\t ").await;
+        say(&p, rude, &"x".repeat(500)).await;
+
+        let shown = lines(&drain_all(&mut rx));
+        assert_eq!(shown.len(), 2);
+        assert_eq!(shown[0]["name"], "Bu di");
+        assert_eq!(shown[0]["text"], "hi  there !");
+        assert_eq!(shown[1]["text"].as_str().unwrap().chars().count(), 200);
+        assert_eq!(p.hello().chat_log.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn a_new_dashboard_gets_the_last_messages_oldest_first() {
+        let p = default_pipeline();
+        let start = Instant::now();
+        for n in 1..=25 {
+            // 10 per second: well inside the rate limit.
+            let at = start + Duration::from_millis(100 * n);
+            p.handle_chat_at(chat(sender(1, Role::Follower), &format!("message {n}")), at)
+                .await;
+        }
+        let log = p.hello().chat_log;
+        assert_eq!(log.len(), 20, "the default history is 20");
+        assert_eq!(log[0].text, "message 6");
+        assert_eq!(log[19].text, "message 25");
+    }
+
+    #[tokio::test]
+    async fn the_hello_and_the_stream_agree_about_chat() {
+        let p = default_pipeline();
+        say(&p, sender(1, Role::Follower), "before").await;
+        let mut rx = p.subscribe();
+        let hello = p.hello();
+        say(&p, sender(1, Role::Follower), "after").await;
+        let events = drain_all(&mut rx);
+
+        assert_eq!(hello.chat_log.len(), 1);
+        assert_eq!(hello.chat_log[0].text, "before");
+        assert!(events[0].seq > hello.seq);
+        assert_eq!(lines(&events)[0]["text"], "after");
+    }
+
+    #[tokio::test]
+    async fn history_zero_remembers_nothing_but_still_shows_live_chat() {
+        let p = with_history(0);
+        let mut rx = p.subscribe();
+        say(&p, sender(1, Role::Follower), "hello").await;
+        assert_eq!(lines(&drain_all(&mut rx)).len(), 1);
+        assert!(p.hello().chat_log.is_empty());
+    }
+
+    #[tokio::test]
+    async fn the_history_size_can_change_while_running() {
+        let p = default_pipeline();
+        for n in 1..=10 {
+            say(&p, sender(1, Role::Follower), &format!("m{n}")).await;
+        }
+        let mut rx = p.subscribe();
+
+        p.update_dashboard(DashboardConfig { chat_history: 3 })
+            .unwrap();
+        let log = p.hello().chat_log;
+        assert_eq!(
+            log.iter().map(|l| l.text.as_str()).collect::<Vec<_>>(),
+            ["m8", "m9", "m10"],
+            "the newest messages are kept"
+        );
+        let events = drain(&mut rx);
+        assert_eq!(kinds(&events), vec!["settings_updated"]);
+        assert_eq!(data(&events[0])["dashboard"]["chat_history"], 3);
+        assert_eq!(p.hello().settings.dashboard.chat_history, 3);
+
+        say(&p, sender(1, Role::Follower), "m11").await;
+        assert_eq!(p.hello().chat_log.len(), 3);
+
+        // Growing again does not bring old messages back.
+        p.update_dashboard(DashboardConfig { chat_history: 50 })
+            .unwrap();
+        assert_eq!(p.hello().chat_log.len(), 3);
+    }
+
+    #[tokio::test]
+    async fn a_history_size_that_is_too_large_is_refused_and_nothing_changes() {
+        let p = default_pipeline();
+        say(&p, sender(1, Role::Follower), "hello").await;
+        let mut rx = p.subscribe();
+        let too_big = DashboardConfig {
+            chat_history: crate::config::MAX_CHAT_HISTORY + 1,
+        };
+        assert!(p.update_dashboard(too_big).is_err());
+        assert_eq!(p.hello().settings.dashboard.chat_history, 20);
+        assert_eq!(p.hello().chat_log.len(), 1);
+        assert!(drain_all(&mut rx).is_empty());
+
+        let mut c = config(|_| {});
+        c.dashboard.chat_history = crate::config::MAX_CHAT_HISTORY + 1;
+        assert!(
+            Pipeline::new(&c, I18n::load(Language::En).unwrap(), FakeSource::default()).is_err()
+        );
+    }
+
+    #[tokio::test]
+    async fn a_flood_is_limited_and_the_next_message_says_how_many_were_left_out() {
+        let p = default_pipeline();
+        let mut rx = p.subscribe();
+        let start = Instant::now();
+        for n in 0..25 {
+            p.handle_chat_at(
+                chat(sender(1, Role::Follower), &format!("flood {n}")),
+                start,
+            )
+            .await;
+        }
+        let shown = lines(&drain_all(&mut rx));
+        assert_eq!(shown.len(), 20, "at most 20 per second");
+        assert!(shown.iter().all(|line| line["skipped"] == 0));
+        assert_eq!(p.hello().chat_log.len(), 20);
+
+        // Half a second later the window is still full.
+        p.handle_chat_at(
+            chat(sender(1, Role::Follower), "too soon"),
+            start + Duration::from_millis(500),
+        )
+        .await;
+        assert!(lines(&drain_all(&mut rx)).is_empty());
+
+        // A second later it opens again, and the line carries the count: the
+        // five from the flood and "too soon".
+        p.handle_chat_at(
+            chat(sender(1, Role::Follower), "calm again"),
+            start + Duration::from_millis(1_000),
+        )
+        .await;
+        let shown = lines(&drain_all(&mut rx));
+        assert_eq!(shown.len(), 1);
+        assert_eq!(shown[0]["text"], "calm again");
+        assert_eq!(shown[0]["skipped"], 6);
+
+        p.handle_chat_at(
+            chat(sender(1, Role::Follower), "and on"),
+            start + Duration::from_millis(1_100),
+        )
+        .await;
+        assert_eq!(
+            lines(&drain_all(&mut rx))[0]["skipped"],
+            0,
+            "the count resets"
+        );
+    }
+
+    #[tokio::test]
+    async fn commands_still_work_when_the_display_is_limited() {
+        let p = default_pipeline();
+        let mut rx = p.subscribe();
+        let start = Instant::now();
+        for n in 0..20 {
+            p.handle_chat_at(
+                chat(sender(1, Role::Follower), &format!("flood {n}")),
+                start,
+            )
+            .await;
+        }
+        // The 21st message is not shown, yet it is a valid request.
+        p.handle_chat_at(
+            chat(sender(2, Role::Follower), &format!("!v {ID_A}")),
+            start,
+        )
+        .await;
+        let events = drain_all(&mut rx);
+        assert_eq!(lines(&events).len(), 20);
+        assert_eq!(pending_ids(&p).len(), 1);
+        assert!(kinds(&events).contains(&"queue_updated".to_owned()));
     }
 
     // --- chat handling ---
@@ -1151,7 +1473,7 @@ mod tests {
         p.approve(a).unwrap();
         p.set_volume(10);
         p.skip();
-        let events = drain(&mut rx);
+        let events = drain_all(&mut rx);
         assert!(events.len() >= 6);
         for (i, event) in events.iter().enumerate() {
             assert_eq!(event.seq, i as u64 + 1);

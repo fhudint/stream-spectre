@@ -1,5 +1,5 @@
 use super::error::ConfigError;
-use super::model::{ChatSourceKind, Config, ModerationConfig};
+use super::model::{ChatSourceKind, Config, DashboardConfig, MAX_CHAT_HISTORY, ModerationConfig};
 use super::secrets::Secrets;
 use crate::youtube::VideoId;
 
@@ -30,6 +30,7 @@ impl Config {
         require_positive("youtube.request_timeout_secs", y.request_timeout_secs)?;
 
         self.moderation.validate()?;
+        self.dashboard.validate()?;
 
         let b = &self.blacklist;
         for (field, entries) in [
@@ -97,6 +98,20 @@ impl ModerationConfig {
             return Err(ConfigError::invalid(
                 "moderation.volume",
                 "must not exceed moderation.max_volume",
+            ));
+        }
+        Ok(())
+    }
+}
+
+impl DashboardConfig {
+    /// Checks the dashboard settings on their own, so they can also be
+    /// validated when changed at runtime.
+    pub fn validate(&self) -> Result<(), ConfigError> {
+        if self.chat_history > MAX_CHAT_HISTORY {
+            return Err(ConfigError::invalid(
+                "dashboard.chat_history",
+                format!("must be at most {MAX_CHAT_HISTORY}"),
             ));
         }
         Ok(())
@@ -215,6 +230,20 @@ mod tests {
                 "{bad}"
             );
         }
+    }
+
+    #[test]
+    fn chat_history_is_limited() {
+        let mut c = valid();
+        c.dashboard.chat_history = 0;
+        c.validate().unwrap();
+        c.dashboard.chat_history = MAX_CHAT_HISTORY;
+        c.validate().unwrap();
+        c.dashboard.chat_history = MAX_CHAT_HISTORY + 1;
+        assert_eq!(
+            field_of(c.validate().unwrap_err()),
+            "dashboard.chat_history"
+        );
     }
 
     #[test]

@@ -76,6 +76,14 @@ API; the adapter uses the `piratetok-live-rs` crate (pinned to the audited
 version). Another source (Twitch, YouTube Live) means implementing the trait.
 The reconnect logic in `chat::connection` is shared.
 
+**Chat is shown to moderators, within limits.** Every chat message is cleaned
+with `sanitize_text` and published as a `chat_message` event, for the dashboard
+only. Chat can be very fast and shares one event bus with the events that
+matter, so at most 20 messages per second are let through (the rest are still
+parsed as commands, only not displayed, and the next message shown says how many
+were left out). The last few messages are kept in memory (`chat_history`, 0 to
+200) and sent with `hello`; nothing is written to disk.
+
 **One event stream, versioned.** Everything the pages show comes from the
 events described in [`websocket-events.md`](websocket-events.md). A client
 subscribes, receives `hello` with the whole state, and then applies events

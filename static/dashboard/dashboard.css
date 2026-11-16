@@ -292,3 +292,60 @@ textarea {
 #notices li.notice-info {
   border-left-color: var(--accent);
 }
+
+.check {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0 0 0.5rem;
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+
+.chat-log {
+  list-style: none;
+  margin: 0 0 0.6rem;
+  padding: 0.4rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  height: 18rem;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 0.4rem;
+  background: var(--bg);
+}
+
+.chat-line {
+  overflow-wrap: anywhere;
+  padding-left: 0.4rem;
+  border-left: 3px solid transparent;
+}
+
+.chat-command {
+  border-left-color: var(--accent);
+  background: var(--panel);
+}
+
+.chat-name {
+  font-weight: 600;
+}
+
+.chat-role {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.chat-skipped {
+  color: var(--warn);
+  font-size: 0.85rem;
+  font-style: italic;
+}
+
+.chat-form {
+  flex-wrap: wrap;
+}
+
+.chat-form input[type="number"] {
+  width: 5.5rem;
+}

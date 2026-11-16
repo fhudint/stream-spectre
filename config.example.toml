@@ -65,3 +65,8 @@ max_volume = 80
 video_ids = []       # YouTube video IDs, e.g. ["dQw4w9WgXcQ"]
 channels = []        # YouTube channel names
 title_words = []     # words that must not appear in a video title
+
+[dashboard]
+# How many recent chat messages the dashboard shows right after it is opened or
+# reloaded (0 to 200). Chat is only kept in memory, never written to disk.
+chat_history = 20

@@ -18,6 +18,9 @@
 
   var PROTOCOL_VERSION = 1;
   var MAX_NOTICES = 20;
+  /* Most chat lines the page keeps, and the most the server may remember. */
+  var MAX_CHAT_LINES = 200;
+  var MAX_CHAT_HISTORY = 200;
   var NOTICE_LEVELS = ['info', 'warning', 'error'];
   var THUMBNAIL = /^https:\/\/i\.ytimg\.com\/vi\/[A-Za-z0-9_-]{11}\/[A-Za-z0-9_]+\.jpg$/;
 
@@ -144,6 +147,22 @@
       : null;
   }
 
+  /* A chat line the page can safely show, or null. */
+  function cleanLine(line) {
+    if (!isObject(line) || typeof line.text !== 'string') return null;
+    return {
+      name: typeof line.name === 'string' ? line.name : '',
+      role: typeof line.role === 'string' ? line.role : 'everyone',
+      text: line.text,
+      command: line.command === true,
+      skipped: Number.isInteger(line.skipped) && line.skipped > 0 ? line.skipped : 0,
+    };
+  }
+
+  function cleanLines(list) {
+    return Array.isArray(list) ? list.map(cleanLine).filter(Boolean).slice(-MAX_CHAT_LINES) : [];
+  }
+
   function clampVolume(value, fallback) {
     if (typeof value !== 'number' || !isFinite(value)) return fallback;
     return Math.min(100, Math.max(0, Math.round(value)));
@@ -157,6 +176,7 @@
       volume: 50,
       queue: { pending: [], approved: [], now_playing: null },
       chat: null,
+      messages: [],
       notices: [],
     };
   }
@@ -176,6 +196,7 @@
         volume: clampVolume(data.volume, state.volume),
         queue: cleanQueue(data.queue),
         chat: isObject(data.chat) ? data.chat : null,
+        messages: cleanLines(data.chat_log),
       });
     }
 
@@ -193,6 +214,10 @@
         break;
       case 'chat_status':
         next.chat = isObject(data) ? data : state.chat;
+        break;
+      case 'chat_message':
+        var line = cleanLine(data);
+        if (line) next.messages = state.messages.concat([line]).slice(-MAX_CHAT_LINES);
         break;
       case 'notice':
         next.notices = [
@@ -265,9 +290,22 @@
     return { value: value };
   }
 
+  /* The chat history size typed into the form: a whole number from 0 to the
+   * server's limit, or null. Digits only, like the other number fields. */
+  function readChatHistory(input) {
+    var text = String(input).trim();
+    var number = Number(text);
+    if (!/^[0-9]+$/.test(text) || !Number.isSafeInteger(number) || number > MAX_CHAT_HISTORY) {
+      return null;
+    }
+    return number;
+  }
+
   return {
     PROTOCOL_VERSION: PROTOCOL_VERSION,
     MAX_NOTICES: MAX_NOTICES,
+    MAX_CHAT_LINES: MAX_CHAT_LINES,
+    MAX_CHAT_HISTORY: MAX_CHAT_HISTORY,
     SETTINGS_FIELDS: SETTINGS_FIELDS,
     BLACKLIST_FIELDS: BLACKLIST_FIELDS,
     format: format,
@@ -279,5 +317,6 @@
     parseLines: parseLines,
     linesToText: linesToText,
     readSettings: readSettings,
+    readChatHistory: readChatHistory,
   };
 });

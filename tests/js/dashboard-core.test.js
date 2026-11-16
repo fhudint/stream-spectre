@@ -24,7 +24,9 @@ function item(id, extra = {}) {
 const settings = () => ({
   moderation: { mode: 'manual', min_role: 'follower', cooldown_secs: 60, volume: 50, max_volume: 80 },
   blacklist: { video_ids: [], channels: [], title_words: [] },
+  dashboard: { chat_history: 20 },
 });
+const line = (text, extra = {}) => ({ name: 'Budi', role: 'follower', text, command: false, skipped: 0, ...extra });
 const envelope = (seq, type, data) => ({ v: 1, seq, ts: 0, type, data });
 const hello = (seq, extra = {}) =>
   envelope(seq, 'hello', {
@@ -114,6 +116,20 @@ test('the settings form edits real configuration keys', () => {
 
   const blacklist = example.split('[blacklist]')[1];
   for (const field of core.BLACKLIST_FIELDS) assert.match(blacklist, new RegExp(`^${field.key}\\s*=`, 'm'));
+});
+
+test('readChatHistory accepts whole numbers up to the limit only', () => {
+  assert.equal(core.readChatHistory('20'), 20);
+  assert.equal(core.readChatHistory(' 0 '), 0);
+  assert.equal(core.readChatHistory(String(core.MAX_CHAT_HISTORY)), core.MAX_CHAT_HISTORY);
+  for (const bad of ['', ' ', '-1', '1.5', '1e2', '0x10', 'many', String(core.MAX_CHAT_HISTORY + 1), '99999999999999999999']) {
+    assert.equal(core.readChatHistory(bad), null, bad);
+  }
+});
+
+test('the chat history setting is a real configuration key', () => {
+  const example = fs.readFileSync(path.join(root, 'config.example.toml'), 'utf8');
+  assert.match(example.split('[dashboard]')[1], /^chat_history\s*=/m);
 });
 
 // --- state ---
@@ -213,4 +229,72 @@ test('the reducer never mutates the previous state', () => {
   core.reduce(before, envelope(3, 'notice', { level: 'info', text: 'x' }));
   core.reduce(before, hello(9));
   assert.equal(JSON.stringify(before), snapshot);
+});
+
+// --- chat ---
+
+test('hello replaces the chat lines, even when the page already had some', () => {
+  let state = core.reduce(core.initialState(), hello(1, { chat_log: [line('one'), line('two')] }));
+  assert.deepEqual(state.messages.map((m) => m.text), ['one', 'two']);
+  state = core.reduce(state, envelope(2, 'chat_message', line('three')));
+  assert.equal(state.messages.length, 3);
+
+  state = core.reduce(state, hello(10, { chat_log: [line('fresh')] }));
+  assert.deepEqual(state.messages.map((m) => m.text), ['fresh']);
+  state = core.reduce(state, hello(11, {}));
+  assert.deepEqual(state.messages, [], 'a hello without a log means an empty log');
+});
+
+test('chat messages are appended in order, with the flags kept', () => {
+  let state = core.reduce(core.initialState(), hello(1));
+  state = core.reduce(state, envelope(2, 'chat_message', line('hi')));
+  state = core.reduce(state, envelope(3, 'chat_message', line('!v dQw4w9WgXcQ', { command: true, skipped: 4, role: 'moderator' })));
+  assert.deepEqual(state.messages[1], {
+    name: 'Budi', role: 'moderator', text: '!v dQw4w9WgXcQ', command: true, skipped: 4,
+  });
+  assert.equal(state.seq, 3);
+});
+
+test('chat lines are capped at the newest ones', () => {
+  let state = core.reduce(core.initialState(), hello(1));
+  for (let i = 2; i < core.MAX_CHAT_LINES + 12; i += 1) {
+    state = core.reduce(state, envelope(i, 'chat_message', line(`m${i}`)));
+  }
+  assert.equal(state.messages.length, core.MAX_CHAT_LINES);
+  assert.equal(state.messages[core.MAX_CHAT_LINES - 1].text, `m${core.MAX_CHAT_LINES + 11}`);
+  assert.equal(state.messages[0].text, 'm12');
+
+  const big = Array.from({ length: core.MAX_CHAT_LINES + 50 }, (_, i) => line(`h${i}`));
+  state = core.reduce(state, hello(999, { chat_log: big }));
+  assert.equal(state.messages.length, core.MAX_CHAT_LINES);
+  assert.equal(state.messages[core.MAX_CHAT_LINES - 1].text, `h${core.MAX_CHAT_LINES + 49}`);
+});
+
+test('chat lines are sanitized and junk is ignored', () => {
+  let state = core.reduce(core.initialState(), hello(1));
+  state = core.reduce(state, envelope(2, 'chat_message', { name: 7, role: {}, text: 'ok', command: 'yes', skipped: -3 }));
+  assert.deepEqual(state.messages[0], { name: '', role: 'everyone', text: 'ok', command: false, skipped: 0 });
+  state = core.reduce(state, envelope(3, 'chat_message', { name: 'x' }));
+  state = core.reduce(state, envelope(4, 'chat_message', 'text'));
+  state = core.reduce(state, envelope(5, 'chat_message', { name: 'x', text: 5 }));
+  assert.equal(state.messages.length, 1);
+  state = core.reduce(state, hello(6, { chat_log: [null, 'x', { text: 'kept' }, { name: 'n' }] }));
+  assert.deepEqual(state.messages.map((m) => m.text), ['kept']);
+  state = core.reduce(state, hello(7, { chat_log: 'nope' }));
+  assert.deepEqual(state.messages, []);
+});
+
+test('a chat line already counted in a hello is not added twice', () => {
+  let state = core.reduce(core.initialState(), hello(10, { chat_log: [line('known')] }));
+  state = core.reduce(state, envelope(10, 'chat_message', line('known')));
+  state = core.reduce(state, envelope(9, 'chat_message', line('older')));
+  assert.equal(state.messages.length, 1);
+});
+
+test('settings_updated keeps the dashboard settings for the form', () => {
+  let state = core.reduce(core.initialState(), hello(1));
+  assert.equal(state.settings.dashboard.chat_history, 20);
+  const changed = { ...settings(), dashboard: { chat_history: 5 } };
+  state = core.reduce(state, envelope(2, 'settings_updated', changed));
+  assert.equal(state.settings.dashboard.chat_history, 5);
 });

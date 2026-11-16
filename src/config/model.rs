@@ -15,6 +15,7 @@ pub struct Config {
     pub youtube: YoutubeConfig,
     pub moderation: ModerationConfig,
     pub blacklist: BlacklistConfig,
+    pub dashboard: DashboardConfig,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, Serialize)]
@@ -178,4 +179,22 @@ pub struct BlacklistConfig {
     pub channels: Vec<String>,
     /// Words that must not appear in a video title.
     pub title_words: Vec<String>,
+}
+
+/// Most chat messages the server will remember for the dashboard.
+pub const MAX_CHAT_HISTORY: usize = 200;
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct DashboardConfig {
+    /// How many recent chat messages the server remembers and shows to a
+    /// dashboard that has just opened or reloaded; 0 remembers none. At most
+    /// `MAX_CHAT_HISTORY`.
+    pub chat_history: usize,
+}
+
+impl Default for DashboardConfig {
+    fn default() -> Self {
+        Self { chat_history: 20 }
+    }
 }

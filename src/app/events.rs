@@ -8,7 +8,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
 
 use crate::chat::{ChatStatus, Role};
-use crate::config::{BlacklistConfig, Language, ModerationConfig};
+use crate::config::{BlacklistConfig, DashboardConfig, Language, ModerationConfig};
 use crate::queue::{QueueItem, QueueSnapshot};
 
 /// Bumped when events change in a way old clients cannot handle.
@@ -79,13 +79,29 @@ impl From<&QueueSnapshot> for QueueView {
     }
 }
 
-/// Moderation settings, in the same shape as the `[moderation]` and
-/// `[blacklist]` tables of `config.toml`. `moderation.volume` is always the
+/// One chat message as the dashboard sees it. `name` and `text` are written
+/// by other people and have been cleaned up (see `sanitize_text`), but they
+/// are still not safe as HTML.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ChatLineView {
+    pub name: String,
+    pub role: Role,
+    pub text: String,
+    /// The message started with the video command (valid or not).
+    pub command: bool,
+    /// How many messages before this one were left out of the stream because
+    /// chat was too fast; 0 almost always.
+    pub skipped: u32,
+}
+
+/// Settings, in the same shape as the `[moderation]`, `[blacklist]` and
+/// `[dashboard]` tables of `config.toml`. `moderation.volume` is always the
 /// current volume.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct SettingsView {
     pub moderation: ModerationConfig,
     pub blacklist: BlacklistConfig,
+    pub dashboard: DashboardConfig,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -128,6 +144,9 @@ pub struct Hello {
     pub volume: u8,
     pub queue: QueueView,
     pub chat: Option<ChatStatusView>,
+    /// The most recent chat messages, oldest first, at most
+    /// `settings.dashboard.chat_history` of them.
+    pub chat_log: Vec<ChatLineView>,
 }
 
 impl Hello {
@@ -139,6 +158,7 @@ impl Hello {
         self.queue.approved.clear();
         self.settings.blacklist = BlacklistConfig::default();
         self.chat = None;
+        self.chat_log.clear();
         self
     }
 }
@@ -194,6 +214,8 @@ pub enum Event {
         sender: Option<String>,
     },
     ChatStatus(ChatStatusView),
+    /// A chat message (dashboard).
+    ChatMessage(ChatLineView),
 }
 
 /// An event with its place in the stream.
@@ -363,6 +385,7 @@ mod tests {
         let settings = Event::SettingsUpdated(SettingsView {
             moderation: ModerationConfig::default(),
             blacklist: BlacklistConfig::default(),
+            dashboard: DashboardConfig::default(),
         });
         let value = to_json(&settings);
         assert_eq!(value["type"], "settings_updated");
@@ -370,6 +393,28 @@ mod tests {
         assert_eq!(value["data"]["moderation"]["min_role"], "follower");
         assert_eq!(value["data"]["moderation"]["volume"], 50);
         assert_eq!(value["data"]["blacklist"]["video_ids"], json!([]));
+        assert_eq!(value["data"]["dashboard"]["chat_history"], 20);
+    }
+
+    #[test]
+    fn chat_message_events_have_the_documented_shape() {
+        let line = ChatLineView {
+            name: "Budi".to_owned(),
+            role: Role::Follower,
+            text: "!v dQw4w9WgXcQ".to_owned(),
+            command: true,
+            skipped: 3,
+        };
+        assert_eq!(
+            to_json(&Event::ChatMessage(line)),
+            json!({"type": "chat_message", "data": {
+                "name": "Budi",
+                "role": "follower",
+                "text": "!v dQw4w9WgXcQ",
+                "command": true,
+                "skipped": 3
+            }})
+        );
     }
 
     #[test]
@@ -396,6 +441,7 @@ mod tests {
             settings: SettingsView {
                 moderation: ModerationConfig::default(),
                 blacklist: BlacklistConfig::default(),
+                dashboard: DashboardConfig::default(),
             },
             volume: 50,
             queue: QueueView {
@@ -404,6 +450,13 @@ mod tests {
                 now_playing: Some(ItemView::from(&item(7))),
             },
             chat: None,
+            chat_log: vec![ChatLineView {
+                name: "Sari".to_owned(),
+                role: Role::Everyone,
+                text: "hi".to_owned(),
+                command: false,
+                skipped: 0,
+            }],
         };
         let value = to_json(&Event::Hello(Box::new(hello)));
         assert_eq!(value["type"], "hello");
@@ -414,6 +467,8 @@ mod tests {
         assert_eq!(data["volume"], 50);
         assert_eq!(data["queue"]["now_playing"]["id"], 7);
         assert_eq!(data["chat"], Value::Null);
+        assert_eq!(data["chat_log"][0]["name"], "Sari");
+        assert_eq!(data["settings"]["dashboard"]["chat_history"], 20);
     }
 
     #[test]
@@ -429,6 +484,7 @@ mod tests {
                     channels: vec!["Secret Channel".to_owned()],
                     title_words: vec!["secretword".to_owned()],
                 },
+                dashboard: DashboardConfig::default(),
             },
             volume: 42,
             queue: QueueView {
@@ -441,6 +497,13 @@ mod tests {
                 channel: "streamer".to_owned(),
                 text: "x".to_owned(),
             }),
+            chat_log: vec![ChatLineView {
+                name: "Secret Viewer".to_owned(),
+                role: Role::Follower,
+                text: "secret comment".to_owned(),
+                command: false,
+                skipped: 0,
+            }],
         };
         let overlay = hello.for_overlay();
         assert_eq!(overlay.seq, 3);
@@ -449,9 +512,11 @@ mod tests {
         assert!(overlay.queue.pending.is_empty() && overlay.queue.approved.is_empty());
         assert_eq!(overlay.settings.blacklist, BlacklistConfig::default());
         assert!(overlay.chat.is_none());
+        assert!(overlay.chat_log.is_empty());
 
         let json = serde_json::to_string(&overlay).unwrap();
         assert!(!json.contains("secretword") && !json.contains("Secret Channel"));
+        assert!(!json.contains("Secret Viewer") && !json.contains("secret comment"));
     }
 
     #[test]

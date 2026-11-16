@@ -11,7 +11,7 @@ use serde_json::{Value, json};
 
 use super::ServerState;
 use crate::app::Hello;
-use crate::config::{BlacklistConfig, ModerationConfig};
+use crate::config::{BlacklistConfig, DashboardConfig, ModerationConfig};
 use crate::i18n::catalog_json;
 use crate::queue::{ItemId, QueueError};
 use crate::youtube::VideoSource;
@@ -134,6 +134,21 @@ pub async fn blacklist<S: VideoSource + 'static>(
     state
         .pipeline
         .update_blacklist(updated)
+        .map_err(|error| ApiError::new(StatusCode::BAD_REQUEST, error.to_string()))?;
+    Ok(Json(state.pipeline.hello()))
+}
+
+/// `PATCH /api/dashboard`: changes the given dashboard settings (for now only
+/// `chat_history`) and keeps the rest.
+pub async fn dashboard<S: VideoSource + 'static>(
+    State(state): State<ServerState<S>>,
+    Json(patch): Json<Value>,
+) -> ApiResult<Json<Hello>> {
+    let current = state.pipeline.hello().settings.dashboard;
+    let updated: DashboardConfig = merge_patch(&current, patch)?;
+    state
+        .pipeline
+        .update_dashboard(updated)
         .map_err(|error| ApiError::new(StatusCode::BAD_REQUEST, error.to_string()))?;
     Ok(Json(state.pipeline.hello()))
 }

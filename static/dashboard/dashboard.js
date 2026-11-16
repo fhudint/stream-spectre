@@ -26,6 +26,8 @@
   var built = false;
   var flashTimer = null;
   var lastSettings = '';
+  var chatDrawn = null; // the newest chat line already in the page
+  var commandsOnly = false;
 
   function $(id) {
     return document.getElementById(id);
@@ -160,10 +162,14 @@
     });
   }
 
-  /* Takes a complete snapshot (the /api/state shape) as the current state. */
+  /* Takes a complete snapshot (the /api/state shape) as the current state.
+   * Chat lines the page already has are kept: they are a longer record than
+   * the snapshot's, which only holds what the server remembers for a reload. */
   function adopt(data) {
     if (!data || typeof data !== 'object') return;
+    var lines = state.messages;
     state = core.reduce(state, { v: core.PROTOCOL_VERSION, seq: data.seq, type: 'hello', data: data });
+    if (lines.length > 0) state = Object.assign({}, state, { messages: lines });
     render();
   }
 
@@ -317,6 +323,49 @@
     $('notices-empty').classList[state.notices.length ? 'add' : 'remove']('hidden');
   }
 
+  function appendChatLine(box, line) {
+    if (line.skipped > 0) {
+      box.appendChild(
+        h('li', { className: 'chat-skipped', text: tf('dashboard.chat.skipped', { count: line.skipped }) })
+      );
+    }
+    if (commandsOnly && !line.command) return;
+    var parts = [h('span', { className: 'chat-name', text: line.name })];
+    if (line.role !== 'everyone') {
+      parts.push(h('span', { className: 'chat-role', text: ' (' + t('role.' + line.role) + ')' }));
+    }
+    parts.push(h('span', { className: 'chat-text', text: ': ' + line.text }));
+    box.appendChild(h('li', { className: line.command ? 'chat-line chat-command' : 'chat-line' }, parts));
+  }
+
+  /* Adds the chat lines that arrived since the last drawing. Everything is
+   * drawn again only when the lines were replaced (a new snapshot) or the
+   * filter changed, so a busy chat stays cheap. The view follows the newest
+   * line unless the moderator has scrolled up to read. */
+  function renderChat(rebuild) {
+    var box = $('chat-log');
+    var lines = state.messages;
+    var atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 24;
+    var from = 0;
+    if (!rebuild && chatDrawn) {
+      var at = lines.lastIndexOf(chatDrawn);
+      if (at >= 0) {
+        from = at + 1;
+      } else {
+        rebuild = true;
+      }
+    }
+    if (rebuild || !chatDrawn) {
+      box.replaceChildren();
+      from = 0;
+    }
+    for (var i = from; i < lines.length; i += 1) appendChatLine(box, lines[i]);
+    chatDrawn = lines.length ? lines[lines.length - 1] : null;
+    while (box.children.length > core.MAX_CHAT_LINES) box.removeChild(box.firstChild);
+    $('chat-empty').classList[box.children.length ? 'add' : 'remove']('hidden');
+    if (atBottom) box.scrollTop = box.scrollHeight;
+  }
+
   /* Fills the forms from the server's settings. Fields being edited are left
    * alone, and nothing is touched when the settings have not changed. */
   function renderSettings() {
@@ -325,6 +374,10 @@
     if (json === lastSettings) return;
     lastSettings = json;
     var moderation = state.settings.moderation;
+    var history = $('chat-history');
+    if (state.settings.dashboard && history !== document.activeElement) {
+      history.value = String(state.settings.dashboard.chat_history);
+    }
     core.SETTINGS_FIELDS.forEach(function (field) {
       var input = $('setting-' + field.key);
       if (input !== document.activeElement) input.value = String(moderation[field.key]);
@@ -342,6 +395,7 @@
     renderNow();
     renderQueues();
     renderVolume();
+    renderChat(false);
     renderNotices();
     renderSettings();
   }
@@ -436,6 +490,29 @@
       flash(t('dashboard.blacklist.saved'));
     });
   }
+
+  $('chat-commands-only').addEventListener('change', function () {
+    commandsOnly = $('chat-commands-only').checked === true;
+    renderChat(true);
+  });
+
+  $('chat-form').addEventListener('submit', function (event) {
+    event.preventDefault();
+    var size = core.readChatHistory($('chat-history').value);
+    if (size === null) {
+      showError(tf('dashboard.error.invalid_value', { field: t('dashboard.chat.history') }));
+      return;
+    }
+    var current = state.settings && state.settings.dashboard;
+    if (current && current.chat_history === size) {
+      flash(t('dashboard.chat.history_saved'));
+      return;
+    }
+    act('PATCH', '/api/dashboard', { chat_history: size }, function (result) {
+      adopt(result.data);
+      flash(t('dashboard.chat.history_saved'));
+    });
+  });
 
   var volumeSlider = $('volume');
   volumeSlider.addEventListener('input', function () {

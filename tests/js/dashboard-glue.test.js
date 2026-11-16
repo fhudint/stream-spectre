@@ -25,6 +25,17 @@ class FakeNode {
     this._text = '';
     this.value = '';
     this.max = '';
+    this.checked = false;
+    this.scrollTop = 0;
+    this.scrollHeight = 0;
+    this.clientHeight = 0;
+  }
+  get firstChild() {
+    return this.children[0] || null;
+  }
+  removeChild(child) {
+    this.children = this.children.filter((c) => c !== child);
+    return child;
   }
   get className() {
     return [...this.classes].join(' ');
@@ -102,7 +113,9 @@ const snapshot = (extra = {}) => ({
       cooldown_secs: 60, max_duration_secs: 600, max_queue_len: 20, volume: 50, max_volume: 80,
     },
     blacklist: { video_ids: ['aaaaaaaaaaa'], channels: [], title_words: [] },
+    dashboard: { chat_history: 20 },
   },
+  chat_log: [],
   volume: 50,
   queue: { pending: [item(7), item(8)], approved: [item(9)], now_playing: item(3) },
   chat: { state: 'connected', channel: 'streamer', text: 'Connected to TikTok chat @streamer' },
@@ -603,6 +616,166 @@ test('the volume slider follows the maximum and sends what was chosen', async ()
   assert.deepEqual(post.body, { volume: 33 });
   assert.equal(page.elements.volume.value, '30', 'shows the volume the server settled on');
   assert.equal(page.elements['volume-value'].textContent, '30%');
+});
+
+// --- chat ---
+
+const line = (text, extra = {}) => ({ name: 'Budi', role: 'follower', text, command: false, skipped: 0, ...extra });
+const chatItems = (page) => page.elements['chat-log'].children;
+
+test('the chat shows the history the server sends, commands marked', async () => {
+  const log = [line('hello there'), line('!v dQw4w9WgXcQ', { command: true, role: 'everyone', name: 'Sari' })];
+  const page = await ready({ routes: { 'GET /api/state': () => ({ status: 200, body: snapshot({ chat_log: log }) }) } });
+  const items = chatItems(page);
+  assert.deepEqual(items.map((n) => n.textContent), ['Budi (Follower): hello there', 'Sari: !v dQw4w9WgXcQ']);
+  assert.ok(!items[0].classes.has('chat-command'));
+  assert.ok(items[1].classes.has('chat-command'));
+  assert.ok(page.elements['chat-empty'].hidden);
+});
+
+test('an empty chat says so', async () => {
+  const page = await ready();
+  assert.equal(chatItems(page).length, 0);
+  assert.ok(!page.elements['chat-empty'].hidden);
+  page.socket().receive(envelope(6, 'chat_message', line('first')));
+  assert.ok(page.elements['chat-empty'].hidden);
+});
+
+test('a new message is added without redrawing the lines already there', async () => {
+  const page = await ready({ routes: { 'GET /api/state': () => ({ status: 200, body: snapshot({ chat_log: [line('one')] }) }) } });
+  const first = chatItems(page)[0];
+  page.socket().receive(envelope(6, 'chat_message', line('two')));
+  page.socket().receive(envelope(7, 'volume', { volume: 20 }));
+  page.socket().receive(envelope(8, 'chat_message', line('three', { skipped: 4 })));
+  const items = chatItems(page);
+  assert.equal(items[0], first, 'the first line is the very same element');
+  assert.deepEqual(items.map((n) => n.textContent), [
+    'Budi (Follower): one',
+    'Budi (Follower): two',
+    '4 messages not shown (chat too fast)',
+    'Budi (Follower): three',
+  ]);
+  assert.ok(items[2].classes.has('chat-skipped'));
+});
+
+test('text and names from chat are shown as text', async () => {
+  const page = await ready();
+  const nasty = '<img src=x onerror=alert(1)>';
+  page.socket().receive(envelope(6, 'chat_message', line(nasty, { name: '<b>Eve</b>' })));
+  const item = chatItems(page)[0];
+  assert.equal(item.textContent, `<b>Eve</b> (Follower): ${nasty}`);
+  assert.ok(descendants(item).every((n) => !['img', 'b', 'script'].includes(n.tag)));
+});
+
+test('the filter shows only video requests and brings the rest back', async () => {
+  const page = await ready();
+  page.socket().receive(envelope(6, 'chat_message', line('just chatting')));
+  page.socket().receive(envelope(7, 'chat_message', line('!v dQw4w9WgXcQ', { command: true })));
+  page.socket().receive(envelope(8, 'chat_message', line('lol')));
+  assert.equal(chatItems(page).length, 3);
+
+  page.elements['chat-commands-only'].checked = true;
+  page.elements['chat-commands-only'].fire('change');
+  assert.deepEqual(chatItems(page).map((n) => n.textContent), ['Budi (Follower): !v dQw4w9WgXcQ']);
+
+  page.socket().receive(envelope(9, 'chat_message', line('more chatting')));
+  page.socket().receive(envelope(10, 'chat_message', line('!v jNQXAC9IVRw', { command: true })));
+  assert.equal(chatItems(page).length, 2, 'new lines obey the filter too');
+
+  page.elements['chat-commands-only'].checked = false;
+  page.elements['chat-commands-only'].fire('change');
+  assert.equal(chatItems(page).length, 5);
+});
+
+test('the lines are capped, dropping the oldest', async () => {
+  const page = await ready();
+  for (let i = 0; i < core.MAX_CHAT_LINES + 10; i += 1) {
+    page.socket().receive(envelope(6 + i, 'chat_message', line(`m${i}`)));
+  }
+  const items = chatItems(page);
+  assert.equal(items.length, core.MAX_CHAT_LINES);
+  assert.equal(items[0].textContent, 'Budi (Follower): m10');
+  assert.equal(items.at(-1).textContent, `Budi (Follower): m${core.MAX_CHAT_LINES + 9}`);
+});
+
+test('the view follows new lines, unless the moderator scrolled up to read', async () => {
+  const page = await ready();
+  const box = page.elements['chat-log'];
+  box.scrollHeight = 1000;
+  box.clientHeight = 300;
+
+  box.scrollTop = 700; // at the bottom
+  page.socket().receive(envelope(6, 'chat_message', line('a')));
+  assert.equal(box.scrollTop, 1000, 'moved to the newest line');
+
+  box.scrollTop = 100; // reading older lines
+  page.socket().receive(envelope(7, 'chat_message', line('b')));
+  assert.equal(box.scrollTop, 100, 'left alone');
+});
+
+test('a new hello replaces the lines, and so does a dropped connection coming back', async () => {
+  const page = await ready();
+  page.socket().receive(envelope(6, 'chat_message', line('live one')));
+  page.socket().receive(envelope(7, 'chat_message', line('live two')));
+  assert.equal(chatItems(page).length, 2);
+
+  const fresh = snapshot({ seq: 20, chat_log: [line('from the server')] });
+  page.socket().receive(envelope(20, 'hello', fresh));
+  assert.deepEqual(chatItems(page).map((n) => n.textContent), ['Budi (Follower): from the server']);
+});
+
+test('saving other settings does not cut the chat down to the remembered lines', async () => {
+  const page = await ready();
+  for (let i = 0; i < 5; i += 1) page.socket().receive(envelope(6 + i, 'chat_message', line(`m${i}`)));
+  const updated = snapshot({ chat_log: [line('only this one')] });
+  updated.settings.blacklist.channels = ['Bad'];
+  page.table['PATCH /api/blacklist'] = { status: 200, body: updated };
+
+  page.elements['blacklist-channels'].value = 'Bad';
+  page.elements['blacklist-form'].fire('submit');
+  await settle();
+
+  assert.equal(page.elements['blacklist-channels'].value, 'Bad');
+  assert.equal(chatItems(page).length, 5);
+  assert.equal(chatItems(page)[0].textContent, 'Budi (Follower): m0');
+});
+
+test('the history size is shown, and saving sends only a changed, valid number', async () => {
+  const page = await ready();
+  assert.equal(page.elements['chat-history'].value, '20');
+
+  page.elements['chat-form'].fire('submit');
+  await settle();
+  assert.ok(!page.log.requests.some((r) => r.path === '/api/dashboard'), 'unchanged: nothing sent');
+  assert.equal(page.elements.flash.textContent, 'Chat setting saved');
+
+  for (const bad of ['', 'many', '-1', '1e2', '201', '1.5']) {
+    page.elements['chat-history'].value = bad;
+    page.elements['chat-form'].fire('submit');
+    await settle();
+    assert.ok(!page.log.requests.some((r) => r.path === '/api/dashboard'), `${bad}: nothing sent`);
+    assert.match(page.elements.error.textContent, /Invalid value for Messages kept/, bad);
+  }
+
+  const updated = snapshot();
+  updated.settings.dashboard.chat_history = 5;
+  page.table['PATCH /api/dashboard'] = { status: 200, body: updated };
+  page.elements['chat-history'].value = ' 5 ';
+  page.elements['chat-form'].fire('submit');
+  await settle();
+  const patch = page.log.requests.find((r) => r.path === '/api/dashboard');
+  assert.equal(patch.method, 'PATCH');
+  assert.deepEqual(patch.body, { chat_history: 5 });
+  assert.equal(page.elements['chat-history'].value, '5');
+});
+
+test('the server refusing the history size is shown', async () => {
+  const page = await ready();
+  page.table['PATCH /api/dashboard'] = { status: 400, body: { error: 'dashboard.chat_history must be at most 200' } };
+  page.elements['chat-history'].value = '30';
+  page.elements['chat-form'].fire('submit');
+  await settle();
+  assert.match(page.elements.error.textContent, /must be at most 200/);
 });
 
 // --- keeping the page and its texts in step ---

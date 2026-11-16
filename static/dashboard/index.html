@@ -35,6 +35,21 @@
     <div id="now"></div>
   </section>
 
+  <section class="panel" aria-labelledby="chat-heading">
+    <h2 id="chat-heading" data-i18n="dashboard.chat.title"></h2>
+    <label class="check">
+      <input id="chat-commands-only" type="checkbox">
+      <span data-i18n="dashboard.chat.commands_only"></span>
+    </label>
+    <ol id="chat-log" class="chat-log" tabindex="0"></ol>
+    <p id="chat-empty" class="hint" data-i18n="dashboard.chat.empty"></p>
+    <form id="chat-form" class="row chat-form">
+      <label for="chat-history" data-i18n="dashboard.chat.history"></label>
+      <input id="chat-history" type="number" min="0" max="200" step="1" inputmode="numeric">
+      <button type="submit" class="primary" data-i18n="dashboard.chat.history_save"></button>
+    </form>
+  </section>
+
   <section class="panel" aria-labelledby="pending-heading">
     <h2 id="pending-heading" data-i18n="dashboard.pending.title"></h2>
     <ul id="pending" class="items"></ul>

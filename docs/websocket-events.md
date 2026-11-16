@@ -18,11 +18,12 @@ of truth; this page describes them for people writing clients.
 | `POST /api/volume` | Body `{"volume": 0-100}`; answers `{"volume": n}` with the volume in effect |
 | `PATCH /api/settings` | Change some moderation settings, keep the rest; answers the new state |
 | `PATCH /api/blacklist` | Replace some blacklist lists (`video_ids`, `channels`, `title_words`), keep the rest |
+| `PATCH /api/dashboard` | Change dashboard settings (`chat_history`), keep the rest |
 | `GET /dashboard/`, `GET /overlay/` | The pages themselves |
 
 The two sockets carry the events below. The overlay socket only receives
 what changes the screen (`play`, `skip`, `stop`, `volume`) and a trimmed
-`hello` without waiting requests, blacklist or chat status; the dashboard
+`hello` without waiting requests, blacklist, chat status or chat messages; the dashboard
 socket receives everything. Dashboard actions go through the REST API.
 
 Errors from the API are JSON: `{"error": "..."}` with `400` (bad or invalid
@@ -103,11 +104,14 @@ Sent once to each client, first.
     "settings": { "moderation": { ... }, "blacklist": { ... } },
     "volume": 50,
     "queue": { "pending": [], "approved": [], "now_playing": null },
-    "chat": { "state": "connected", "channel": "streamer", "text": "..." }
+    "chat": { "state": "connected", "channel": "streamer", "text": "..." },
+    "chat_log": [ ChatLine ]
 } }
 ```
 
 `chat` is `null` until the chat connection has reported its first status.
+`chat_log` holds the most recent chat messages, oldest first, at most
+`settings.dashboard.chat_history` of them (see [`chat_message`](#chat_message)).
 
 ### `queue_updated`
 
@@ -183,8 +187,9 @@ changes.
 
 ### `settings_updated`
 
-The moderation settings or the blacklist changed (dashboard). The shape is the
-same as the `[moderation]` and `[blacklist]` tables of `config.toml`:
+The moderation settings, the blacklist or the dashboard settings changed
+(dashboard). The shape is the same as the `[moderation]`, `[blacklist]` and
+`[dashboard]` tables of `config.toml`:
 
 ```json
 { "type": "settings_updated", "data": {
@@ -199,7 +204,8 @@ same as the `[moderation]` and `[blacklist]` tables of `config.toml`:
       "volume": 50,
       "max_volume": 80
     },
-    "blacklist": { "video_ids": [], "channels": [], "title_words": [] }
+    "blacklist": { "video_ids": [], "channels": [], "title_words": [] },
+    "dashboard": { "chat_history": 20 }
 } }
 ```
 
@@ -226,6 +232,41 @@ Notices are sent for videos that were turned down for their content, a full
 queue, blacklisted entries, unusable links from eligible viewers, YouTube
 problems, and player errors. They are **not** sent for everyday noise: viewers
 who are not allowed to submit, and viewers who submit too often.
+
+### `chat_message`
+
+A message in the chat (dashboard only; the overlay never receives chat).
+
+```json
+{ "type": "chat_message", "data": {
+    "name": "Budi",
+    "role": "follower",
+    "text": "!v dQw4w9WgXcQ",
+    "command": true,
+    "skipped": 0
+} }
+```
+
+This is the `ChatLine` shape that `hello.chat_log` also uses.
+
+- `name` and `text` are written by viewers: show them as plain text
+  (`textContent`), never as HTML. The server has already replaced control
+  characters with spaces and cut `text` to 200 characters. Messages that are
+  empty after that are not sent.
+- `command` is `true` when the message started with the video command, whether
+  or not the rest was usable. It says nothing about whether the request was
+  accepted; see `notice` for that.
+- Every message is shown, but at most 20 per second go into the stream. The
+  rest are still handled as commands, only not shown. `skipped` is how many
+  were left out since the last message that was shown, so a client can say
+  "N messages not shown". A burst that ends with no later message leaves its
+  last count unreported.
+- The server keeps the last `settings.dashboard.chat_history` messages in
+  memory (never on disk) so a dashboard that opens or reloads can show some
+  context. `0` keeps none; live messages are still sent. The setting is
+  `[dashboard].chat_history` in `config.toml` (0 to 200, default 20) and can be
+  changed with `PATCH /api/dashboard` until the program restarts. Lowering it
+  forgets the older messages.
 
 ### `chat_status`
 
