@@ -5,9 +5,11 @@
 
 pub mod chat;
 pub mod cli;
+pub mod command;
 pub mod config;
 pub mod i18n;
 pub mod platform;
+pub mod youtube;
 
 /// Nama aplikasi, diambil dari `Cargo.toml`.
 pub const APP_NAME: &str = env!("CARGO_PKG_NAME");

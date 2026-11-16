@@ -1,6 +1,7 @@
 use super::error::ConfigError;
 use super::model::{ChatSourceKind, Config};
 use super::secrets::Secrets;
+use crate::youtube::VideoId;
 
 const MAX_TIKTOK_USERNAME_LEN: usize = 64;
 const MAX_PREFIX_LEN: usize = 4;
@@ -58,6 +59,14 @@ impl Config {
                         "must not be empty",
                     ));
                 }
+            }
+        }
+        for (i, entry) in b.video_ids.iter().enumerate() {
+            if VideoId::parse(entry.trim()).is_err() {
+                return Err(ConfigError::invalid(
+                    format!("blacklist.video_ids[{i}]"),
+                    "must be an 11-character YouTube video ID, not a link",
+                ));
             }
         }
 
@@ -271,6 +280,23 @@ mod tests {
         let mut c = valid();
         c.moderation.max_volume = 100;
         c.moderation.volume = 100;
+        c.validate().unwrap();
+    }
+
+    #[test]
+    fn blacklisted_video_ids_must_be_valid_ids() {
+        for bad in ["short", "https://youtu.be/dQw4w9WgXcQ", "dQw4w9WgXc!"] {
+            let mut c = valid();
+            c.blacklist.video_ids = vec!["dQw4w9WgXcQ".to_owned(), bad.to_owned()];
+            assert_eq!(
+                field_of(c.validate().unwrap_err()),
+                "blacklist.video_ids[1]",
+                "{bad}"
+            );
+        }
+
+        let mut c = valid();
+        c.blacklist.video_ids = vec!["dQw4w9WgXcQ".to_owned(), "  a_b-C1d2E3f ".to_owned()];
         c.validate().unwrap();
     }
 
