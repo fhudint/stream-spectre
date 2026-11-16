@@ -473,3 +473,13 @@ test('the overlay address uses localhost for a loopback IP and carries the token
   assert.equal(core.overlayUrl('http:', '127.0.0.10:8787', ''), 'http://127.0.0.10:8787/overlay/');
   assert.equal(core.overlayUrl('http:', '127.0.0.1.evil.example', ''), 'http://127.0.0.1.evil.example/overlay/');
 });
+
+test('the username is read like the server reads it', () => {
+  for (const [typed, value] of [['name', 'name'], ['  @name ', 'name'], ['@@name', 'name'], ['a.b_c1', 'a.b_c1'], ['', ''], ['   ', ''], ['x'.repeat(64), 'x'.repeat(64)]]) {
+    assert.deepEqual(core.readTiktokUsername(typed), { value }, JSON.stringify(typed));
+  }
+  for (const bad of ['@', ' @ ', '@@', 'a/b', 'a b', 'a?b', 'a#b', 'héllo', 'x'.repeat(65), '@x y', 'name\n2', 'https://www.tiktok.com/@name']) {
+    assert.deepEqual(core.readTiktokUsername(bad), { error: true }, JSON.stringify(bad));
+  }
+  assert.deepEqual(core.readTiktokUsername(5), { value: '5' });
+});

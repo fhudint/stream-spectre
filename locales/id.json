@@ -128,5 +128,11 @@
   "dashboard.overlay.copy": "Salin URL overlay",
   "dashboard.overlay.copied": "URL overlay disalin",
   "dashboard.overlay.copy_failed": "Gagal menyalin. Pilih alamatnya dan salin dengan tangan.",
-  "dashboard.overlay.hint": "Tambahkan alamat ini di OBS sebagai sumber Browser. Pakai localhost, bukan alamat IP: pemutar YouTube menolak video di halaman yang dibuka lewat alamat IP."
+  "dashboard.overlay.hint": "Tambahkan alamat ini di OBS sebagai sumber Browser. Pakai localhost, bukan alamat IP: pemutar YouTube menolak video di halaman yang dibuka lewat alamat IP.",
+  "status.chat.no_username": "Belum ada username TikTok. Isi di Setelan untuk membaca chat.",
+  "dashboard.tiktok.title": "Chat TikTok",
+  "dashboard.tiktok.username": "Username TikTok (tanpa @)",
+  "dashboard.tiktok.hint": "Program membaca chat langsung akun ini dan langsung mengikuti kalau diganti, tanpa restart. Kosongkan untuk berhenti membaca chat.",
+  "dashboard.tiktok.save": "Simpan username",
+  "dashboard.tiktok.saved": "Username TikTok disimpan"
 }

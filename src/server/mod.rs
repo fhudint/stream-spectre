@@ -98,6 +98,7 @@ pub fn router<S: VideoSource + 'static>(state: ServerState<S>, guard: Arc<Guard>
         .route("/api/settings", patch(api::settings::<S>))
         .route("/api/blacklist", patch(api::blacklist::<S>))
         .route("/api/dashboard", patch(api::dashboard::<S>))
+        .route("/api/chat/tiktok", patch(api::tiktok::<S>))
         .layer(DefaultBodyLimit::max(MAX_BODY_BYTES))
         .layer(middleware::from_fn_with_state(guard, guard::gate))
         .with_state(state)
@@ -578,6 +579,84 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(bad.status(), 400);
+    }
+
+    #[tokio::test]
+    async fn the_tiktok_username_is_patched_checked_and_announced() {
+        let server = start(None).await;
+        let mut dashboard = connect(&server, "/ws/dashboard", None).await.unwrap();
+        next_json(&mut dashboard).await;
+        let patch = |body: Value| {
+            server
+                .http
+                .patch(server.url("/api/chat/tiktok"))
+                .json(&body)
+                .send()
+        };
+
+        let updated: Value = patch(json!({"username": " @New.Name "}))
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        assert_eq!(
+            updated["settings"]["chat"]["tiktok"]["username"],
+            "New.Name"
+        );
+        let event = next_json(&mut dashboard).await;
+        assert_eq!(event["type"], "settings_updated");
+        assert_eq!(event["data"]["chat"]["tiktok"]["username"], "New.Name");
+
+        for bad in [
+            json!({"username": "a/b"}),
+            json!({"username": "a b"}),
+            json!({"username": "@"}),
+            json!({"username": 5}),
+            json!({"name": "x"}),
+            json!({"username": "x".repeat(100)}),
+            json!(["x"]),
+        ] {
+            let refused = patch(bad.clone()).await.unwrap();
+            assert_eq!(refused.status(), 400, "{bad}");
+        }
+        let state: Value = server
+            .http
+            .get(server.url("/api/state"))
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        assert_eq!(state["settings"]["chat"]["tiktok"]["username"], "New.Name");
+
+        // Emptying it is allowed: no chat is read until a name is set.
+        let emptied: Value = patch(json!({"username": ""}))
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        assert_eq!(emptied["settings"]["chat"]["tiktok"]["username"], "");
+    }
+
+    #[tokio::test]
+    async fn the_overlay_never_hears_about_the_username() {
+        let server = start(None).await;
+        let mut overlay = connect(&server, "/ws/overlay", None).await.unwrap();
+        let hello = next_json(&mut overlay).await;
+        server
+            .http
+            .patch(server.url("/api/chat/tiktok"))
+            .json(&json!({"username": "someone_else"}))
+            .send()
+            .await
+            .unwrap();
+        expect_silence(&mut overlay).await;
+        // The username is in the settings of every hello; that is the one
+        // thing the overlay's hello has in common with the dashboard's.
+        assert!(hello["data"]["settings"]["chat"].is_object());
     }
 
     #[tokio::test]

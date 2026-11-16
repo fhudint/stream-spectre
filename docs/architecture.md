@@ -73,6 +73,14 @@ after a quota error the service stops calling the API for a while. The cooldown
 is spent before the lookup and given back when the lookup fails for a reason
 that is not the viewer's fault.
 
+**The TikTok username can change while the program runs.** `Pipeline` holds
+the username (`update_tiktok`, from `PATCH /api/chat/tiktok`) and publishes it
+in a `watch` channel. `run_chat_sources` reads the chat of the current name,
+and when the name changes it drops the old source between two messages (a
+message being handled is finished first) and makes a new one with the factory it
+was given; with no name it reads nothing and reports `not_configured`. The
+username is also one of the tables saved beside `config.toml`.
+
 **`ChatSource` is the only thing that knows about TikTok.** The rest of the app
 sees `ChatMessage { sender, text }` and `ChatStatus`. TikTok has no official
 API; the adapter uses the `piratetok-live-rs` crate (pinned to the audited

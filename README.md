@@ -93,7 +93,8 @@ cp config.example.toml config.toml
 cp .env.example .env
 ```
 
-Edit `config.toml` and set at least your TikTok username:
+Edit `config.toml`. Your TikTok username can go here, or you can leave it empty
+and enter it later on the dashboard's **Settings** page (see below):
 
 ```toml
 [general]
@@ -154,10 +155,16 @@ The menu has five pages: **Queue** (the video playing and how far it has got,
 the requests waiting for a decision, the play queue, the rules in force, the
 chat, and counters for this session), **Blacklist**, **Rules** (the moderation
 settings), **Overlay** (the address to copy into OBS, and the volume) and
-**Settings** (how much chat the dashboard remembers). Each page has its own
+**Settings** (your TikTok username, and how much chat the dashboard remembers).
+Each page has its own
 address (`#queue`, `#blacklist`, `#rules`, `#overlay`, `#settings`). On a phone
 the menu is at the bottom and the queue page shows the waiting requests, the
 chat and the notices as three tabs.
+
+The TikTok username can be set, changed or emptied there, and the program
+follows it **without a restart**: it drops the old chat connection and connects
+to the new channel. With no username the program still starts; the Queue page
+says that no chat is being read and links to the Settings page.
 
 On the Queue page the keyboard works when you are not typing in a field:
 **↑ ↓** choose a waiting request, **A** approves it, **R** rejects it and **S**
@@ -172,8 +179,8 @@ zero each time the program starts. "Copy overlay URL" copies the address with
 #### Saved settings
 
 `config.toml` is yours: the program only reads it, so your comments stay. When
-you change moderation settings, the volume, the blacklist or the chat history
-in the dashboard, the program writes the changed tables to
+you change moderation settings, the volume, the blacklist, the chat history or
+the TikTok username in the dashboard, the program writes the changed tables to
 `config.settings.toml` (named after your config file, in the same folder). At
 the next start, a table in that file **replaces** the same table in
 `config.toml`, and the log says which ones. This also means that editing a
@@ -243,8 +250,9 @@ trust, not across the internet.
   [above](#use-localhost-not-an-ip-address).
 - **Saved settings replace whole tables.** A table saved from the dashboard
   (for example all of `[moderation]`) replaces that table in `config.toml`;
-  single keys are not merged. Settings for the chat source, command, server and
-  YouTube are not changed from the dashboard and stay in `config.toml`.
+  single keys are not merged. Apart from the TikTok username, the settings for
+  the chat source, command, server and YouTube are not changed from the
+  dashboard and stay in `config.toml`.
 - **Chat is not stored.** The dashboard's chat view shows what arrives while it
   is open, plus the last few messages the program remembers in memory (20 by
   default, `chat_history` in `config.toml`). At most 20 messages per second are

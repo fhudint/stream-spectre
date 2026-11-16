@@ -14,8 +14,10 @@
 # Secrets do NOT go here. Set them as environment variables or in a `.env`
 # file (see `.env.example`): YOUTUBE_API_KEY, DASHBOARD_TOKEN.
 #
-# Every key is optional; the values below are the defaults, except
-# `chat.tiktok.username`, which you must set.
+# Every key is optional; the values below are the defaults, except that
+# `chat.tiktok.username` has no useful default: leave it empty and the program
+# starts anyway, waits, and you enter the username on the dashboard's Settings
+# page.
 
 [general]
 # Language of the dashboard and overlay: "id" or "en".
@@ -33,6 +35,8 @@ source = "tiktok"
 
 [chat.tiktok]
 # Username of the streamer whose LIVE chat is read, with or without "@".
+# Can be left empty and set from the dashboard (Settings page) instead; a
+# change there takes effect at once, without a restart.
 username = "your_tiktok_username"
 
 [command]

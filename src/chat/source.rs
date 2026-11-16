@@ -27,6 +27,8 @@ pub enum ChatStatus {
         retry_in: Duration,
     },
     Disconnected,
+    /// No TikTok username is set, so no chat is being read.
+    NoUsername,
 }
 
 impl ChatStatus {
@@ -41,6 +43,7 @@ impl ChatStatus {
             }
             Self::Reconnecting { .. } => i18n.t("status.chat.reconnecting").to_owned(),
             Self::Disconnected => i18n.t("status.chat.disconnected").to_owned(),
+            Self::NoUsername => i18n.t("status.chat.no_username").to_owned(),
         }
     }
 }
@@ -79,6 +82,7 @@ mod tests {
                 retry_in: Duration::from_secs(4),
             },
             ChatStatus::Disconnected,
+            ChatStatus::NoUsername,
         ];
         for language in [Language::Id, Language::En] {
             let i18n = I18n::load(language).unwrap();

@@ -63,6 +63,9 @@ async fn serve(loaded: Loaded) -> anyhow::Result<()> {
         saved_tables,
         ..
     } = loaded;
+    if config.chat.tiktok.username().is_empty() {
+        tracing::info!("no TikTok username yet: set it on the dashboard's Settings page");
+    }
     if saved_tables.is_empty() {
         tracing::info!(path = %saved_path.display(), "settings changed in the dashboard are saved here");
     } else {
@@ -101,10 +104,9 @@ async fn serve(loaded: Loaded) -> anyhow::Result<()> {
     let chat = {
         let pipeline = Arc::clone(&pipeline);
         let mut stopped = stopped.clone();
-        let username = config.chat.tiktok.username().to_owned();
         tokio::spawn(async move {
             tokio::select! {
-                () = pipeline.run_chat(tiktok_source(&username)) => {}
+                () = pipeline.run_chat_sources(tiktok_source) => {}
                 () = async { let _ = stopped.wait_for(|stop| *stop).await; } => {}
             }
         })

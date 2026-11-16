@@ -87,6 +87,10 @@
 
     <main>
       <section id="view-queue" class="view queue-view" data-pane="queue">
+        <p id="setup-hint" class="banner banner-warn hidden">
+          <span id="setup-hint-text"></span>
+          <a href="#settings" class="link" data-i18n="dashboard.nav.settings"></a>
+        </p>
         <div class="title-row">
           <h1 id="queue-heading" tabindex="-1" data-i18n="dashboard.queue.heading"></h1>
           <p id="queue-summary" class="muted"></p>
@@ -230,6 +234,19 @@
       <section id="view-settings" class="view hidden">
         <div class="title-row">
           <h1 id="chat-settings-heading" tabindex="-1" data-i18n="dashboard.nav.settings"></h1>
+        </div>
+        <div class="card page-card">
+          <form id="tiktok-form" class="form">
+            <h2 data-i18n="dashboard.tiktok.title"></h2>
+            <div class="field">
+              <label for="tiktok-username" data-i18n="dashboard.tiktok.username"></label>
+              <input id="tiktok-username" type="text" autocomplete="off" spellcheck="false" maxlength="70">
+              <p class="muted small" data-i18n="dashboard.tiktok.hint"></p>
+            </div>
+            <div class="actions">
+              <button type="submit" class="primary" data-i18n="dashboard.tiktok.save"></button>
+            </div>
+          </form>
         </div>
         <div class="card page-card">
           <form id="chat-form" class="form">

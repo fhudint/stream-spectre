@@ -468,6 +468,18 @@
     return { value: value };
   }
 
+  /* The TikTok username typed into the form, as the server will use it: no
+   * spaces, no leading @. Returns { value } (empty for "no username") or
+   * { error: true }. The rules are the server's: letters, digits, '_' and
+   * '.', at most 64 characters. */
+  function readTiktokUsername(input) {
+    var typed = String(input).trim();
+    var name = typed.replace(/^@+/, '');
+    if (name === '') return typed === '' ? { value: '' } : { error: true };
+    if (name.length > 64 || !/^[A-Za-z0-9_.]+$/.test(name)) return { error: true };
+    return { value: name };
+  }
+
   /* The chat history size typed into the form: a whole number from 0 to the
    * server's limit, or null. Digits only, like the other number fields. */
   function readChatHistory(input) {
@@ -510,5 +522,6 @@
     linesToText: linesToText,
     readSettings: readSettings,
     readChatHistory: readChatHistory,
+    readTiktokUsername: readTiktokUsername,
   };
 });

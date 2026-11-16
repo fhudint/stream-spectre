@@ -263,6 +263,8 @@ input[type='range'] { flex: 1; accent-color: var(--accent); min-width: 0; }
 .banner { margin: 14px 29px 0; padding: 10px 14px; border-radius: 12px; }
 .banner-error { background: var(--bad-bg); color: var(--bad); }
 .banner-ok { background: var(--accent-bg); color: var(--accent); }
+.banner-warn { background: var(--warn-bg); color: var(--warn); margin: 0 0 18px; }
+.banner-warn .link { margin-left: 8px; text-decoration: underline; }
 
 main { padding: 22px 29px; }
 

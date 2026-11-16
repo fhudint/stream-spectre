@@ -18,7 +18,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 use super::error::ConfigError;
-use super::model::{BlacklistConfig, Config, DashboardConfig, ModerationConfig};
+use super::model::{BlacklistConfig, Config, DashboardConfig, ModerationConfig, TiktokConfig};
 
 /// Appended to the config file's name without its extension.
 const FILE_SUFFIX: &str = ".settings.toml";
@@ -30,6 +30,14 @@ const HEADER: &str = "\
 # stopped.
 ";
 
+/// The `[chat]` tables that can be changed in the dashboard.
+#[derive(Debug, Clone, Default, PartialEq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct SavedChat {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tiktok: Option<TiktokConfig>,
+}
+
 /// The tables that were changed in the dashboard.
 #[derive(Debug, Clone, Default, PartialEq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -40,6 +48,8 @@ pub struct SavedSettings {
     pub blacklist: Option<BlacklistConfig>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub dashboard: Option<DashboardConfig>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chat: Option<SavedChat>,
 }
 
 impl SavedSettings {
@@ -50,11 +60,15 @@ impl SavedSettings {
         moderation: &ModerationConfig,
         blacklist: &BlacklistConfig,
         dashboard: &DashboardConfig,
+        tiktok: &TiktokConfig,
     ) -> Self {
         Self {
             moderation: (baseline.moderation != *moderation).then(|| moderation.clone()),
             blacklist: (baseline.blacklist != *blacklist).then(|| blacklist.clone()),
             dashboard: (baseline.dashboard != *dashboard).then(|| dashboard.clone()),
+            chat: (baseline.chat.tiktok != *tiktok).then(|| SavedChat {
+                tiktok: Some(tiktok.clone()),
+            }),
         }
     }
 
@@ -64,6 +78,7 @@ impl SavedSettings {
             ("moderation", self.moderation.is_some()),
             ("blacklist", self.blacklist.is_some()),
             ("dashboard", self.dashboard.is_some()),
+            ("chat.tiktok", self.tiktok().is_some()),
         ]
         .into_iter()
         .filter_map(|(name, present)| present.then_some(name))
@@ -82,6 +97,14 @@ impl SavedSettings {
         if let Some(dashboard) = &self.dashboard {
             config.dashboard = dashboard.clone();
         }
+        if let Some(tiktok) = self.tiktok() {
+            config.chat.tiktok = tiktok.clone();
+        }
+    }
+
+    /// The saved `[chat.tiktok]` table, if there is one.
+    pub fn tiktok(&self) -> Option<&TiktokConfig> {
+        self.chat.as_ref().and_then(|chat| chat.tiktok.as_ref())
     }
 }
 
@@ -212,8 +235,13 @@ pub(crate) mod tests {
     #[test]
     fn only_tables_that_differ_from_the_config_are_kept() {
         let base = Config::default();
-        let none =
-            SavedSettings::changes(&base, &base.moderation, &base.blacklist, &base.dashboard);
+        let none = SavedSettings::changes(
+            &base,
+            &base.moderation,
+            &base.blacklist,
+            &base.dashboard,
+            &base.chat.tiktok,
+        );
         assert_eq!(none, SavedSettings::default());
         assert!(none.tables().is_empty());
 
@@ -222,11 +250,69 @@ pub(crate) mod tests {
             &changed_moderation(),
             &base.blacklist,
             &DashboardConfig { chat_history: 99 },
+            &base.chat.tiktok,
         );
         assert_eq!(some.moderation, Some(changed_moderation()));
         assert_eq!(some.blacklist, None);
         assert_eq!(some.dashboard, Some(DashboardConfig { chat_history: 99 }));
         assert_eq!(some.tables(), vec!["moderation", "dashboard"]);
+    }
+
+    #[test]
+    fn the_tiktok_username_is_saved_as_its_own_chat_table() {
+        let mut base = Config::default();
+        base.chat.tiktok.username = "from_config".to_owned();
+        let changed = TiktokConfig {
+            username: "from_dashboard".to_owned(),
+        };
+        let saved = SavedSettings::changes(
+            &base,
+            &base.moderation,
+            &base.blacklist,
+            &base.dashboard,
+            &changed,
+        );
+        assert_eq!(saved.tables(), vec!["chat.tiktok"]);
+        assert_eq!(saved.tiktok(), Some(&changed));
+
+        // Changed back to what config.toml says: nothing to keep.
+        let back = SavedSettings::changes(
+            &base,
+            &base.moderation,
+            &base.blacklist,
+            &base.dashboard,
+            &base.chat.tiktok,
+        );
+        assert_eq!(back, SavedSettings::default());
+
+        let mut config = base.clone();
+        saved.apply_to(&mut config);
+        assert_eq!(config.chat.tiktok, changed);
+        // The rest of [chat] is not touched.
+        assert_eq!(config.chat.source, base.chat.source);
+
+        let text = toml::to_string_pretty(&saved).unwrap();
+        assert!(text.contains("[chat.tiktok]"), "{text}");
+        assert!(text.contains("username = \"from_dashboard\""), "{text}");
+        assert!(!text.contains("[moderation]"), "{text}");
+    }
+
+    #[test]
+    fn an_emptied_username_is_a_saved_change_too() {
+        let mut base = Config::default();
+        base.chat.tiktok.username = "from_config".to_owned();
+        let empty = TiktokConfig::default();
+        let saved = SavedSettings::changes(
+            &base,
+            &base.moderation,
+            &base.blacklist,
+            &base.dashboard,
+            &empty,
+        );
+        assert_eq!(saved.tiktok(), Some(&empty));
+        let mut config = base;
+        saved.apply_to(&mut config);
+        assert_eq!(config.chat.tiktok.username, "");
     }
 
     #[test]
@@ -237,6 +323,7 @@ pub(crate) mod tests {
             moderation: Some(changed_moderation()),
             blacklist: Some(changed_blacklist()),
             dashboard: None,
+            chat: None,
         };
         saved.apply_to(&mut config);
         assert_eq!(config.moderation, changed_moderation());
@@ -255,6 +342,11 @@ pub(crate) mod tests {
             moderation: Some(changed_moderation()),
             blacklist: Some(changed_blacklist()),
             dashboard: Some(DashboardConfig { chat_history: 0 }),
+            chat: Some(SavedChat {
+                tiktok: Some(TiktokConfig {
+                    username: "someone".to_owned(),
+                }),
+            }),
         };
         write(&path, &saved).unwrap();
         assert_eq!(read(&path).unwrap(), Some(saved));

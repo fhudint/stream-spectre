@@ -373,6 +373,10 @@
       chat.textContent = '';
       chat.className = 'pill';
     }
+    // Without a username nothing is read: say so, with a way to fix it.
+    var unset = state.chat !== null && state.chat.state === 'not_configured';
+    $('setup-hint').classList[unset ? 'remove' : 'add']('hidden');
+    $('setup-hint-text').textContent = unset && typeof state.chat.text === 'string' ? state.chat.text : '';
     var channel = state.chat && typeof state.chat.channel === 'string' ? state.chat.channel : '';
     $('channel-name').textContent = channel;
     $('channel-initial').textContent = channel ? core.initial(channel) : '';
@@ -647,6 +651,10 @@
     if (state.settings.dashboard && history !== document.activeElement) {
       history.value = String(state.settings.dashboard.chat_history);
     }
+    var username = $('tiktok-username');
+    if (state.settings.chat && state.settings.chat.tiktok && username !== document.activeElement) {
+      username.value = String(state.settings.chat.tiktok.username);
+    }
     core.SETTINGS_FIELDS.forEach(function (field) {
       var input = $('setting-' + field.key);
       if (input !== document.activeElement) input.value = String(moderation[field.key]);
@@ -775,6 +783,26 @@
   $('chat-commands-only').addEventListener('change', function () {
     commandsOnly = $('chat-commands-only').checked === true;
     renderChat(true);
+  });
+
+  $('tiktok-form').addEventListener('submit', function (event) {
+    event.preventDefault();
+    var read = core.readTiktokUsername($('tiktok-username').value);
+    if (read.error) {
+      showError(tf('dashboard.error.invalid_value', { field: t('dashboard.tiktok.username') }));
+      return;
+    }
+    var current = state.settings && state.settings.chat && state.settings.chat.tiktok;
+    if (current && current.username === read.value) {
+      $('tiktok-username').value = read.value;
+      flash(t('dashboard.tiktok.saved'));
+      return;
+    }
+    act('PATCH', '/api/chat/tiktok', { username: read.value }, function (result) {
+      adopt(result.data);
+      $('tiktok-username').value = read.value;
+      flash(t('dashboard.tiktok.saved'));
+    });
   });
 
   $('chat-form').addEventListener('submit', function (event) {

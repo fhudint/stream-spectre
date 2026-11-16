@@ -19,6 +19,7 @@ of truth; this page describes them for people writing clients.
 | `PATCH /api/settings` | Change some moderation settings, keep the rest; answers the new state |
 | `PATCH /api/blacklist` | Replace some blacklist lists (`video_ids`, `channels`, `title_words`), keep the rest |
 | `PATCH /api/dashboard` | Change dashboard settings (`chat_history`), keep the rest |
+| `PATCH /api/chat/tiktok` | Body `{"username": "name"}`: set the TikTok username (an empty string stops reading chat); the chat follows it without a restart. Letters, digits, `_` and `.`, at most 64; a leading `@` and spaces are dropped. Answers the new state. |
 | `GET /dashboard/`, `GET /overlay/` | The pages themselves |
 
 The two sockets carry the events below. The overlay socket only receives
@@ -211,11 +212,14 @@ The moderation settings, the blacklist or the dashboard settings changed
       "max_volume": 80
     },
     "blacklist": { "video_ids": [], "channels": [], "title_words": [] },
-    "dashboard": { "chat_history": 20 }
+    "dashboard": { "chat_history": 20 },
+    "chat": { "tiktok": { "username": "streamer" } }
 } }
 ```
 
-`moderation.volume` is always the current volume.
+`moderation.volume` is always the current volume. `chat.tiktok.username` is
+empty while no username is set. The overlay's `hello` carries the same
+`settings.chat`; only the dashboard receives `settings_updated`.
 
 ### `notice`
 
@@ -330,8 +334,11 @@ The connection to the chat changed (dashboard).
 } }
 ```
 
-`state` is `connected`, `waiting_for_live`, `reconnecting` or `disconnected`.
-Repeated identical states are not sent.
+`state` is `connected`, `waiting_for_live`, `reconnecting`, `disconnected` or
+`not_configured` (no TikTok username is set, so nothing is being read; `channel`
+is then empty). Repeated identical states are not sent. When the username is
+changed, `channel` is the new name from then on and the state goes to
+`reconnecting` until the new connection reports.
 
 ## Messages from the overlay
 

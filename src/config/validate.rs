@@ -1,5 +1,7 @@
 use super::error::ConfigError;
-use super::model::{ChatSourceKind, Config, DashboardConfig, MAX_CHAT_HISTORY, ModerationConfig};
+use super::model::{
+    ChatSourceKind, Config, DashboardConfig, MAX_CHAT_HISTORY, ModerationConfig, TiktokConfig,
+};
 use super::secrets::Secrets;
 use crate::youtube::VideoId;
 
@@ -18,7 +20,7 @@ impl Config {
         }
 
         match self.chat.source {
-            ChatSourceKind::Tiktok => validate_tiktok_username(self.chat.tiktok.username())?,
+            ChatSourceKind::Tiktok => self.chat.tiktok.validate()?,
         }
 
         validate_prefix(&self.command.prefix)?;
@@ -125,30 +127,41 @@ fn require_positive(field: &str, value: u64) -> Result<(), ConfigError> {
     Ok(())
 }
 
-fn validate_tiktok_username(name: &str) -> Result<(), ConfigError> {
-    let field = "chat.tiktok.username";
-    if name.is_empty() {
-        return Err(ConfigError::invalid(
-            field,
-            "must be set when chat.source = \"tiktok\"",
-        ));
+impl TiktokConfig {
+    /// Checks the username on its own, so it can also be validated when
+    /// changed at runtime (from the dashboard). Empty is fine: it means no
+    /// chat is read yet. Anything else must be a plausible TikTok username,
+    /// which also keeps it safe to put in a URL.
+    pub fn validate(&self) -> Result<(), ConfigError> {
+        let field = "chat.tiktok.username";
+        let name = self.username();
+        if name.is_empty() {
+            // Only `@` (or spaces and `@`) typed: that is a mistake, not "none".
+            if self.username.trim().is_empty() {
+                return Ok(());
+            }
+            return Err(ConfigError::invalid(
+                field,
+                "must be a username, not just '@'",
+            ));
+        }
+        if name.chars().count() > MAX_TIKTOK_USERNAME_LEN {
+            return Err(ConfigError::invalid(
+                field,
+                format!("must be at most {MAX_TIKTOK_USERNAME_LEN} characters"),
+            ));
+        }
+        if !name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '.')
+        {
+            return Err(ConfigError::invalid(
+                field,
+                "may only contain letters, digits, '_' and '.'",
+            ));
+        }
+        Ok(())
     }
-    if name.chars().count() > MAX_TIKTOK_USERNAME_LEN {
-        return Err(ConfigError::invalid(
-            field,
-            format!("must be at most {MAX_TIKTOK_USERNAME_LEN} characters"),
-        ));
-    }
-    if !name
-        .chars()
-        .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '.')
-    {
-        return Err(ConfigError::invalid(
-            field,
-            "may only contain letters, digits, '_' and '.'",
-        ));
-    }
-    Ok(())
 }
 
 fn validate_prefix(prefix: &str) -> Result<(), ConfigError> {
@@ -207,12 +220,18 @@ mod tests {
     }
 
     #[test]
-    fn username_is_required_and_normalized() {
-        assert_eq!(
-            field_of(Config::default().validate().unwrap_err()),
-            "chat.tiktok.username"
-        );
+    fn no_username_is_allowed_and_means_no_chat_yet() {
+        Config::default().validate().unwrap();
+        for blank in ["", "   "] {
+            let mut c = valid();
+            c.chat.tiktok.username = blank.to_owned();
+            c.validate().unwrap();
+            assert_eq!(c.chat.tiktok.username(), "");
+        }
+    }
 
+    #[test]
+    fn username_is_normalized() {
         let mut c = valid();
         c.chat.tiktok.username = "  @some.one_1 ".to_owned();
         c.validate().unwrap();
@@ -221,7 +240,16 @@ mod tests {
 
     #[test]
     fn username_rejects_url_unsafe_characters() {
-        for bad in ["a/b", "a b", "a?x=1", "a#b", "héllo", "@", &"x".repeat(65)] {
+        for bad in [
+            "a/b",
+            "a b",
+            "a?x=1",
+            "a#b",
+            "héllo",
+            "@",
+            " @ ",
+            &"x".repeat(65),
+        ] {
             let mut c = valid();
             c.chat.tiktok.username = bad.to_owned();
             assert_eq!(

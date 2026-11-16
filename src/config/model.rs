@@ -64,10 +64,12 @@ pub struct ChatConfig {
     pub tiktok: TiktokConfig,
 }
 
-#[derive(Debug, Clone, PartialEq, Default, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Default, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct TiktokConfig {
     /// Username of the streamer whose LIVE chat is read, with or without `@`.
+    /// Empty means no chat is read yet; the program starts anyway and waits
+    /// for a username to be set from the dashboard.
     pub username: String,
 }
 

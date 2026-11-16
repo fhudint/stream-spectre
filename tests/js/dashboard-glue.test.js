@@ -120,6 +120,7 @@ const snapshot = (extra = {}) => ({
     },
     blacklist: { video_ids: ['aaaaaaaaaaa'], channels: [], title_words: [] },
     dashboard: { chat_history: 20 },
+    chat: { tiktok: { username: 'streamer' } },
   },
   chat_log: [],
   volume: 50,
@@ -1251,4 +1252,113 @@ test('the style sheet loads its fonts from this server only', () => {
     assert.match(url, /^fonts\/[a-z0-9-]+\.woff2$/);
     assert.ok(fs.existsSync(path.join(root, 'static/dashboard', url)), `${url} is missing`);
   }
+});
+
+// --- the TikTok username ---
+
+const patches = (page) => page.log.requests.filter((r) => r.path === '/api/chat/tiktok');
+
+test('the username form shows the current username', async () => {
+  const page = await ready();
+  assert.equal(page.elements['tiktok-username'].value, 'streamer');
+  const next = snapshot().settings;
+  next.chat.tiktok.username = 'someone_else';
+  page.socket().receive(envelope(6, 'settings_updated', next));
+  assert.equal(page.elements['tiktok-username'].value, 'someone_else', 'a change made elsewhere shows up');
+});
+
+test('a username being typed is not overwritten by a live update', async () => {
+  const page = await ready();
+  page.document.activeElement = page.elements['tiktok-username'];
+  page.elements['tiktok-username'].value = 'half_typed';
+  const next = snapshot().settings;
+  next.chat.tiktok.username = 'someone_else';
+  page.socket().receive(envelope(6, 'settings_updated', next));
+  assert.equal(page.elements['tiktok-username'].value, 'half_typed');
+});
+
+test('saving sends the username cleaned up, and shows the answer', async () => {
+  const page = await ready();
+  const updated = snapshot();
+  updated.settings.chat.tiktok.username = 'New.Name';
+  page.table['PATCH /api/chat/tiktok'] = { status: 200, body: updated };
+
+  page.elements['tiktok-username'].value = '  @New.Name ';
+  page.elements['tiktok-form'].fire('submit');
+  await settle();
+
+  assert.equal(patches(page).length, 1);
+  assert.equal(patches(page)[0].method, 'PATCH');
+  assert.deepEqual(patches(page)[0].body, { username: 'New.Name' });
+  assert.equal(page.elements['tiktok-username'].value, 'New.Name');
+  assert.equal(page.elements.flash.textContent, 'TikTok username saved');
+  assert.ok(page.elements.error.hidden);
+});
+
+test('saving the same username sends nothing', async () => {
+  const page = await ready();
+  page.elements['tiktok-username'].value = ' @streamer ';
+  page.elements['tiktok-form'].fire('submit');
+  await settle();
+  assert.equal(patches(page).length, 0);
+  assert.equal(page.elements['tiktok-username'].value, 'streamer');
+  assert.equal(page.elements.flash.textContent, 'TikTok username saved');
+});
+
+test('an unusable username is refused before anything is sent', async () => {
+  const page = await ready();
+  for (const bad of ['a/b', 'a b', '@', ' @ ', 'x?y=1', 'héllo', 'x'.repeat(65), 'https://www.tiktok.com/@name']) {
+    page.elements['tiktok-username'].value = bad;
+    page.elements['tiktok-form'].fire('submit');
+    await settle();
+    assert.equal(patches(page).length, 0, `${bad}: nothing sent`);
+    assert.equal(page.elements.error.textContent, 'Invalid value for TikTok username (without @)', bad);
+  }
+});
+
+test('an empty username is sent: it stops the chat', async () => {
+  const page = await ready();
+  const updated = snapshot();
+  updated.settings.chat.tiktok.username = '';
+  page.table['PATCH /api/chat/tiktok'] = { status: 200, body: updated };
+  page.elements['tiktok-username'].value = '   ';
+  page.elements['tiktok-form'].fire('submit');
+  await settle();
+  assert.deepEqual(patches(page)[0].body, { username: '' });
+  assert.equal(page.elements['tiktok-username'].value, '');
+});
+
+test('the server refusing the username is shown and the page is left as it was', async () => {
+  const page = await ready();
+  page.table['PATCH /api/chat/tiktok'] = { status: 400, body: { error: 'invalid config value `chat.tiktok.username`: nope' } };
+  page.elements['tiktok-username'].value = 'other';
+  page.elements['tiktok-form'].fire('submit');
+  await settle();
+  assert.match(page.elements.error.textContent, /chat\.tiktok\.username/);
+  assert.ok(page.elements.flash.hidden);
+});
+
+test('without a username the queue page says so and points to the settings', async () => {
+  const page = await ready();
+  assert.ok(page.elements['setup-hint'].hidden, 'nothing to say while a chat is connected');
+
+  page.socket().receive(envelope(6, 'chat_status', { state: 'not_configured', channel: '', text: 'No TikTok username yet. Enter it in Settings to read the chat.' }));
+  assert.ok(!page.elements['setup-hint'].hidden);
+  assert.equal(page.elements['setup-hint-text'].textContent, 'No TikTok username yet. Enter it in Settings to read the chat.');
+  assert.equal(page.elements['chat-status'].textContent, 'No TikTok username yet. Enter it in Settings to read the chat.');
+  assert.ok(page.elements['chat-status'].classes.has('state-bad'));
+  assert.equal(page.elements['channel-name'].textContent, '');
+  assert.equal(page.elements['channel-initial'].textContent, '');
+
+  page.socket().receive(envelope(7, 'chat_status', { state: 'connected', channel: 'new_one', text: 'Connected to TikTok chat @new_one' }));
+  assert.ok(page.elements['setup-hint'].hidden);
+  assert.equal(page.elements['channel-name'].textContent, 'new_one');
+});
+
+test('a page that starts without a username shows the hint at once', async () => {
+  const body = snapshot({ chat: { state: 'not_configured', channel: '', text: 'Enter a username' } });
+  body.settings.chat.tiktok.username = '';
+  const page = await ready({ routes: { 'GET /api/state': () => ({ status: 200, body }) } });
+  assert.ok(!page.elements['setup-hint'].hidden);
+  assert.equal(page.elements['tiktok-username'].value, '');
 });

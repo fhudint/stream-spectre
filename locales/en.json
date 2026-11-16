@@ -128,5 +128,11 @@
   "dashboard.overlay.copy": "Copy overlay URL",
   "dashboard.overlay.copied": "Overlay URL copied",
   "dashboard.overlay.copy_failed": "Could not copy. Select the address and copy it by hand.",
-  "dashboard.overlay.hint": "Add this address in OBS as a Browser source. Use localhost, not an IP address: YouTube's player refuses videos on a page opened by an IP address."
+  "dashboard.overlay.hint": "Add this address in OBS as a Browser source. Use localhost, not an IP address: YouTube's player refuses videos on a page opened by an IP address.",
+  "status.chat.no_username": "No TikTok username yet. Enter it in Settings to read the chat.",
+  "dashboard.tiktok.title": "TikTok chat",
+  "dashboard.tiktok.username": "TikTok username (without @)",
+  "dashboard.tiktok.hint": "The program reads the live chat of this account and follows a change at once, without a restart. Leave it empty to stop reading chat.",
+  "dashboard.tiktok.save": "Save username",
+  "dashboard.tiktok.saved": "TikTok username saved"
 }

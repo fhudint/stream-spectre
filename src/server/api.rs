@@ -11,7 +11,7 @@ use serde_json::{Value, json};
 
 use super::ServerState;
 use crate::app::Hello;
-use crate::config::{BlacklistConfig, DashboardConfig, ModerationConfig};
+use crate::config::{BlacklistConfig, DashboardConfig, ModerationConfig, TiktokConfig};
 use crate::i18n::catalog_json;
 use crate::queue::{ItemId, QueueError};
 use crate::youtube::VideoSource;
@@ -149,6 +149,21 @@ pub async fn dashboard<S: VideoSource + 'static>(
     state
         .pipeline
         .update_dashboard(updated)
+        .map_err(|error| ApiError::new(StatusCode::BAD_REQUEST, error.to_string()))?;
+    Ok(Json(state.pipeline.hello()))
+}
+
+/// `PATCH /api/chat/tiktok`: changes the TikTok username (`username`; empty
+/// stops reading chat). The chat follows the new name without a restart.
+pub async fn tiktok<S: VideoSource + 'static>(
+    State(state): State<ServerState<S>>,
+    Json(patch): Json<Value>,
+) -> ApiResult<Json<Hello>> {
+    let current = state.pipeline.hello().settings.chat.tiktok;
+    let updated: TiktokConfig = merge_patch(&current, patch)?;
+    state
+        .pipeline
+        .update_tiktok(updated)
         .map_err(|error| ApiError::new(StatusCode::BAD_REQUEST, error.to_string()))?;
     Ok(Json(state.pipeline.hello()))
 }

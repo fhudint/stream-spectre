@@ -91,6 +91,7 @@ fn changes<S: VideoSource>(pipeline: &Pipeline<S>, baseline: &Config) -> SavedSe
         &settings.moderation,
         &settings.blacklist,
         &settings.dashboard,
+        &settings.chat.tiktok,
     )
 }
 
@@ -289,6 +290,26 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_changed_username_is_saved_as_the_chat_table() {
+        let path = temp_file("username");
+        let run = start(&baseline(), &path, Duration::from_millis(5));
+        run.pipeline
+            .update_tiktok(crate::config::TiktokConfig {
+                username: "@someone_new".to_owned(),
+            })
+            .unwrap();
+
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while !path.exists() && Instant::now() < deadline {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        let saved = read_saved(&path).unwrap().unwrap();
+        assert_eq!(saved.tables(), vec!["chat.tiktok"]);
+        assert_eq!(saved.tiktok().unwrap().username, "someone_new");
+        run.finish().await;
+    }
+
+    #[tokio::test]
     async fn changing_a_setting_back_leaves_nothing_to_override_config_toml() {
         let path = temp_file("back");
         let run = start(&baseline(), &path, Duration::from_millis(5));
@@ -320,6 +341,7 @@ mod tests {
             &applied.moderation,
             &applied.blacklist,
             &applied.dashboard,
+            &applied.chat.tiktok,
         );
         write_saved(&path, &first).unwrap();
         let before = std::fs::metadata(&path).unwrap().modified().unwrap();

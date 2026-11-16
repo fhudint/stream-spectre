@@ -8,7 +8,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
 
 use crate::chat::{ChatStatus, Role};
-use crate::config::{BlacklistConfig, DashboardConfig, Language, ModerationConfig};
+use crate::config::{BlacklistConfig, DashboardConfig, Language, ModerationConfig, TiktokConfig};
 use crate::queue::{QueueItem, QueueSnapshot};
 
 /// Bumped when events change in a way old clients cannot handle.
@@ -104,6 +104,13 @@ pub struct SettingsView {
     pub moderation: ModerationConfig,
     pub blacklist: BlacklistConfig,
     pub dashboard: DashboardConfig,
+    pub chat: ChatSettingsView,
+}
+
+/// The `[chat]` settings the dashboard can change.
+#[derive(Debug, Clone, Default, PartialEq, Serialize)]
+pub struct ChatSettingsView {
+    pub tiktok: TiktokConfig,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -113,6 +120,8 @@ pub enum ChatState {
     WaitingForLive,
     Reconnecting,
     Disconnected,
+    /// No username is set, so nothing is being read.
+    NotConfigured,
 }
 
 impl From<&ChatStatus> for ChatState {
@@ -122,6 +131,7 @@ impl From<&ChatStatus> for ChatState {
             ChatStatus::WaitingForLive { .. } => Self::WaitingForLive,
             ChatStatus::Reconnecting { .. } => Self::Reconnecting,
             ChatStatus::Disconnected => Self::Disconnected,
+            ChatStatus::NoUsername => Self::NotConfigured,
         }
     }
 }
@@ -416,6 +426,7 @@ mod tests {
             moderation: ModerationConfig::default(),
             blacklist: BlacklistConfig::default(),
             dashboard: DashboardConfig::default(),
+            chat: ChatSettingsView::default(),
         });
         let value = to_json(&settings);
         assert_eq!(value["type"], "settings_updated");
@@ -424,6 +435,22 @@ mod tests {
         assert_eq!(value["data"]["moderation"]["volume"], 50);
         assert_eq!(value["data"]["blacklist"]["video_ids"], json!([]));
         assert_eq!(value["data"]["dashboard"]["chat_history"], 20);
+        assert_eq!(value["data"]["chat"], json!({"tiktok": {"username": ""}}));
+    }
+
+    #[test]
+    fn a_chat_that_is_not_configured_has_its_own_state() {
+        let view = ChatStatusView {
+            state: ChatState::from(&ChatStatus::NoUsername),
+            channel: String::new(),
+            text: "x".to_owned(),
+        };
+        assert_eq!(
+            to_json(&Event::ChatStatus(view)),
+            json!({"type": "chat_status", "data": {
+                "state": "not_configured", "channel": "", "text": "x"
+            }})
+        );
     }
 
     #[test]
@@ -474,6 +501,7 @@ mod tests {
                 moderation: ModerationConfig::default(),
                 blacklist: BlacklistConfig::default(),
                 dashboard: DashboardConfig::default(),
+                chat: ChatSettingsView::default(),
             },
             volume: 50,
             queue: QueueView {
@@ -528,6 +556,7 @@ mod tests {
                     title_words: vec!["secretword".to_owned()],
                 },
                 dashboard: DashboardConfig::default(),
+                chat: ChatSettingsView::default(),
             },
             volume: 42,
             queue: QueueView {
