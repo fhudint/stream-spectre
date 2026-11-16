@@ -30,6 +30,9 @@ pub enum ConfigError {
         reason: &'static str,
     },
 
+    #[error("invalid saved settings in {}: {reason}; fix that file, or delete it to go back to config.toml", .path.display())]
+    SavedSettings { path: PathBuf, reason: String },
+
     #[error("invalid config value `{field}`: {reason}")]
     Invalid { field: String, reason: String },
 

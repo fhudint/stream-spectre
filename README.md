@@ -140,8 +140,26 @@ reconnects if the connection drops. The dashboard shows the chat status.
 
 Open <http://localhost:8787/dashboard/> in a normal browser (for you or your
 moderators) to approve, reject and skip requests, and to change the settings
-while live. Settings changed in the dashboard are not written back to
-`config.toml`.
+while live. Settings changed in the dashboard are kept across restarts: they
+are saved to `config.settings.toml` next to `config.toml`, which the program
+writes and `config.toml` never is. See [Saved settings](#saved-settings).
+
+#### Saved settings
+
+`config.toml` is yours: the program only reads it, so your comments stay. When
+you change moderation settings, the volume, the blacklist or the chat history
+in the dashboard, the program writes the changed tables to
+`config.settings.toml` (named after your config file, in the same folder). At
+the next start, a table in that file **replaces** the same table in
+`config.toml`, and the log says which ones. This also means that editing a
+table in `config.toml` has no effect while the saved file holds that table.
+
+To go back to `config.toml`, stop the program and delete the table from
+`config.settings.toml`, or the whole file. A table you change back to the value
+in `config.toml` is dropped from the file by itself. If the file cannot be
+written (read-only folder, full disk), the dashboard shows a notice and the
+change is lost on restart. If the file is damaged, the program refuses to start
+and names the file and the problem.
 
 #### Use `localhost`, not an IP address
 
@@ -198,8 +216,10 @@ trust, not across the internet.
   notice with the player's error code. If *every* video fails with code 150,
   you most likely opened the overlay through an IP address; see
   [above](#use-localhost-not-an-ip-address).
-- **Settings are in memory.** Changes made in the dashboard last until the
-  program restarts.
+- **Saved settings replace whole tables.** A table saved from the dashboard
+  (for example all of `[moderation]`) replaces that table in `config.toml`;
+  single keys are not merged. Settings for the chat source, command, server and
+  YouTube are not changed from the dashboard and stay in `config.toml`.
 - **Chat is not stored.** The dashboard's chat view shows what arrives while it
   is open, plus the last few messages the program remembers in memory (20 by
   default, `chat_history` in `config.toml`). At most 20 messages per second are

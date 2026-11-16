@@ -268,8 +268,8 @@ This is the `ChatLine` shape that `hello.chat_log` also uses.
   memory (never on disk) so a dashboard that opens or reloads can show some
   context. `0` keeps none; live messages are still sent. The setting is
   `[dashboard].chat_history` in `config.toml` (0 to 200, default 20) and can be
-  changed with `PATCH /api/dashboard` until the program restarts. Lowering it
-  forgets the older messages.
+  changed with `PATCH /api/dashboard` (the new value is saved with the other
+  dashboard settings, see "Saved settings" in the README). Lowering it forgets the older messages.
 
 ### `chat_status`
 

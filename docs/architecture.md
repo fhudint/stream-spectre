@@ -100,6 +100,17 @@ Content-Security-Policy (no inline script or style) and a per-page
 Referrer-Policy: the overlay must send a referrer, or YouTube's embedded
 player refuses to play.
 
+**Settings changed in the dashboard are saved beside `config.toml`, never in
+it.** `config.toml` is written by hand and has comments, so the program only
+reads it. `app::autosave` listens to the same events as the pages and, a moment
+after settings or the volume change, writes the tables that differ from
+`config.toml` to `config.settings.toml` (written to a temporary file and renamed,
+so a crash never leaves half a file). At startup `config::load` puts those
+tables on top of `config.toml` and validates the result; a damaged file stops
+the program with a message that names it. Whole tables are stored, so a saved
+table replaces the table in `config.toml` entirely. A failed write is logged and
+shown to the moderators as a notice.
+
 **Secrets stay out of config, URLs and logs.** API keys come from the
 environment or `.env`, are wrapped in a `Secret` type that does not print, and
 are sent to YouTube in the `x-goog-api-key` header rather than the URL.

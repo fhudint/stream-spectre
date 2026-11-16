@@ -4,7 +4,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::Context;
-use stream_spectre::app::Pipeline;
+use stream_spectre::app::{Pipeline, SETTLE, autosave};
 use stream_spectre::chat::tiktok_source;
 use stream_spectre::cli::{self, Command};
 use stream_spectre::config::{self, LoadOptions, Loaded};
@@ -56,8 +56,22 @@ fn run() -> anyhow::Result<()> {
 
 async fn serve(loaded: Loaded) -> anyhow::Result<()> {
     let Loaded {
-        config, secrets, ..
+        config,
+        secrets,
+        baseline,
+        saved_path,
+        saved_tables,
+        ..
     } = loaded;
+    if saved_tables.is_empty() {
+        tracing::info!(path = %saved_path.display(), "settings changed in the dashboard are saved here");
+    } else {
+        tracing::info!(
+            path = %saved_path.display(),
+            tables = %saved_tables.join(", "),
+            "saved dashboard settings replace these tables from config.toml; delete the file to go back to config.toml"
+        );
+    }
 
     let i18n = I18n::load(config.general.language)?;
     let youtube = YoutubeClient::new(
@@ -96,6 +110,14 @@ async fn serve(loaded: Loaded) -> anyhow::Result<()> {
         })
     };
 
+    let saver = tokio::spawn(autosave(
+        Arc::clone(&pipeline),
+        baseline,
+        saved_path,
+        SETTLE,
+        stopped.clone(),
+    ));
+
     tokio::spawn(async move {
         platform::shutdown_signal().await;
         tracing::info!("stopping");
@@ -104,5 +126,7 @@ async fn serve(loaded: Loaded) -> anyhow::Result<()> {
 
     server::serve(listener, pipeline, secrets.dashboard_token.clone(), stopped).await?;
     let _ = chat.await;
+    // Writes any change that was still waiting to be saved.
+    let _ = saver.await;
     Ok(())
 }

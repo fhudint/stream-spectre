@@ -74,5 +74,6 @@
   "status.chat.disconnected": "Koneksi chat terputus",
   "error.player_failed": "Video “{title}” gagal diputar (kode {code})",
   "error.quota_exceeded":"Kuota YouTube API habis, coba lagi nanti",
-  "error.youtube_unavailable": "YouTube API tidak bisa dihubungi"
+  "error.youtube_unavailable": "YouTube API tidak bisa dihubungi",
+  "error.settings_not_saved": "Pengaturan gagal disimpan ke disk dan akan hilang saat program dimulai ulang"
 }

@@ -74,5 +74,6 @@
   "status.chat.disconnected": "Chat connection lost",
   "error.player_failed": "Video “{title}” failed to play (code {code})",
   "error.quota_exceeded":"YouTube API quota exhausted, try again later",
-  "error.youtube_unavailable": "Cannot reach the YouTube API"
+  "error.youtube_unavailable": "Cannot reach the YouTube API",
+  "error.settings_not_saved": "Settings could not be saved to disk and will be lost when the program restarts"
 }

@@ -2,10 +2,12 @@
 //! together and publishes what happens as events for the overlay and the
 //! dashboard. The HTTP and WebSocket server is a thin layer on top of this.
 
+mod autosave;
 mod bus;
 mod events;
 mod pipeline;
 
+pub use autosave::{SETTLE, autosave};
 pub use bus::EventBus;
 pub use events::{
     ChatLineView, ChatState, ChatStatusView, Envelope, Event, Hello, ItemView, NoticeLevel,

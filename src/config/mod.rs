@@ -5,6 +5,7 @@ mod dotenv;
 mod error;
 mod model;
 mod paths;
+mod saved;
 mod secrets;
 mod validate;
 
@@ -17,6 +18,7 @@ pub use model::{
     TiktokConfig, YoutubeConfig,
 };
 pub use paths::{CONFIG_FILE_NAME, ENV_CONFIG_PATH};
+pub use saved::{SavedSettings, read as read_saved, saved_path, write as write_saved};
 pub use secrets::{
     ENV_DASHBOARD_TOKEN, ENV_YOUTUBE_API_KEY, MIN_DASHBOARD_TOKEN_LEN, Secret, Secrets,
 };
@@ -30,6 +32,13 @@ pub struct Loaded {
     pub secrets: Secrets,
     /// The config file that was read.
     pub path: PathBuf,
+    /// What `config.toml` alone says, before saved settings were applied.
+    /// Used to tell which settings were changed in the dashboard.
+    pub baseline: Config,
+    /// Where settings changed in the dashboard are saved.
+    pub saved_path: PathBuf,
+    /// Tables of `config.toml` that saved settings replaced at startup.
+    pub saved_tables: Vec<&'static str>,
 }
 
 #[derive(Debug, Default)]
@@ -53,8 +62,11 @@ pub fn load(options: LoadOptions) -> Result<Loaded, ConfigError> {
         path: path.clone(),
         source,
     })?;
-    let config = parse(&text, &path)?;
-    config.validate()?;
+    let baseline = parse(&text, &path)?;
+    baseline.validate()?;
+
+    let saved_path = saved::saved_path(&path);
+    let (config, saved_tables) = with_saved_settings(&baseline, &saved_path)?;
 
     let (dotenv_vars, _) = dotenv::load_first(&paths::dotenv_candidates(user_dir.as_deref()))?;
     let secrets = Secrets::from_lookup(|key| {
@@ -68,7 +80,31 @@ pub fn load(options: LoadOptions) -> Result<Loaded, ConfigError> {
         config,
         secrets,
         path,
+        baseline,
+        saved_path,
+        saved_tables,
     })
+}
+
+/// `baseline` with the tables from the saved settings file put on top, if the
+/// file exists, plus the names of the tables replaced. The result is
+/// validated, so a bad saved file stops the program before it starts.
+fn with_saved_settings(
+    baseline: &Config,
+    saved_path: &Path,
+) -> Result<(Config, Vec<&'static str>), ConfigError> {
+    let mut config = baseline.clone();
+    let Some(saved) = saved::read(saved_path)? else {
+        return Ok((config, Vec::new()));
+    };
+    saved.apply_to(&mut config);
+    config
+        .validate()
+        .map_err(|err| ConfigError::SavedSettings {
+            path: saved_path.to_owned(),
+            reason: err.to_string(),
+        })?;
+    Ok((config, saved.tables()))
 }
 
 /// Parses TOML text. The error carries the problem and its position but never
@@ -105,6 +141,63 @@ mod tests {
 
     fn parse_str(text: &str) -> Result<Config, ConfigError> {
         parse(text, Path::new("config.toml"))
+    }
+
+    /// The one setting a config must have to be valid.
+    const USER: &str = "[chat.tiktok]\nusername = \"someone\"\n";
+
+    #[test]
+    fn without_a_saved_file_the_config_is_used_as_it_is() {
+        let dir = saved::tests::temp_dir("layer-none");
+        let baseline = parse_str(&format!("{USER}[moderation]\ncooldown_secs = 90")).unwrap();
+        let (config, tables) =
+            with_saved_settings(&baseline, &dir.join("config.settings.toml")).unwrap();
+        assert_eq!(config, baseline);
+        assert!(tables.is_empty());
+    }
+
+    #[test]
+    fn saved_tables_win_over_config_toml_and_the_rest_is_kept() {
+        let dir = saved::tests::temp_dir("layer-some");
+        let path = dir.join("config.settings.toml");
+        std::fs::write(
+            &path,
+            "[moderation]\ncooldown_secs = 5\n\n[blacklist]\nchannels = [\"X\"]\n",
+        )
+        .unwrap();
+        let baseline = parse_str(&format!(
+            "{USER}[moderation]\ncooldown_secs = 90\nmax_queue_len = 3\n[dashboard]\nchat_history = 7"
+        ))
+        .unwrap();
+        let (config, tables) = with_saved_settings(&baseline, &path).unwrap();
+        assert_eq!(tables, vec!["moderation", "blacklist"]);
+        assert_eq!(config.moderation.cooldown_secs, 5);
+        // A saved table replaces the whole table, not single fields.
+        assert_eq!(config.moderation.max_queue_len, 20);
+        assert_eq!(config.blacklist.channels, vec!["X".to_owned()]);
+        assert_eq!(config.dashboard.chat_history, 7);
+    }
+
+    #[test]
+    fn invalid_saved_values_stop_startup_and_name_the_saved_file() {
+        let dir = saved::tests::temp_dir("layer-bad");
+        let path = dir.join("config.settings.toml");
+        let baseline = parse_str(USER).unwrap();
+        for (bad, field) in [
+            ("[moderation]\nvolume = 90\nmax_volume = 50\n", "volume"),
+            ("[dashboard]\nchat_history = 5000\n", "chat_history"),
+            ("[blacklist]\nvideo_ids = [\"not an id\"]\n", "video_ids"),
+        ] {
+            std::fs::write(&path, bad).unwrap();
+            let err = with_saved_settings(&baseline, &path).unwrap_err();
+            assert!(
+                matches!(err, ConfigError::SavedSettings { .. }),
+                "{bad}: {err}"
+            );
+            let message = err.to_string();
+            assert!(message.contains("config.settings.toml"), "{message}");
+            assert!(message.contains(field), "{message}");
+        }
     }
 
     #[test]

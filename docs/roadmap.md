@@ -99,15 +99,17 @@ stays a browser source in OBS, because OBS needs a URL for it.
 **Goal.** No hand-editing of `config.toml` or `.env`: the YouTube API key, the
 TikTok username and the other settings are entered in the app.
 
-**Today.** Settings changed in the dashboard (moderation, blacklist, chat
-history) live only in memory and are lost when the program restarts. Secrets
-come from the environment or `.env`; the program refuses to start without a
-valid config and an API key.
+**Today.** Settings changed in the dashboard (moderation, volume, blacklist,
+chat history) are saved to `config.settings.toml` next to `config.toml` and
+come back at the next start (done; `config.toml` itself is never written, so its
+comments are safe). Secrets still come from the environment or `.env`, and the
+program refuses to start without a valid config and an API key.
 
 **What it needs**
-- Saving settings to disk. `config.toml` is hand-written with comments, so
-  rewriting it must not destroy them (or settings go into a second file the
-  program owns).
+- Saving settings to disk: **done** for the dashboard settings, in a second
+  file the program owns. What is still missing is saving what only
+  `config.toml` holds today (TikTok username, language, port), which the first-run
+  screen below needs; the saved file would have to learn those tables.
 - A first-run screen that runs before the config is complete, so a new install
   can start without a config file and ask for the TikTok username and the key.
 - A safe home for the API key, probably the operating system's keychain, never

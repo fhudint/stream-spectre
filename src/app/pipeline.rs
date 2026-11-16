@@ -395,6 +395,23 @@ impl<S: VideoSource> Pipeline<S> {
         self.bus.subscribe()
     }
 
+    /// The settings in effect now (moderation including the current volume,
+    /// blacklist, dashboard).
+    pub fn settings(&self) -> SettingsView {
+        Self::settings_view(&self.lock())
+    }
+
+    /// Tells the moderators that settings could not be written to disk, so
+    /// they know a restart would lose them.
+    pub fn settings_not_saved(&self) {
+        self.notice(
+            NoticeLevel::Warning,
+            "error.settings_not_saved",
+            self.i18n.t("error.settings_not_saved").to_owned(),
+            None,
+        );
+    }
+
     /// The complete current state, for a client that just connected.
     pub fn hello(&self) -> Hello {
         let inner = self.lock();

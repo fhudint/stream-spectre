@@ -6,6 +6,11 @@
 # macOS: ~/Library/Application Support/stream-spectre/config.toml).
 # You can also point to it with `--config <path>` or STREAM_SPECTRE_CONFIG.
 #
+# This file is only ever read. Settings changed in the dashboard (moderation,
+# volume, blacklist, chat history) are saved by the program to
+# `config.settings.toml` next to this file, and a table saved there replaces
+# the same table here. Delete the table or that file to go back to this one.
+#
 # Secrets do NOT go here. Set them as environment variables or in a `.env`
 # file (see `.env.example`): YOUTUBE_API_KEY, DASHBOARD_TOKEN.
 #

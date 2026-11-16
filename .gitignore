@@ -9,6 +9,7 @@ CLAUDE.md
 .env.*
 !.env.example
 config.toml
+config.settings.toml
 
 # Output tools lokal
 graphify-out/
