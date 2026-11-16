@@ -1,0 +1,18 @@
+[package]
+name = "stream-spectre"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+description = "OBS browser-source stream overlay with chat-driven YouTube mediashare"
+publish = false
+
+[dependencies]
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+# Input chat tidak boleh bisa membuat aplikasi panic.
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"

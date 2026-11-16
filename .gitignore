@@ -1,0 +1,14 @@
+# Instruksi lokal untuk Claude Code (tidak di-push ke GitHub)
+CLAUDE.md
+
+# Build
+/target
+
+# Rahasia dan konfigurasi lokal
+.env
+.env.*
+!.env.example
+config.toml
+
+# Output tools lokal
+graphify-out/
