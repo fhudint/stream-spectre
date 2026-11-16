@@ -9,6 +9,7 @@ pub mod command;
 pub mod config;
 pub mod i18n;
 pub mod platform;
+pub mod queue;
 pub mod youtube;
 
 /// Nama aplikasi, diambil dari `Cargo.toml`.

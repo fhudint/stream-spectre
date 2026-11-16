@@ -1,5 +1,5 @@
 use super::error::ConfigError;
-use super::model::{ChatSourceKind, Config};
+use super::model::{ChatSourceKind, Config, ModerationConfig};
 use super::secrets::Secrets;
 use crate::youtube::VideoId;
 
@@ -29,21 +29,7 @@ impl Config {
         require_positive("youtube.cache_max_entries", y.cache_max_entries as u64)?;
         require_positive("youtube.request_timeout_secs", y.request_timeout_secs)?;
 
-        let m = &self.moderation;
-        require_positive("moderation.max_duration_secs", m.max_duration_secs)?;
-        require_positive("moderation.max_queue_len", m.max_queue_len as u64)?;
-        if m.max_volume > 100 {
-            return Err(ConfigError::invalid(
-                "moderation.max_volume",
-                "must be between 0 and 100",
-            ));
-        }
-        if m.volume > m.max_volume {
-            return Err(ConfigError::invalid(
-                "moderation.volume",
-                "must not exceed moderation.max_volume",
-            ));
-        }
+        self.moderation.validate()?;
 
         let b = &self.blacklist;
         for (field, entries) in [
@@ -69,6 +55,16 @@ impl Config {
                 ));
             }
         }
+        // Title words are matched as whole words; punctuation-only entries
+        // contain no word and could never match.
+        for (i, entry) in b.title_words.iter().enumerate() {
+            if !entry.chars().any(char::is_alphanumeric) {
+                return Err(ConfigError::invalid(
+                    format!("blacklist.title_words[{i}]"),
+                    "must contain at least one letter or digit",
+                ));
+            }
+        }
 
         Ok(())
     }
@@ -79,6 +75,28 @@ impl Config {
             return Err(ConfigError::invalid(
                 "server.bind",
                 "binding beyond loopback requires the DASHBOARD_TOKEN secret",
+            ));
+        }
+        Ok(())
+    }
+}
+
+impl ModerationConfig {
+    /// Checks the moderation settings on their own, so they can also be
+    /// validated when changed at runtime (for example from the dashboard).
+    pub fn validate(&self) -> Result<(), ConfigError> {
+        require_positive("moderation.max_duration_secs", self.max_duration_secs)?;
+        require_positive("moderation.max_queue_len", self.max_queue_len as u64)?;
+        if self.max_volume > 100 {
+            return Err(ConfigError::invalid(
+                "moderation.max_volume",
+                "must be between 0 and 100",
+            ));
+        }
+        if self.volume > self.max_volume {
+            return Err(ConfigError::invalid(
+                "moderation.volume",
+                "must not exceed moderation.max_volume",
             ));
         }
         Ok(())
@@ -281,6 +299,40 @@ mod tests {
         c.moderation.max_volume = 100;
         c.moderation.volume = 100;
         c.validate().unwrap();
+    }
+
+    #[test]
+    fn title_words_need_a_letter_or_digit() {
+        for bad in ["!!!", "-", "  ?  ", "…"] {
+            let mut c = valid();
+            c.blacklist.title_words = vec!["ok".to_owned(), bad.to_owned()];
+            assert_eq!(
+                field_of(c.validate().unwrap_err()),
+                "blacklist.title_words[1]",
+                "{bad}"
+            );
+        }
+        let mut c = valid();
+        c.blacklist.title_words = vec![
+            "bad word".to_owned(),
+            "x-rated".to_owned(),
+            "日本".to_owned(),
+        ];
+        c.validate().unwrap();
+    }
+
+    #[test]
+    fn moderation_settings_validate_on_their_own() {
+        let mut m = ModerationConfig::default();
+        m.validate().unwrap();
+        m.volume = 90;
+        assert_eq!(
+            match m.validate().unwrap_err() {
+                ConfigError::Invalid { field, .. } => field,
+                other => panic!("{other}"),
+            },
+            "moderation.volume"
+        );
     }
 
     #[test]

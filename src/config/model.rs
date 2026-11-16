@@ -141,6 +141,18 @@ pub struct ModerationConfig {
     pub max_volume: u8,
 }
 
+impl ModerationConfig {
+    /// Per-user cooldown as a duration; zero means no cooldown.
+    pub fn cooldown(&self) -> std::time::Duration {
+        std::time::Duration::from_secs(self.cooldown_secs)
+    }
+
+    /// Limits a requested volume to `max_volume`.
+    pub fn clamp_volume(&self, requested: u8) -> u8 {
+        requested.min(self.max_volume)
+    }
+}
+
 impl Default for ModerationConfig {
     fn default() -> Self {
         Self {
