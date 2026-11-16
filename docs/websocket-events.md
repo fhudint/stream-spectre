@@ -4,9 +4,53 @@ The overlay and the dashboard receive the same stream of JSON events. The
 Rust definitions in [`src/app/events.rs`](../src/app/events.rs) are the source
 of truth; this page describes them for people writing clients.
 
-> **Status:** the event format below is implemented and tested. The HTTP and
-> WebSocket endpoints that carry it (paths, REST actions, authentication) are
-> added in the server step and will be documented here then.
+## Endpoints and access
+
+| Endpoint | Purpose |
+|----------|---------|
+| `GET /ws/overlay` | WebSocket for the OBS overlay page |
+| `GET /ws/dashboard` | WebSocket for the dashboard page |
+| `GET /api/state` | The current state, same shape as `hello`'s `data` |
+| `GET /api/i18n` | UI texts in the configured language |
+| `POST /api/queue/{id}/approve` | Approve a pending request (`204`) |
+| `POST /api/queue/{id}/reject` | Remove a pending or approved request (`204`) |
+| `POST /api/skip` | Skip the playing video: `{"skipped": true or false}` |
+| `POST /api/volume` | Body `{"volume": 0-100}`; answers `{"volume": n}` with the volume in effect |
+| `PATCH /api/settings` | Change some moderation settings, keep the rest; answers the new state |
+| `PATCH /api/blacklist` | Replace some blacklist lists (`video_ids`, `channels`, `title_words`), keep the rest |
+| `GET /dashboard/`, `GET /overlay/` | The pages themselves |
+
+The two sockets carry the events below. The overlay socket only receives
+what changes the screen (`play`, `skip`, `stop`, `volume`) and a trimmed
+`hello` without waiting requests, blacklist or chat status; the dashboard
+socket receives everything. Dashboard actions go through the REST API.
+
+Errors from the API are JSON: `{"error": "..."}` with `400` (bad or invalid
+input, nothing changed), `404` (no such queue entry), `409` (the entry is not
+in a state that allows this), `401` or `403` (see below), or `413` (body over
+64 KiB). A `PATCH` with an unknown field or a value that fails validation is
+refused as a whole.
+
+### Who may connect
+
+- **Token.** When `DASHBOARD_TOKEN` is set, everything under `/api/` and
+  `/ws/` needs it, as `Authorization: Bearer <token>` or a `?token=<token>`
+  query parameter (browsers cannot set headers on a WebSocket). The pages
+  themselves contain nothing secret and are served without it; open the
+  dashboard as `/dashboard/#token=...` (a fragment is never sent to the
+  server) and the overlay as `/overlay/?token=...`. Without a configured
+  token the server only listens on the loopback address and needs none.
+- **Host.** On a loopback address the `Host` header must be `127.0.0.1`,
+  `localhost` or `[::1]` with the server's port. This stops other websites
+  from reaching the server through DNS rebinding. Reaching a loopback server
+  through a tunnel or reverse proxy therefore does not work; listen on a
+  network address (which requires a token) instead.
+- **Origin.** If a browser sends an `Origin` header it must be this server
+  itself, so other websites cannot make your browser call the API. Scripts
+  that send no `Origin` are unaffected.
+- **Limits.** At most 32 WebSocket connections at once, client messages up to
+  4 KiB, and a client that cannot take a message within 10 seconds is dropped.
+  The server pings idle connections every 30 seconds.
 
 ## Envelope
 
@@ -33,8 +77,10 @@ not break older clients.
    state. Its `data.seq` is the sequence number of the last event the snapshot
    already includes.
 2. Apply the events that follow, ignoring any with `seq <= hello.seq`.
-3. If the connection drops, reconnect and start again at step 1. If the server
-   closes it because the client fell too far behind, that is the same case.
+3. If the connection drops, reconnect and start again at step 1.
+4. If a client reads too slowly and misses events, the server sends a new
+   `hello` instead of the missing events. Treat every `hello` as "replace
+   everything you know", not only the first one.
 
 Because `queue_updated` always carries the whole queue, a client never has to
 patch its own copy of the queue.

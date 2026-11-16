@@ -130,6 +130,19 @@ pub struct Hello {
     pub chat: Option<ChatStatusView>,
 }
 
+impl Hello {
+    /// The version sent to the overlay: it only needs to know what is playing
+    /// and how loud. Waiting requests (with viewers' names), the blacklist and
+    /// the chat status stay out.
+    pub fn for_overlay(mut self) -> Self {
+        self.queue.pending.clear();
+        self.queue.approved.clear();
+        self.settings.blacklist = BlacklistConfig::default();
+        self.chat = None;
+        self
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SkipReason {
@@ -401,6 +414,44 @@ mod tests {
         assert_eq!(data["volume"], 50);
         assert_eq!(data["queue"]["now_playing"]["id"], 7);
         assert_eq!(data["chat"], Value::Null);
+    }
+
+    #[test]
+    fn the_overlay_hello_keeps_only_what_is_playing_and_the_volume() {
+        let hello = Hello {
+            server_version: "1".to_owned(),
+            language: Language::En,
+            seq: 3,
+            settings: SettingsView {
+                moderation: ModerationConfig::default(),
+                blacklist: BlacklistConfig {
+                    video_ids: vec!["dQw4w9WgXcQ".to_owned()],
+                    channels: vec!["Secret Channel".to_owned()],
+                    title_words: vec!["secretword".to_owned()],
+                },
+            },
+            volume: 42,
+            queue: QueueView {
+                pending: vec![ItemView::from(&item(1))],
+                approved: vec![ItemView::from(&item(2))],
+                now_playing: Some(ItemView::from(&item(3))),
+            },
+            chat: Some(ChatStatusView {
+                state: ChatState::Connected,
+                channel: "streamer".to_owned(),
+                text: "x".to_owned(),
+            }),
+        };
+        let overlay = hello.for_overlay();
+        assert_eq!(overlay.seq, 3);
+        assert_eq!(overlay.volume, 42);
+        assert_eq!(overlay.queue.now_playing.as_ref().map(|i| i.id), Some(3));
+        assert!(overlay.queue.pending.is_empty() && overlay.queue.approved.is_empty());
+        assert_eq!(overlay.settings.blacklist, BlacklistConfig::default());
+        assert!(overlay.chat.is_none());
+
+        let json = serde_json::to_string(&overlay).unwrap();
+        assert!(!json.contains("secretword") && !json.contains("Secret Channel"));
     }
 
     #[test]

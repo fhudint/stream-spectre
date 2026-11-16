@@ -1,0 +1,252 @@
+//! The dashboard's JSON API. Every route here needs the token when one is set
+//! (see `guard`). Errors are `{"error": "..."}` with a fitting status.
+
+use axum::Json;
+use axum::extract::{Path, State};
+use axum::http::{StatusCode, header};
+use axum::response::{IntoResponse, Response};
+use serde::Serialize;
+use serde::de::DeserializeOwned;
+use serde_json::{Value, json};
+
+use super::ServerState;
+use crate::app::Hello;
+use crate::config::{BlacklistConfig, ModerationConfig};
+use crate::i18n::catalog_json;
+use crate::queue::{ItemId, QueueError};
+use crate::youtube::VideoSource;
+
+#[derive(Debug)]
+pub struct ApiError {
+    status: StatusCode,
+    message: String,
+}
+
+impl ApiError {
+    fn new(status: StatusCode, message: impl Into<String>) -> Self {
+        Self {
+            status,
+            message: message.into(),
+        }
+    }
+}
+
+impl IntoResponse for ApiError {
+    fn into_response(self) -> Response {
+        (self.status, Json(json!({ "error": self.message }))).into_response()
+    }
+}
+
+impl From<QueueError> for ApiError {
+    fn from(error: QueueError) -> Self {
+        let status = match error {
+            QueueError::NotFound(_) => StatusCode::NOT_FOUND,
+            QueueError::NotPending(_) | QueueError::NotPlaying(_) => StatusCode::CONFLICT,
+        };
+        Self::new(status, error.to_string())
+    }
+}
+
+type ApiResult<T> = Result<T, ApiError>;
+
+/// `GET /api/state`: the same snapshot a WebSocket client gets as `hello`.
+pub async fn state<S: VideoSource + 'static>(State(state): State<ServerState<S>>) -> Json<Hello> {
+    Json(state.pipeline.hello())
+}
+
+/// `GET /api/i18n`: the UI texts in the configured language.
+pub async fn catalog<S: VideoSource + 'static>(State(state): State<ServerState<S>>) -> Response {
+    (
+        [(header::CONTENT_TYPE, "application/json")],
+        catalog_json(state.pipeline.hello().language),
+    )
+        .into_response()
+}
+
+/// `POST /api/queue/{id}/approve`
+pub async fn approve<S: VideoSource + 'static>(
+    State(state): State<ServerState<S>>,
+    Path(id): Path<u64>,
+) -> ApiResult<StatusCode> {
+    state.pipeline.approve(ItemId(id))?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// `POST /api/queue/{id}/reject`
+pub async fn reject<S: VideoSource + 'static>(
+    State(state): State<ServerState<S>>,
+    Path(id): Path<u64>,
+) -> ApiResult<StatusCode> {
+    state.pipeline.reject(ItemId(id))?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// `POST /api/skip`: `{"skipped": true}` when something was playing.
+pub async fn skip<S: VideoSource + 'static>(State(state): State<ServerState<S>>) -> Json<Value> {
+    Json(json!({ "skipped": state.pipeline.skip() }))
+}
+
+/// `POST /api/volume` with `{"volume": 0-100}`; answers with the volume that
+/// is in effect after limiting it to the configured maximum.
+pub async fn volume<S: VideoSource + 'static>(
+    State(state): State<ServerState<S>>,
+    Json(body): Json<Value>,
+) -> ApiResult<Json<Value>> {
+    let requested = body
+        .get("volume")
+        .and_then(Value::as_u64)
+        .and_then(|volume| u8::try_from(volume).ok())
+        .filter(|volume| *volume <= 100)
+        .ok_or_else(|| {
+            ApiError::new(
+                StatusCode::BAD_REQUEST,
+                "body must be {\"volume\": a whole number from 0 to 100}",
+            )
+        })?;
+    Ok(Json(
+        json!({ "volume": state.pipeline.set_volume(requested) }),
+    ))
+}
+
+/// `PATCH /api/settings`: changes the given moderation settings and keeps the
+/// rest. Unknown or invalid values are refused and nothing changes.
+pub async fn settings<S: VideoSource + 'static>(
+    State(state): State<ServerState<S>>,
+    Json(patch): Json<Value>,
+) -> ApiResult<Json<Hello>> {
+    let current = state.pipeline.hello().settings.moderation;
+    let updated: ModerationConfig = merge_patch(&current, patch)?;
+    state
+        .pipeline
+        .update_settings(updated)
+        .map_err(|error| ApiError::new(StatusCode::BAD_REQUEST, error.to_string()))?;
+    Ok(Json(state.pipeline.hello()))
+}
+
+/// `PATCH /api/blacklist`: replaces the given lists (`video_ids`, `channels`,
+/// `title_words`) and keeps the others.
+pub async fn blacklist<S: VideoSource + 'static>(
+    State(state): State<ServerState<S>>,
+    Json(patch): Json<Value>,
+) -> ApiResult<Json<Hello>> {
+    let current = state.pipeline.hello().settings.blacklist;
+    let updated: BlacklistConfig = merge_patch(&current, patch)?;
+    state
+        .pipeline
+        .update_blacklist(updated)
+        .map_err(|error| ApiError::new(StatusCode::BAD_REQUEST, error.to_string()))?;
+    Ok(Json(state.pipeline.hello()))
+}
+
+/// Applies a partial JSON object on top of `current` and parses the result.
+/// Settings types reject unknown fields, so a misspelt key is an error rather
+/// than silently ignored.
+fn merge_patch<T>(current: &T, patch: Value) -> Result<T, ApiError>
+where
+    T: Serialize + DeserializeOwned,
+{
+    let bad = |message: String| ApiError::new(StatusCode::BAD_REQUEST, message);
+
+    let Value::Object(patch) = patch else {
+        return Err(bad("body must be a JSON object".to_owned()));
+    };
+    let mut merged = serde_json::to_value(current)
+        .map_err(|_| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "cannot read settings"))?;
+    let Some(fields) = merged.as_object_mut() else {
+        return Err(ApiError::new(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "settings are not an object",
+        ));
+    };
+    for (key, value) in patch {
+        fields.insert(key, value);
+    }
+    serde_json::from_value(merged).map_err(|error| bad(error.to_string()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::chat::Role;
+    use crate::config::ModerationMode;
+
+    #[test]
+    fn a_patch_changes_only_the_given_fields() {
+        let current = ModerationConfig::default();
+        let updated: ModerationConfig = merge_patch(
+            &current,
+            json!({"min_role": "subscriber", "cooldown_secs": 5}),
+        )
+        .unwrap();
+        assert_eq!(updated.min_role, Role::Subscriber);
+        assert_eq!(updated.cooldown_secs, 5);
+        assert_eq!(updated.max_queue_len, current.max_queue_len);
+        assert_eq!(updated.mode, ModerationMode::Manual);
+        assert_eq!(updated.max_volume, current.max_volume);
+    }
+
+    #[test]
+    fn an_empty_patch_changes_nothing() {
+        let current = ModerationConfig {
+            cooldown_secs: 7,
+            ..ModerationConfig::default()
+        };
+        let updated: ModerationConfig = merge_patch(&current, json!({})).unwrap();
+        assert_eq!(updated, current);
+    }
+
+    #[test]
+    fn bad_patches_are_client_errors() {
+        let current = ModerationConfig::default();
+        for bad in [
+            json!({"typo_field": 1}),
+            json!({"min_role": "vip"}),
+            json!({"cooldown_secs": "soon"}),
+            json!({"cooldown_secs": -1}),
+            json!({"volume": 300}),
+            json!([1, 2]),
+            json!("text"),
+            json!(null),
+            json!(5),
+        ] {
+            let error = merge_patch::<ModerationConfig>(&current, bad.clone())
+                .err()
+                .unwrap_or_else(|| panic!("accepted {bad}"));
+            assert_eq!(error.status, StatusCode::BAD_REQUEST, "{bad}");
+        }
+    }
+
+    #[test]
+    fn blacklist_patches_replace_whole_lists() {
+        let current = BlacklistConfig {
+            video_ids: vec!["aaaaaaaaaaa".to_owned()],
+            channels: vec!["Chan".to_owned()],
+            title_words: vec![],
+        };
+        let updated: BlacklistConfig =
+            merge_patch(&current, json!({"title_words": ["spam"]})).unwrap();
+        assert_eq!(updated.video_ids, current.video_ids);
+        assert_eq!(updated.channels, current.channels);
+        assert_eq!(updated.title_words, vec!["spam".to_owned()]);
+
+        let updated: BlacklistConfig = merge_patch(&current, json!({"video_ids": []})).unwrap();
+        assert!(updated.video_ids.is_empty());
+    }
+
+    #[test]
+    fn queue_errors_map_to_statuses() {
+        let status = |error: QueueError| ApiError::from(error).status;
+        assert_eq!(
+            status(QueueError::NotFound(ItemId(1))),
+            StatusCode::NOT_FOUND
+        );
+        assert_eq!(
+            status(QueueError::NotPending(ItemId(1))),
+            StatusCode::CONFLICT
+        );
+        assert_eq!(
+            status(QueueError::NotPlaying(ItemId(1))),
+            StatusCode::CONFLICT
+        );
+    }
+}
