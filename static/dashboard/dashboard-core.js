@@ -23,7 +23,14 @@
   var MAX_CHAT_HISTORY = 200;
   var NOTICE_LEVELS = ['info', 'warning', 'error'];
   /* The pages of the dashboard, in the order of the menu. */
-  var VIEWS = ['queue', 'blacklist', 'rules', 'overlay', 'settings'];
+  var VIEWS = ['queue', 'blacklist', 'rules', 'overlay', 'settings', 'account'];
+  /* The ones with an entry in the side menu. The account page is reached from
+   * the avatar instead. */
+  var MENU_VIEWS = ['queue', 'blacklist', 'rules', 'overlay', 'settings'];
+  /* The parts of the account page: #account/tiktok and so on. */
+  var ACCOUNT_SECTIONS = ['tiktok', 'youtube', 'token'];
+  /* The longest YouTube API key the server accepts. */
+  var MAX_KEY_LEN = 200;
   /* Colours for viewers' avatars and names: see .tint-N in dashboard.css. */
   var TINTS = 6;
   var THUMBNAIL = /^https:\/\/i\.ytimg\.com\/vi\/[A-Za-z0-9_-]{11}\/[A-Za-z0-9_]+\.jpg$/;
@@ -370,8 +377,28 @@
   /* Which page the address bar asks for; the queue when it asks for nothing
    * known (a `#token=...` fragment, for one). */
   function parseView(hash) {
-    var name = String(hash || '').replace(/^#/, '');
+    var name = String(hash || '').replace(/^#/, '').split('/')[0];
     return VIEWS.indexOf(name) >= 0 ? name : 'queue';
+  }
+
+  /* The part of the account page the address asks for ('#account/youtube'),
+   * or '' for none or an unknown one. */
+  function parseSection(hash) {
+    var parts = String(hash || '').replace(/^#/, '').split('/');
+    return parts.length === 2 && parts[0] === 'account' && ACCOUNT_SECTIONS.indexOf(parts[1]) >= 0
+      ? parts[1]
+      : '';
+  }
+
+  /* The YouTube API key typed into the form, as the server will take it: no
+   * surrounding spaces, printable ASCII only (no spaces inside, no line
+   * breaks), not empty, not absurdly long. Returns { value } or
+   * { error: 'empty' | 'format' }. The key is never kept after it is sent. */
+  function readYoutubeKey(input) {
+    var key = String(input).trim();
+    if (key === '') return { error: 'empty' };
+    if (key.length > MAX_KEY_LEN || !/^[\x21-\x7e]+$/.test(key)) return { error: 'format' };
+    return { value: key };
   }
 
   /* The ID in `ids` that is `delta` places from `current`, kept inside the
@@ -497,6 +524,8 @@
     MAX_CHAT_LINES: MAX_CHAT_LINES,
     MAX_CHAT_HISTORY: MAX_CHAT_HISTORY,
     VIEWS: VIEWS,
+    MENU_VIEWS: MENU_VIEWS,
+    ACCOUNT_SECTIONS: ACCOUNT_SECTIONS,
     TINTS: TINTS,
     SETTINGS_FIELDS: SETTINGS_FIELDS,
     BLACKLIST_FIELDS: BLACKLIST_FIELDS,
@@ -512,6 +541,8 @@
     formatClock: formatClock,
     ruleChips: ruleChips,
     parseView: parseView,
+    parseSection: parseSection,
+    readYoutubeKey: readYoutubeKey,
     selectAfter: selectAfter,
     keyCommand: keyCommand,
     overlayUrl: overlayUrl,

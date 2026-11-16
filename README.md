@@ -88,6 +88,10 @@ Always use `localhost`, not `127.0.0.1`, in these addresses: see
 The free daily quota (10,000 units) is plenty: each new video costs 1 unit, and
 repeats are served from a cache.
 
+You can put the key in `.env` (below) or enter it later on the dashboard's
+**Account** page. The program starts without one; until a key is set it refuses
+video requests, with a notice for the moderators that says why.
+
 ### 2. Configure
 
 ```sh
@@ -96,7 +100,7 @@ cp .env.example .env
 ```
 
 Edit `config.toml`. Your TikTok username can go here, or you can leave it empty
-and enter it later on the dashboard's **Settings** page (see below):
+and enter it later on the dashboard's **Account** page (see below):
 
 ```toml
 [general]
@@ -112,7 +116,8 @@ cooldown_secs = 60
 max_duration_secs = 600
 ```
 
-Put the secret in `.env` (which is git-ignored) or in the environment:
+Put the secret in `.env` (which is git-ignored) or in the environment, or skip
+this and enter the key on the dashboard:
 
 ```sh
 YOUTUBE_API_KEY=your-key-here
@@ -157,16 +162,33 @@ The menu has five pages: **Queue** (the video playing and how far it has got,
 the requests waiting for a decision, the play queue, the rules in force, the
 chat, and counters for this session), **Blacklist**, **Rules** (the moderation
 settings), **Overlay** (the address to copy into OBS, and the volume) and
-**Settings** (your TikTok username, and how much chat the dashboard remembers).
-Each page has its own
+**Settings** (how much chat the dashboard remembers). Each page has its own
 address (`#queue`, `#blacklist`, `#rules`, `#overlay`, `#settings`). On a phone
 the menu is at the bottom and the queue page shows the waiting requests, the
 chat and the notices as three tabs.
 
-The TikTok username can be set, changed or emptied there, and the program
-follows it **without a restart**: it drops the old chat connection and connects
-to the new channel. With no username the program still starts; the Queue page
-says that no chat is being read and links to the Settings page.
+The avatar at the top right opens the **Account** page (`#account`), with three
+parts: your **TikTok username**, the **YouTube API key** and the **dashboard
+token**.
+
+- The username can be set, changed or emptied there, and the program follows it
+  **without a restart**: it drops the old chat connection and connects to the
+  new channel. With no username the program still starts; the Queue page says
+  that no chat is being read and links to the Account page.
+- The API key is tried with one YouTube request (1 quota unit) before it is
+  saved, takes effect at once, and is **never shown again**: the page only says
+  that a key is set, where it came from and its last four characters. It is
+  saved in `config.secrets.toml` next to `config.toml`, a file only your user can
+  read (mode 0600 on Linux and macOS; on Windows the protection is your profile
+  folder), which is git-ignored. A key saved there **replaces** `YOUTUBE_API_KEY`;
+  "Remove saved key" goes back to the environment's. Only plain text is kept, so
+  treat that file like a password.
+- The dashboard token is only shown as in use or not. It is still set with
+  `DASHBOARD_TOKEN` in `.env`.
+
+Credentials can only be changed from the computer the program runs on, even
+when moderators open the dashboard over the network with a token: they see what
+is set, and the form is locked for them.
 
 On the Queue page the keyboard works when you are not typing in a field:
 **↑ ↓** choose a waiting request, **A** approves it, **R** rejects it and **S**

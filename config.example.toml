@@ -37,7 +37,7 @@ source = "tiktok"
 
 [chat.tiktok]
 # Username of the streamer whose LIVE chat is read, with or without "@".
-# Can be left empty and set from the dashboard (Settings page) instead; a
+# Can be left empty and set from the dashboard (Account page) instead; a
 # change there takes effect at once, without a restart.
 username = "your_tiktok_username"
 

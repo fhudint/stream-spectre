@@ -79,9 +79,18 @@
         <span id="connection" class="pill"></span>
         <span id="chat-status" class="pill"></span>
       </div>
-      <div class="channel">
-        <span id="channel-initial" class="avatar" aria-hidden="true"></span>
-        <span id="channel-name"></span>
+      <div class="account-wrap">
+        <button id="account-button" type="button" class="channel" aria-expanded="false" aria-controls="account-menu">
+          <span id="channel-initial" class="avatar" aria-hidden="true"></span>
+          <span id="channel-name"></span>
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 5.5L7 9l3.5-3.5"/></svg>
+        </button>
+        <div id="account-menu" class="menu hidden">
+          <p id="menu-channel" class="menu-head"></p>
+          <a id="menu-tiktok" href="#account/tiktok" data-i18n="dashboard.account.menu.tiktok"></a>
+          <a id="menu-youtube" href="#account/youtube" data-i18n="dashboard.account.menu.youtube"></a>
+          <a id="menu-token" href="#account/token" data-i18n="dashboard.account.menu.token"></a>
+        </div>
       </div>
     </header>
 
@@ -92,7 +101,7 @@
       <section id="view-queue" class="view queue-view" data-pane="queue">
         <p id="setup-hint" class="banner banner-warn hidden">
           <span id="setup-hint-text"></span>
-          <a href="#settings" class="link" data-i18n="dashboard.nav.settings"></a>
+          <a href="#account/tiktok" class="link" data-i18n="dashboard.account.title"></a>
         </p>
         <div class="title-row">
           <h1 id="queue-heading" tabindex="-1" data-i18n="dashboard.queue.heading"></h1>
@@ -239,6 +248,24 @@
           <h1 id="chat-settings-heading" tabindex="-1" data-i18n="dashboard.nav.settings"></h1>
         </div>
         <div class="card page-card">
+          <form id="chat-form" class="form">
+            <div class="field">
+              <label for="chat-history" data-i18n="dashboard.chat.history"></label>
+              <input id="chat-history" type="number" min="0" max="200" step="1" inputmode="numeric">
+            </div>
+            <div class="actions">
+              <button type="submit" class="primary" data-i18n="dashboard.chat.history_save"></button>
+            </div>
+          </form>
+        </div>
+      </section>
+      <section id="view-account" class="view hidden">
+        <div class="title-row">
+          <h1 id="account-heading" tabindex="-1" data-i18n="dashboard.account.title"></h1>
+          <p class="muted" data-i18n="dashboard.account.hint"></p>
+        </div>
+
+        <div id="account-tiktok" class="card page-card">
           <form id="tiktok-form" class="form">
             <h2 data-i18n="dashboard.tiktok.title"></h2>
             <div class="field">
@@ -251,16 +278,31 @@
             </div>
           </form>
         </div>
-        <div class="card page-card">
-          <form id="chat-form" class="form">
+
+        <div id="account-youtube" class="card page-card">
+          <form id="key-form" class="form">
+            <h2 data-i18n="dashboard.account.youtube.title"></h2>
+            <p id="key-status" class="status-line"></p>
+            <p id="key-source" class="muted small"></p>
             <div class="field">
-              <label for="chat-history" data-i18n="dashboard.chat.history"></label>
-              <input id="chat-history" type="number" min="0" max="200" step="1" inputmode="numeric">
+              <label for="youtube-key" data-i18n="dashboard.account.youtube.label"></label>
+              <input id="youtube-key" type="password" autocomplete="off" spellcheck="false" maxlength="200">
+              <p class="muted small" data-i18n="dashboard.account.youtube.hint"></p>
             </div>
+            <p id="key-locked" class="hint-warn hidden" data-i18n="dashboard.account.locked"></p>
             <div class="actions">
-              <button type="submit" class="primary" data-i18n="dashboard.chat.history_save"></button>
+              <button id="key-save" type="submit" class="primary" data-i18n="dashboard.account.youtube.save"></button>
+              <button id="key-remove" type="button" class="hidden" data-i18n="dashboard.account.youtube.remove"></button>
             </div>
           </form>
+        </div>
+
+        <div id="account-token" class="card page-card">
+          <div class="form">
+            <h2 id="token-heading" tabindex="-1" data-i18n="dashboard.account.token.title"></h2>
+            <p id="token-status" class="status-line"></p>
+            <p class="muted small" data-i18n="dashboard.account.token.hint"></p>
+          </div>
         </div>
       </section>
     </main>

@@ -111,13 +111,13 @@ program refuses to start without a valid config and an API key.
 **What it needs**
 - Saving settings to disk: **done** for the dashboard settings and the TikTok
   username, in a second file the program owns. The username can also be left
-  empty in `config.toml` and entered on the Settings page, and it takes effect
+  empty in `config.toml` and entered on the Account page, and it takes effect
   without a restart. What is still missing is saving what only `config.toml`
   holds today (language, port), and the first-run screen below.
 - A first-run screen that runs before the config is complete, so a new install
-  can start without a config file and ask for the key (the username already has
-  its place on the Settings page). The program still refuses to start without
-  an API key.
+  can start without a config file and ask for the key. The program can already
+  start without a key or a username, and the Account page is where both are
+  entered.
 - A safe home for the API key, probably the operating system's keychain, never
   plain text in a log or in a page. The dashboard must never send the key back
   to the browser once it is saved.
@@ -127,7 +127,8 @@ program refuses to start without a valid config and an API key.
   must hold for the setup screen too: saving a key is more sensitive than
   approving a video.
 
-**Decided for the account menu (the avatar at the top right)**
+**Decided for the account menu (the avatar at the top right).** Built, except
+for what item 8 covers.
 - The avatar opens a small menu with the channel name and three entries
   (TikTok username, YouTube API key, dashboard token), each leading to an
   `#account` page. The username form moves there from Settings.
@@ -146,6 +147,8 @@ program refuses to start without a valid config and an API key.
   with a token.
 - The dashboard token is only *shown* (in use or not) for now; it is still set
   in `.env`. See item 8.
+- The program can start without a key, a username, or both, and says clearly
+  what is missing. Starting without a config file at all is still not possible.
 
 **Order.** Items 3 and 4 depend on each other only partly: saving settings and a
 first-run screen can be built into the existing web dashboard first, and the
@@ -215,7 +218,7 @@ unnecessary.
 **Goal.** Keep the YouTube API key (and later other secrets) somewhere safer
 than a plain file.
 
-**Today (planned).** The first version stores secrets in a file only its owner
+**Today.** The first version stores secrets in a file only its owner
 can read (0600). That protects against other users of the same computer, but
 the key is still plain text on disk, and on Windows the 0600 mode does not
 exist: protection there comes only from the user's profile folder.
@@ -240,7 +243,7 @@ that runs on the streamer's own computer. Most useful once the desktop app
 **Goal.** Replace a leaked or old `DASHBOARD_TOKEN` without editing `.env` and
 restarting.
 
-**Today (planned).** The account page only shows whether a token is in use.
+**Today.** The account page only shows whether a token is in use.
 
 **Decided.** The token can only be *regenerated*, not typed in: a button makes
 a new random token, shows it once, and the old one stops working at once. It

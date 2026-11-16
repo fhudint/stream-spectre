@@ -20,6 +20,23 @@
     rules: 'settings-heading',
     overlay: 'overlay-heading',
     settings: 'chat-settings-heading',
+    account: 'account-heading',
+  };
+  /* Where the keyboard focus goes when #account/<part> is opened. */
+  var SECTION_FOCUS = {
+    tiktok: 'tiktok-username',
+    youtube: 'youtube-key',
+    token: 'token-heading',
+  };
+  /* What the server says went wrong with a credential, by its code. */
+  var ACCOUNT_ERRORS = {
+    key_empty: 'dashboard.account.error.key_empty',
+    key_bad_format: 'dashboard.account.error.key_bad_format',
+    key_rejected: 'dashboard.account.error.key_rejected',
+    cannot_check: 'dashboard.account.error.cannot_check',
+    not_saved: 'dashboard.account.error.not_saved',
+    loopback_only: 'dashboard.account.error.loopback_only',
+    bad_request: 'dashboard.account.error.bad_request',
   };
   /* Shown before the translations can be fetched (sign-in, a server that is down). */
   var FALLBACK = {
@@ -45,6 +62,9 @@
   var clockOffset = 0; // browser clock minus server clock, in milliseconds
   var nowRefs = null; // the parts of the "now playing" card that change
   var waiting = []; // { node, item }: labels that count up every second
+  var account = null; // what the server says is set (never the secrets), or null
+  var menuOpen = false;
+  var insideMenu = false; // the click being handled was on the menu or its button
 
   function $(id) {
     return document.getElementById(id);
@@ -224,17 +244,23 @@
 
   // --- pages and panes ---
 
-  /* Shows one page of the menu and marks it in both menus. */
-  function showView(name, focusHeading) {
+  /* Shows one page and marks it in both menus (the account page has no menu
+   * entry: it is reached from the avatar). `section` is the part of the
+   * account page to bring the focus to, if any. */
+  function showView(name, focusHeading, section) {
     view = name;
+    closeMenu(false);
     core.VIEWS.forEach(function (candidate) {
       $('view-' + candidate).classList[candidate === name ? 'remove' : 'add']('hidden');
+    });
+    core.MENU_VIEWS.forEach(function (candidate) {
       ['nav-', 'bnav-'].forEach(function (prefix) {
         $(prefix + candidate).setAttribute('aria-current', candidate === name ? 'page' : 'false');
       });
     });
-    var heading = $(HEADINGS[name]);
-    if (focusHeading && heading && heading.focus) heading.focus();
+    if (name === 'account') loadAccount();
+    var target = $((section && SECTION_FOCUS[section]) || HEADINGS[name]);
+    if (focusHeading && target && target.focus) target.focus();
   }
 
   /* On a phone the queue page shows one of three panes at a time; on a wide
@@ -254,7 +280,7 @@
   }
 
   window.addEventListener('hashchange', function () {
-    showView(core.parseView(location.hash), true);
+    showView(core.parseView(location.hash), true, core.parseSection(location.hash));
   });
 
   [
@@ -377,9 +403,15 @@
     var unset = state.chat !== null && state.chat.state === 'not_configured';
     $('setup-hint').classList[unset ? 'remove' : 'add']('hidden');
     $('setup-hint-text').textContent = unset && typeof state.chat.text === 'string' ? state.chat.text : '';
+    // The avatar is always there: it opens the account menu. Without a
+    // channel it says "Account".
     var channel = state.chat && typeof state.chat.channel === 'string' ? state.chat.channel : '';
-    $('channel-name').textContent = channel;
-    $('channel-initial').textContent = channel ? core.initial(channel) : '';
+    var shownName = channel || t('dashboard.account.title');
+    $('channel-name').textContent = shownName;
+    $('channel-initial').textContent = core.initial(shownName);
+    $('menu-channel').textContent = channel;
+    $('menu-channel').classList[channel ? 'remove' : 'add']('hidden');
+    $('account-button').setAttribute('aria-label', t('dashboard.account.menu_label') + ': ' + shownName);
   }
 
   function renderSummary() {
@@ -836,6 +868,141 @@
     });
   });
 
+  // --- the account menu and page ---
+
+  function openMenu() {
+    menuOpen = true;
+    $('account-menu').classList.remove('hidden');
+    $('account-button').setAttribute('aria-expanded', 'true');
+  }
+
+  function closeMenu(returnFocus) {
+    if (!menuOpen) return;
+    menuOpen = false;
+    $('account-menu').classList.add('hidden');
+    $('account-button').setAttribute('aria-expanded', 'false');
+    if (returnFocus) $('account-button').focus();
+  }
+
+  $('account-button').addEventListener('click', function () {
+    insideMenu = true;
+    if (menuOpen) closeMenu(false);
+    else openMenu();
+  });
+  $('account-menu').addEventListener('click', function () {
+    // A choice in the menu leads to another page (or part of this one).
+    insideMenu = true;
+    closeMenu(false);
+  });
+  document.addEventListener('click', function () {
+    if (!insideMenu) closeMenu(false);
+    insideMenu = false;
+  });
+
+  function accountFailure(result) {
+    if (result.status === 401) {
+      showLogin(false);
+      return;
+    }
+    var code = result.data && typeof result.data.code === 'string' ? result.data.code : '';
+    if (ACCOUNT_ERRORS[code]) showError(t(ACCOUNT_ERRORS[code]));
+    else failure(result);
+  }
+
+  function renderAccount() {
+    if (!account) return;
+    var key = account.youtube_key;
+    $('key-status').textContent = key.set
+      ? key.last4
+        ? tf('dashboard.account.youtube.set', { ending: key.last4 })
+        : t('dashboard.account.youtube.set_hidden')
+      : t('dashboard.account.youtube.unset');
+    $('key-source').textContent =
+      key.source === 'saved'
+        ? t('dashboard.account.youtube.source.saved')
+        : key.source === 'environment'
+          ? t('dashboard.account.youtube.source.environment')
+          : '';
+    var editable = account.editable === true;
+    $('key-locked').classList[editable ? 'add' : 'remove']('hidden');
+    $('youtube-key').disabled = !editable;
+    $('key-save').disabled = !editable;
+    $('key-remove').classList[editable && key.source === 'saved' ? 'remove' : 'add']('hidden');
+    $('token-status').textContent = account.dashboard_token.set
+      ? t('dashboard.account.token.set')
+      : t('dashboard.account.token.unset');
+  }
+
+  /* Takes what the server says about the account. Never holds a secret: the
+   * server sends none. */
+  function adoptAccount(data) {
+    if (
+      !data ||
+      typeof data !== 'object' ||
+      !data.youtube_key ||
+      typeof data.youtube_key !== 'object' ||
+      !data.dashboard_token ||
+      typeof data.dashboard_token !== 'object'
+    ) {
+      return;
+    }
+    account = {
+      youtube_key: {
+        set: data.youtube_key.set === true,
+        source: typeof data.youtube_key.source === 'string' ? data.youtube_key.source : 'none',
+        last4: typeof data.youtube_key.last4 === 'string' ? data.youtube_key.last4 : null,
+      },
+      dashboard_token: { set: data.dashboard_token.set === true },
+      editable: data.editable === true,
+    };
+    renderAccount();
+  }
+
+  function loadAccount() {
+    return api('GET', '/api/account').then(function (result) {
+      if (result.status === 401) showLogin(false);
+      else if (result.ok) adoptAccount(result.data);
+    });
+  }
+
+  $('key-form').addEventListener('submit', function (event) {
+    event.preventDefault();
+    var read = core.readYoutubeKey($('youtube-key').value);
+    if (read.error) {
+      showError(t(read.error === 'empty' ? ACCOUNT_ERRORS.key_empty : ACCOUNT_ERRORS.key_bad_format));
+      return;
+    }
+    clearError();
+    api('PUT', '/api/account/youtube-key', { key: read.value }).then(function (result) {
+      if (!result.ok) {
+        accountFailure(result);
+        return;
+      }
+      // Gone from the page the moment it was accepted.
+      $('youtube-key').value = '';
+      adoptAccount(result.data);
+      flash(
+        t(
+          result.data && result.data.checked === 'quota_exhausted'
+            ? 'dashboard.account.youtube.saved_quota'
+            : 'dashboard.account.youtube.saved'
+        )
+      );
+    });
+  });
+
+  $('key-remove').addEventListener('click', function () {
+    clearError();
+    api('DELETE', '/api/account/youtube-key').then(function (result) {
+      if (!result.ok) {
+        accountFailure(result);
+        return;
+      }
+      adoptAccount(result.data);
+      flash(t('dashboard.account.youtube.removed'));
+    });
+  });
+
   // --- copying the overlay address ---
 
   /* The old way, for pages that are not a secure context (a moderator
@@ -882,6 +1049,10 @@
   }
 
   document.addEventListener('keydown', function (event) {
+    if (menuOpen && event.key === 'Escape') {
+      closeMenu(true);
+      return;
+    }
     if (view !== 'queue' || $('app').classList.contains('hidden')) return;
     // Typing, and the chat list, which uses the arrow keys to scroll.
     if (typing(event.target) || event.target === $('chat-log')) return;
@@ -980,7 +1151,7 @@
         adopt(result.data);
         applyTexts();
         buildForms();
-        showView(core.parseView(location.hash), false);
+        showView(core.parseView(location.hash), false, core.parseSection(location.hash));
         setPane(pane);
         render();
         if (!started) {

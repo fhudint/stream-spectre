@@ -430,7 +430,11 @@ test('the rules in force are listed as short texts', () => {
 
 test('the address bar picks a page, and anything else means the queue', () => {
   for (const view of core.VIEWS) assert.equal(core.parseView('#' + view), view);
-  assert.deepEqual(core.VIEWS, ['queue', 'blacklist', 'rules', 'overlay', 'settings']);
+  assert.deepEqual(core.VIEWS, ['queue', 'blacklist', 'rules', 'overlay', 'settings', 'account']);
+  // The account page is reached from the avatar, so it is not in the side menu.
+  assert.deepEqual(core.MENU_VIEWS, ['queue', 'blacklist', 'rules', 'overlay', 'settings']);
+  assert.equal(core.parseView('#account/youtube'), 'account');
+  assert.equal(core.parseView('#queue/anything'), 'queue');
   for (const other of ['', '#', '#token=abc', '#nope', '#QUEUE', '#queue?x=1', undefined, null, '#__proto__', '#constructor']) {
     assert.equal(core.parseView(other), 'queue', String(other));
   }
@@ -482,4 +486,21 @@ test('the username is read like the server reads it', () => {
     assert.deepEqual(core.readTiktokUsername(bad), { error: true }, JSON.stringify(bad));
   }
   assert.deepEqual(core.readTiktokUsername(5), { value: '5' });
+});
+
+test('the part of the account page is read from the address, and only for the account page', () => {
+  for (const part of core.ACCOUNT_SECTIONS) assert.equal(core.parseSection('#account/' + part), part);
+  assert.deepEqual(core.ACCOUNT_SECTIONS, ['tiktok', 'youtube', 'token']);
+  for (const other of ['#account', '#account/', '#account/nope', '#account/youtube/x', '#queue/youtube', '#youtube', '', undefined, null, '#account/__proto__']) {
+    assert.equal(core.parseSection(other), '', String(other));
+  }
+});
+
+test('the key is read like the server reads it', () => {
+  assert.deepEqual(core.readYoutubeKey('  AIzaSyA-123_abc  '), { value: 'AIzaSyA-123_abc' });
+  assert.deepEqual(core.readYoutubeKey('x'.repeat(200)), { value: 'x'.repeat(200) });
+  for (const empty of ['', '   ', '\n\t ']) assert.deepEqual(core.readYoutubeKey(empty), { error: 'empty' });
+  for (const bad of ['two words', 'line\nbreak', 'tab\there', 'café', '\u0000', 'a b', 'x'.repeat(201), '​hidden']) {
+    assert.deepEqual(core.readYoutubeKey(bad), { error: 'format' }, JSON.stringify(bad));
+  }
 });

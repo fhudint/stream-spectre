@@ -67,7 +67,7 @@ async fn serve(loaded: Loaded) -> anyhow::Result<()> {
         ..
     } = loaded;
     if config.chat.tiktok.username().is_empty() {
-        tracing::info!("no TikTok username yet: set it on the dashboard's Settings page");
+        tracing::info!("no TikTok username yet: set it on the dashboard's Account page");
     }
     if saved_tables.is_empty() {
         tracing::info!(path = %saved_path.display(), "settings changed in the dashboard are saved here");

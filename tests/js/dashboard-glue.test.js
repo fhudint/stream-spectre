@@ -130,6 +130,12 @@ const snapshot = (extra = {}) => ({
 });
 
 const envelope = (seq, type, data) => ({ v: 1, seq, ts: 0, type, data });
+const accountBody = (extra = {}) => ({
+  youtube_key: { set: true, source: 'saved', last4: 'rstu' },
+  dashboard_token: { set: false },
+  editable: true,
+  ...extra,
+});
 const settle = async () => {
   for (let i = 0; i < 12; i += 1) await new Promise((resolve) => setImmediate(resolve));
 };
@@ -178,6 +184,7 @@ function load({
   const defaultRoutes = {
     'GET /api/state': () => ({ status: 200, body: snapshot() }),
     'GET /api/i18n': () => ({ status: 200, body: english }),
+    'GET /api/account': () => ({ status: 200, body: accountBody() }),
   };
   const table = { ...defaultRoutes, ...routes };
 
@@ -265,6 +272,14 @@ function load({
     log, elements: byId, document, storage, table, i18nNodes, location,
     socket: () => log.sockets.at(-1),
     setClock: (value) => { now = value; },
+    // A click bubbles up to the document, like in a browser.
+    click: (node) => {
+      node.fire('click');
+      for (const listener of log.documentListeners.click || []) listener({ target: node });
+    },
+    clickElsewhere: () => {
+      for (const listener of log.documentListeners.click || []) listener({ target: {} });
+    },
     go: (nextHash) => {
       location.hash = nextHash;
       for (const listener of log.windowListeners.hashchange || []) listener({});
@@ -862,9 +877,10 @@ test('every text the page uses exists in both languages', () => {
 
 // --- the pages of the menu ---
 
-const VIEWS = ['queue', 'blacklist', 'rules', 'overlay', 'settings'];
+const MENU_VIEWS = ['queue', 'blacklist', 'rules', 'overlay', 'settings'];
+const VIEWS = [...MENU_VIEWS, 'account'];
 const shown = (page) => VIEWS.filter((v) => !page.elements[`view-${v}`].hidden);
-const current = (page, prefix) => VIEWS.filter((v) => page.elements[`${prefix}-${v}`].attrs['aria-current'] === 'page');
+const current = (page, prefix) => MENU_VIEWS.filter((v) => page.elements[`${prefix}-${v}`].attrs['aria-current'] === 'page');
 
 test('the queue page is shown first, and both menus mark it', async () => {
   const page = await ready();
@@ -1232,7 +1248,8 @@ test('every page has a heading for the keyboard focus, and a menu entry in both 
   assert.deepEqual(headings.map((m) => m[1]), VIEWS);
   for (const [, view, heading] of headings) {
     assert.ok(ids.has(heading), `missing #${heading}`);
-    for (const id of [`view-${view}`, `nav-${view}`, `bnav-${view}`]) assert.ok(ids.has(id), `missing #${id}`);
+    const wanted = MENU_VIEWS.includes(view) ? [`view-${view}`, `nav-${view}`, `bnav-${view}`] : [`view-${view}`];
+    for (const id of wanted) assert.ok(ids.has(id), `missing #${id}`);
   }
 });
 
@@ -1342,13 +1359,14 @@ test('without a username the queue page says so and points to the settings', asy
   const page = await ready();
   assert.ok(page.elements['setup-hint'].hidden, 'nothing to say while a chat is connected');
 
-  page.socket().receive(envelope(6, 'chat_status', { state: 'not_configured', channel: '', text: 'No TikTok username yet. Enter it in Settings to read the chat.' }));
+  page.socket().receive(envelope(6, 'chat_status', { state: 'not_configured', channel: '', text: 'No TikTok username yet. Enter it on the Account page to read the chat.' }));
   assert.ok(!page.elements['setup-hint'].hidden);
-  assert.equal(page.elements['setup-hint-text'].textContent, 'No TikTok username yet. Enter it in Settings to read the chat.');
-  assert.equal(page.elements['chat-status'].textContent, 'No TikTok username yet. Enter it in Settings to read the chat.');
+  assert.equal(page.elements['setup-hint-text'].textContent, 'No TikTok username yet. Enter it on the Account page to read the chat.');
+  assert.equal(page.elements['chat-status'].textContent, 'No TikTok username yet. Enter it on the Account page to read the chat.');
   assert.ok(page.elements['chat-status'].classes.has('state-bad'));
-  assert.equal(page.elements['channel-name'].textContent, '');
-  assert.equal(page.elements['channel-initial'].textContent, '');
+  // The avatar stays, since it opens the account menu; it just says "Account".
+  assert.equal(page.elements['channel-name'].textContent, 'Account');
+  assert.equal(page.elements['channel-initial'].textContent, 'A');
 
   page.socket().receive(envelope(7, 'chat_status', { state: 'connected', channel: 'new_one', text: 'Connected to TikTok chat @new_one' }));
   assert.ok(page.elements['setup-hint'].hidden);
@@ -1402,4 +1420,302 @@ test('the icon is the ghost of the sidebar in the accent colour', () => {
   assert.ok(svg.includes(`fill="${accent}"`), 'the same colour as the page accent');
   assert.match(svg, /^<svg xmlns="http:\/\/www\.w3\.org\/2000\/svg" viewBox="0 0 64 64"/);
   assert.ok(!/<script|onload|href=/i.test(svg), 'an icon has no scripts or links');
+});
+
+// --- the account menu and page ---
+
+const KEY = 'AIzaSyA-1234567890abcdefghijklmnopqrstu';
+const accountRoute = (body) => ({ status: 200, body });
+const menuOpen = (page) => !page.elements['account-menu'].hidden;
+
+test('the avatar opens a menu with the three entries, and closes it again', async () => {
+  const page = await ready();
+  const button = page.elements['account-button'];
+  assert.ok(!menuOpen(page));
+  assert.match(html, /<button id="account-button"[^>]*aria-expanded="false"/, 'closed in the markup');
+  assert.equal(button.attrs['aria-label'], 'Account menu: streamer');
+  assert.equal(page.elements['channel-name'].textContent, 'streamer');
+  assert.equal(page.elements['menu-channel'].textContent, 'streamer');
+
+  page.click(button);
+  assert.ok(menuOpen(page), 'opened');
+  assert.equal(button.attrs['aria-expanded'], 'true');
+  assert.deepEqual(
+    ['menu-tiktok', 'menu-youtube', 'menu-token'].map((id) => page.elements[id].textContent),
+    ['TikTok username', 'YouTube API key', 'Dashboard token'],
+  );
+
+  page.click(button);
+  assert.ok(!menuOpen(page), 'the button closes it too');
+  assert.equal(button.attrs['aria-expanded'], 'false');
+});
+
+test('the menu closes on a click elsewhere, on Escape (with the focus back on the avatar) and on a choice', async () => {
+  const page = await ready();
+  const button = page.elements['account-button'];
+
+  page.click(button);
+  page.clickElsewhere();
+  assert.ok(!menuOpen(page), 'a click elsewhere');
+
+  page.click(button);
+  assert.equal(page.press('Escape'), false);
+  assert.ok(!menuOpen(page), 'Escape');
+  assert.ok(button.focused, 'the focus returns to the avatar');
+  assert.equal(button.attrs['aria-expanded'], 'false');
+
+  page.click(button);
+  page.click(page.elements['menu-youtube']);
+  assert.ok(!menuOpen(page), 'a choice');
+
+  // Escape with the menu closed is left alone.
+  button.focused = false;
+  page.press('Escape');
+  assert.ok(!button.focused);
+});
+
+test('the links of the menu lead to the three parts of the account page', () => {
+  for (const [id, href] of [['menu-tiktok', '#account/tiktok'], ['menu-youtube', '#account/youtube'], ['menu-token', '#account/token']]) {
+    assert.match(html, new RegExp(`id="${id}" href="${href}"`));
+  }
+});
+
+test('without a channel the avatar says Account, and still opens the menu', async () => {
+  const body = snapshot({ chat: null });
+  const page = await ready({ routes: { 'GET /api/state': () => ({ status: 200, body }) } });
+  assert.equal(page.elements['channel-name'].textContent, 'Account');
+  assert.equal(page.elements['channel-initial'].textContent, 'A');
+  assert.ok(page.elements['menu-channel'].hidden);
+  page.click(page.elements['account-button']);
+  assert.ok(menuOpen(page));
+});
+
+test('#account shows the account page, marks no menu entry, and loads what is set', async () => {
+  const page = await ready({ hash: '#account' });
+  await settle();
+  assert.deepEqual(shown(page), ['account']);
+  assert.deepEqual(current(page, 'nav'), []);
+  assert.deepEqual(current(page, 'bnav'), []);
+  assert.equal(page.log.requests.filter((r) => r.path === '/api/account').length, 1);
+  assert.equal(page.elements['key-status'].textContent, 'A key is set (it ends in rstu).');
+});
+
+test('#account/<part> brings the keyboard to that part', async () => {
+  const page = await ready();
+  page.go('#account/youtube');
+  assert.deepEqual(shown(page), ['account']);
+  assert.ok(page.elements['youtube-key'].focused);
+  page.go('#account/tiktok');
+  assert.ok(page.elements['tiktok-username'].focused);
+  page.go('#account/token');
+  assert.ok(page.elements['token-heading'].focused);
+  page.go('#account/nothing');
+  assert.ok(page.elements['account-heading'].focused);
+  page.go('#queue');
+  assert.deepEqual(shown(page), ['queue']);
+});
+
+test('the account is asked for when its page opens, not before', async () => {
+  const page = await ready();
+  await settle();
+  assert.equal(page.log.requests.filter((r) => r.path === '/api/account').length, 0);
+  page.go('#account');
+  await settle();
+  assert.equal(page.log.requests.filter((r) => r.path === '/api/account').length, 1);
+});
+
+test('the key status says whether a key is set, where it came from, and shows only its ending', async () => {
+  const cases = [
+    [{ set: true, source: 'saved', last4: 'rstu' }, 'A key is set (it ends in rstu).', /Saved from this dashboard/],
+    [{ set: true, source: 'environment', last4: 'wxyz' }, 'A key is set (it ends in wxyz).', /YOUTUBE_API_KEY environment variable/],
+    [{ set: true, source: 'environment', last4: null }, 'A key is set.', /YOUTUBE_API_KEY/],
+    [{ set: false, source: 'none', last4: null }, 'No key is set. Video requests are refused until you enter one.', /^$/],
+  ];
+  for (const [youtube_key, status, source] of cases) {
+    const page = await ready({ hash: '#account', routes: { 'GET /api/account': () => accountRoute(accountBody({ youtube_key })) } });
+    await settle();
+    assert.equal(page.elements['key-status'].textContent, status);
+    assert.match(page.elements['key-source'].textContent, source);
+  }
+});
+
+test('the token status says only whether a token is in use', async () => {
+  for (const [set, text] of [[true, 'A token protects this dashboard.'], [false, 'No token is set. The dashboard only accepts connections from this computer.']]) {
+    const page = await ready({ hash: '#account', routes: { 'GET /api/account': () => accountRoute(accountBody({ dashboard_token: { set } })) } });
+    await settle();
+    assert.equal(page.elements['token-status'].textContent, text);
+  }
+});
+
+test('the remove button is only there for a saved key that this computer may remove', async () => {
+  const states = [
+    [{ youtube_key: { set: true, source: 'saved', last4: 'rstu' } }, true],
+    [{ youtube_key: { set: true, source: 'environment', last4: 'rstu' } }, false],
+    [{ youtube_key: { set: false, source: 'none', last4: null } }, false],
+    [{ youtube_key: { set: true, source: 'saved', last4: 'rstu' }, editable: false }, false],
+  ];
+  for (const [extra, visible] of states) {
+    const page = await ready({ hash: '#account', routes: { 'GET /api/account': () => accountRoute(accountBody(extra)) } });
+    await settle();
+    assert.equal(!page.elements['key-remove'].hidden, visible, JSON.stringify(extra));
+  }
+});
+
+test('from another computer the account can be read but the form is locked', async () => {
+  const page = await ready({ hash: '#account', routes: { 'GET /api/account': () => accountRoute(accountBody({ editable: false })) } });
+  await settle();
+  assert.ok(!page.elements['key-locked'].hidden);
+  assert.match(page.elements['key-locked'].textContent, /another computer/);
+  assert.equal(page.elements['youtube-key'].disabled, true);
+  assert.equal(page.elements['key-save'].disabled, true);
+  assert.equal(page.elements['key-status'].textContent, 'A key is set (it ends in rstu).');
+
+  const here = await ready({ hash: '#account' });
+  await settle();
+  assert.ok(here.elements['key-locked'].hidden);
+  assert.equal(here.elements['youtube-key'].disabled, false);
+  assert.equal(here.elements['key-save'].disabled, false);
+});
+
+const putKeys = (page) => page.log.requests.filter((r) => r.method === 'PUT' && r.path === '/api/account/youtube-key');
+
+test('a key is sent trimmed, taken out of the page at once, and never shown', async () => {
+  const page = await ready({ hash: '#account', stored: 'tok' });
+  await settle();
+  page.table['PUT /api/account/youtube-key'] = accountRoute(accountBody({ checked: 'valid', youtube_key: { set: true, source: 'saved', last4: 'rstu' } }));
+  page.elements['youtube-key'].value = `  ${KEY}\n`;
+  page.elements['key-form'].fire('submit');
+  await settle();
+
+  assert.equal(putKeys(page).length, 1);
+  assert.deepEqual(putKeys(page)[0].body, { key: KEY });
+  assert.equal(putKeys(page)[0].headers.Authorization, 'Bearer tok');
+  assert.equal(page.elements['youtube-key'].value, '', 'the field is emptied');
+  assert.equal(page.elements.flash.textContent, 'YouTube API key saved');
+  assert.ok(page.elements.error.hidden);
+  assert.equal(page.elements['key-status'].textContent, 'A key is set (it ends in rstu).');
+
+  // The key is nowhere in what the page shows or remembers.
+  for (const id of ['key-status', 'key-source', 'flash', 'error', 'token-status', 'account-heading']) {
+    assert.ok(!page.elements[id].textContent.includes(KEY), id);
+  }
+  assert.ok(![...page.storage.values()].some((value) => String(value).includes(KEY)), 'not in session storage');
+});
+
+test('a key that used up the quota is saved with its own note', async () => {
+  const page = await ready({ hash: '#account' });
+  await settle();
+  page.table['PUT /api/account/youtube-key'] = accountRoute(accountBody({ checked: 'quota_exhausted' }));
+  page.elements['youtube-key'].value = KEY;
+  page.elements['key-form'].fire('submit');
+  await settle();
+  assert.match(page.elements.flash.textContent, /quota is used up/);
+});
+
+test('a key in the wrong shape is refused in the page, before anything is sent', async () => {
+  const page = await ready({ hash: '#account' });
+  await settle();
+  const cases = [
+    ['', 'Enter a key first.'],
+    ['   \n', 'Enter a key first.'],
+    ['two words', /not shaped like a YouTube API key/],
+    ['line\nbreak', /not shaped like a YouTube API key/],
+    ['café-key', /not shaped like a YouTube API key/],
+    ['x'.repeat(201), /not shaped like a YouTube API key/],
+  ];
+  for (const [typed, expected] of cases) {
+    page.elements['youtube-key'].value = typed;
+    page.elements['key-form'].fire('submit');
+    await settle();
+    assert.equal(putKeys(page).length, 0, JSON.stringify(typed));
+    if (typeof expected === 'string') assert.equal(page.elements.error.textContent, expected);
+    else assert.match(page.elements.error.textContent, expected);
+  }
+  assert.ok(!page.elements.error.hidden);
+});
+
+test('every reason the server gives is shown in words, and the typed key is kept for another try', async () => {
+  const page = await ready({ hash: '#account' });
+  await settle();
+  const reasons = [
+    [400, 'key_rejected', /YouTube refused this key/],
+    [502, 'cannot_check', /Could not reach YouTube/],
+    [500, 'not_saved', /could not be written to disk/],
+    [403, 'loopback_only', /only be changed from the computer/],
+    [400, 'key_empty', /Enter a key first/],
+    [400, 'key_bad_format', /not shaped like/],
+    [400, 'bad_request', /not understood/],
+  ];
+  for (const [status, code, text] of reasons) {
+    page.table['PUT /api/account/youtube-key'] = { status, body: { error: 'English text from the server', code } };
+    page.elements['youtube-key'].value = KEY;
+    page.elements['key-form'].fire('submit');
+    await settle();
+    assert.match(page.elements.error.textContent, text, code);
+    assert.ok(!page.elements.error.textContent.includes('English text from the server'), code);
+    assert.ok(!page.elements.error.textContent.includes(KEY), code);
+    assert.equal(page.elements['youtube-key'].value, KEY, 'kept so it can be corrected');
+    assert.ok(page.elements.flash.hidden);
+  }
+  // An error without a known code falls back to the server's message.
+  page.table['PUT /api/account/youtube-key'] = { status: 500, body: { error: 'something odd' } };
+  page.elements['key-form'].fire('submit');
+  await settle();
+  assert.equal(page.elements.error.textContent, 'Request failed: something odd');
+});
+
+test('a refused token while saving a key shows the sign-in form', async () => {
+  const page = await ready({ hash: '#account' });
+  await settle();
+  page.table['PUT /api/account/youtube-key'] = { status: 401, body: { error: 'missing or wrong token' } };
+  page.elements['youtube-key'].value = KEY;
+  page.elements['key-form'].fire('submit');
+  await settle();
+  assert.ok(!page.elements.login.hidden);
+});
+
+test('the saved key can be removed, and the page then shows what is left', async () => {
+  const page = await ready({ hash: '#account' });
+  await settle();
+  page.table['DELETE /api/account/youtube-key'] = accountRoute(accountBody({ youtube_key: { set: false, source: 'none', last4: null } }));
+  page.click(page.elements['key-remove']);
+  await settle();
+  const sent = page.log.requests.filter((r) => r.method === 'DELETE');
+  assert.deepEqual(sent.map((r) => r.path), ['/api/account/youtube-key']);
+  assert.equal(page.elements.flash.textContent, 'Saved key removed');
+  assert.match(page.elements['key-status'].textContent, /No key is set/);
+  assert.ok(page.elements['key-remove'].hidden);
+
+  page.table['DELETE /api/account/youtube-key'] = { status: 403, body: { error: 'x', code: 'loopback_only' } };
+  page.click(page.elements['key-remove']);
+  await settle();
+  assert.match(page.elements.error.textContent, /only be changed from the computer/);
+});
+
+test('an answer that is not a proper account description is ignored', async () => {
+  for (const junk of [null, 'text', [], {}, { youtube_key: 5 }, { youtube_key: {}, dashboard_token: null }]) {
+    const page = await ready({ hash: '#account', routes: { 'GET /api/account': () => accountRoute(junk) } });
+    await settle();
+    assert.equal(page.elements['key-status'].textContent, '', JSON.stringify(junk));
+  }
+});
+
+test('the TikTok username form is on the account page, not on the settings page', () => {
+  const part = (id) => {
+    const start = html.indexOf(`id="${id}"`);
+    const next = html.indexOf('<section id="view-', start + 10);
+    return html.slice(start, next < 0 ? html.length : next);
+  };
+  assert.ok(part('view-account').includes('id="tiktok-form"'));
+  assert.ok(!part('view-settings').includes('id="tiktok-form"'));
+  assert.ok(part('view-settings').includes('id="chat-form"'));
+  for (const id of ['key-form', 'youtube-key', 'key-save', 'key-remove']) assert.ok(part('view-account').includes(`id="${id}"`), id);
+});
+
+test('the key field never lets a browser fill it in or spell-check it', () => {
+  const input = /<input id="youtube-key"([^>]*)>/.exec(html)[1];
+  assert.match(input, /type="password"/);
+  assert.match(input, /autocomplete="off"/);
+  assert.match(input, /spellcheck="false"/);
+  assert.match(input, /maxlength="200"/);
 });
