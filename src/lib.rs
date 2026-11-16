@@ -1,7 +1,7 @@
 //! stream-spectre: OBS browser-source stream overlay.
 //!
-//! Seluruh logika berada di library ini supaya mudah diuji;
-//! `main.rs` hanya bootstrap.
+//! All the logic lives in this library so it is easy to test; `main.rs` only
+//! starts things up.
 
 pub mod app;
 pub mod chat;
@@ -15,8 +15,8 @@ pub mod server;
 pub mod text;
 pub mod youtube;
 
-/// Nama aplikasi, diambil dari `Cargo.toml`.
+/// Application name, taken from `Cargo.toml`.
 pub const APP_NAME: &str = env!("CARGO_PKG_NAME");
 
-/// Versi aplikasi, diambil dari `Cargo.toml`.
+/// Application version, taken from `Cargo.toml`.
 pub const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
