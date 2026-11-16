@@ -6,8 +6,9 @@
 //! cargo run --example demo
 //! ```
 //!
-//! Then open <http://127.0.0.1:8787/dashboard/> and add
-//! <http://127.0.0.1:8787/overlay/> as a browser source. A pretend viewer
+//! Then open <http://localhost:8787/dashboard/> and add
+//! <http://localhost:8787/overlay/> as a browser source (use `localhost`, not
+//! `127.0.0.1`: YouTube's player refuses to play from an IP address). A pretend viewer
 //! asks for a real, public YouTube video every few seconds; approve one in the
 //! dashboard and it plays in the overlay.
 //!
@@ -130,8 +131,9 @@ async fn main() -> anyhow::Result<()> {
     let listener = TcpListener::bind(address)
         .await
         .with_context(|| format!("cannot listen on {address}"))?;
-    println!("dashboard: http://{address}/dashboard/");
-    println!("overlay:   http://{address}/overlay/");
+    let host = server::browser_host(address);
+    println!("dashboard: http://{host}/dashboard/");
+    println!("overlay:   http://{host}/overlay/");
 
     pipeline.chat_status(&ChatStatus::Connected {
         channel: config.chat.tiktok.username().to_owned(),

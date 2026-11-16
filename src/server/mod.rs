@@ -18,6 +18,7 @@ mod guard;
 mod ws;
 
 use std::io;
+use std::net::SocketAddr;
 use std::sync::Arc;
 use std::sync::atomic::AtomicUsize;
 use std::time::Duration;
@@ -35,6 +36,21 @@ use crate::config::Secret;
 use crate::youtube::VideoSource;
 
 pub use guard::Guard;
+
+/// The `host:port` to show people for opening the pages in a browser.
+///
+/// An address that only reaches this computer is shown as `localhost`:
+/// YouTube's embedded player refuses to play any video, with error 150, when
+/// the overlay is opened through a bare IP address such as `127.0.0.1`. Other
+/// addresses are shown as they are.
+pub fn browser_host(bind: SocketAddr) -> String {
+    let ip = bind.ip();
+    if ip.is_loopback() || ip.is_unspecified() {
+        format!("localhost:{}", bind.port())
+    } else {
+        bind.to_string()
+    }
+}
 
 /// Requests carry tiny JSON bodies.
 const MAX_BODY_BYTES: usize = 64 * 1024;
@@ -126,6 +142,18 @@ pub async fn serve<S: VideoSource + 'static>(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn people_are_shown_localhost_for_addresses_that_only_reach_this_computer() {
+        let shown = |text: &str| browser_host(text.parse().unwrap());
+        assert_eq!(shown("127.0.0.1:8787"), "localhost:8787");
+        assert_eq!(shown("127.0.0.2:80"), "localhost:80");
+        assert_eq!(shown("[::1]:9000"), "localhost:9000");
+        assert_eq!(shown("0.0.0.0:8787"), "localhost:8787");
+        assert_eq!(shown("[::]:8787"), "localhost:8787");
+        assert_eq!(shown("192.168.1.20:8787"), "192.168.1.20:8787");
+        assert_eq!(shown("[2001:db8::1]:8787"), "[2001:db8::1]:8787");
+    }
+
     use std::net::SocketAddr;
 
     use futures_util::{SinkExt, StreamExt};

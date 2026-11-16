@@ -46,6 +46,9 @@ refused as a whole.
   from reaching the server through DNS rebinding. Reaching a loopback server
   through a tunnel or reverse proxy therefore does not work; listen on a
   network address (which requires a token) instead.
+  Browsers should use the name `localhost` for the overlay rather than
+  `127.0.0.1`: YouTube's embedded player was seen refusing every video (error
+  150) when the page's address was a bare IP address.
 - **Origin.** If a browser sends an `Origin` header it must be this server
   itself, so other websites cannot make your browser call the API. Scripts
   that send no `Origin` are unaffected.
