@@ -261,6 +261,43 @@ mod tests {
         assert_eq!(unknown.status(), 404);
     }
 
+    #[tokio::test]
+    async fn the_overlay_files_are_served_with_the_right_types() {
+        let server = start(Some(TOKEN)).await;
+        for (path, kind) in [
+            ("/overlay/overlay.js", "javascript"),
+            ("/overlay/overlay-core.js", "javascript"),
+            ("/overlay/overlay.css", "text/css"),
+        ] {
+            // Pages and their files need no token; they hold nothing secret.
+            let response = server.http.get(server.url(path)).send().await.unwrap();
+            assert_eq!(response.status(), 200, "{path}");
+            let content_type = response.headers()["content-type"]
+                .to_str()
+                .unwrap()
+                .to_owned();
+            assert!(content_type.contains(kind), "{path}: {content_type}");
+            assert_eq!(response.headers()["x-content-type-options"], "nosniff");
+        }
+        let overlay = server
+            .http
+            .get(server.url("/overlay/"))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(
+            overlay.headers()["referrer-policy"],
+            "strict-origin-when-cross-origin"
+        );
+        let dashboard = server
+            .http
+            .get(server.url("/dashboard/"))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(dashboard.headers()["referrer-policy"], "no-referrer");
+    }
+
     // --- guard ---
 
     #[tokio::test]

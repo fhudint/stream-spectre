@@ -2,9 +2,19 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>stream-spectre overlay</title>
+<link rel="stylesheet" href="overlay.css">
 </head>
 <body>
-<!-- Placeholder: the real overlay page replaces this file in a later step. -->
+<main id="root" class="hidden">
+  <div id="stage"><div id="player"></div></div>
+  <div id="caption">
+    <span id="requester"></span>
+    <span id="title"></span>
+  </div>
+</main>
+<script src="overlay-core.js"></script>
+<script src="overlay.js"></script>
 </body>
 </html>

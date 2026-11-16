@@ -47,6 +47,16 @@ impl Section {
             Self::Dashboard => DASHBOARD_CSP,
         }
     }
+
+    /// YouTube's embedded player needs to know which site embeds it, so the
+    /// overlay sends other sites its origin only (never the path or query,
+    /// where the token may be). The dashboard sends nothing at all.
+    fn referrer_policy(self) -> &'static str {
+        match self {
+            Self::Overlay => "strict-origin-when-cross-origin",
+            Self::Dashboard => "no-referrer",
+        }
+    }
 }
 
 pub async fn overlay_index() -> Response {
@@ -97,7 +107,10 @@ fn respond(section: Section, path: &str) -> Response {
             (header::CONTENT_TYPE, file.metadata.mimetype().to_owned()),
             (header::CACHE_CONTROL, "no-cache".to_owned()),
             (header::X_CONTENT_TYPE_OPTIONS, "nosniff".to_owned()),
-            (header::REFERRER_POLICY, "no-referrer".to_owned()),
+            (
+                header::REFERRER_POLICY,
+                section.referrer_policy().to_owned(),
+            ),
             (header::CONTENT_SECURITY_POLICY, section.csp().to_owned()),
         ],
         file.data.into_owned(),
@@ -159,6 +172,10 @@ mod tests {
         assert!(!csp.contains("youtube"), "the dashboard needs no YouTube");
 
         let overlay = respond(Section::Overlay, "");
+        assert_eq!(
+            overlay.headers()[header::REFERRER_POLICY],
+            "strict-origin-when-cross-origin"
+        );
         let csp = overlay.headers()[header::CONTENT_SECURITY_POLICY]
             .to_str()
             .unwrap();
@@ -175,5 +192,81 @@ mod tests {
                 "{path}"
             );
         }
+    }
+
+    fn page_source(section: &str) -> String {
+        let file = Assets::get(&format!("{section}/index.html")).expect("index.html");
+        String::from_utf8(file.data.into_owned()).unwrap()
+    }
+
+    /// The pages run under a strict Content-Security-Policy (no inline script
+    /// or style), so a page that breaks the rules would silently do nothing.
+    fn assert_csp_clean(section: &str) {
+        use regex::Regex;
+
+        let html = page_source(section);
+        let script = Regex::new(r"(?is)<script\b([^>]*)>(.*?)</script>").unwrap();
+        for caps in script.captures_iter(&html) {
+            assert!(
+                caps[1].contains("src="),
+                "{section}: script tag without src"
+            );
+            assert!(caps[2].trim().is_empty(), "{section}: inline script code");
+        }
+        let forbidden = [
+            (r"(?i)<style\b", "style block"),
+            (r"(?i)\sstyle\s*=", "style attribute"),
+            (r"(?i)\son[a-z]+\s*=", "inline event handler"),
+            (r"(?i)javascript:", "javascript: URL"),
+        ];
+        for (pattern, what) in forbidden {
+            assert!(
+                !Regex::new(pattern).unwrap().is_match(&html),
+                "{section}: {what}"
+            );
+        }
+        let reference = Regex::new(r#"(?i)\b(?:src|href)\s*=\s*"([^"]+)""#).unwrap();
+        for caps in reference.captures_iter(&html) {
+            let target = &caps[1];
+            assert!(
+                !target.contains("://") && !target.starts_with("//"),
+                "{section}: external reference {target}"
+            );
+            assert!(
+                Assets::get(&format!("{section}/{target}")).is_some(),
+                "{section}: {target} is referenced but missing"
+            );
+        }
+    }
+
+    #[test]
+    fn the_pages_obey_their_own_content_security_policy() {
+        assert_csp_clean("overlay");
+        assert_csp_clean("dashboard");
+    }
+
+    #[test]
+    fn page_scripts_never_build_markup_from_text() {
+        let banned = [
+            "innerHTML",
+            "outerHTML",
+            "insertAdjacentHTML",
+            "document.write",
+            "eval(",
+            "new Function",
+        ];
+        let mut scanned = 0;
+        for name in Assets::iter() {
+            if !name.ends_with(".js") {
+                continue;
+            }
+            let file = Assets::get(&name).unwrap();
+            let source = String::from_utf8(file.data.into_owned()).unwrap();
+            for api in banned {
+                assert!(!source.contains(api), "{name} uses {api}");
+            }
+            scanned += 1;
+        }
+        assert!(scanned >= 2, "expected to find the overlay scripts");
     }
 }
