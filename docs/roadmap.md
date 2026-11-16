@@ -93,6 +93,9 @@ stays a browser source in OBS, because OBS needs a URL for it.
   macOS. Windows and macOS have so far only been built in CI, not run by hand.
 - Whether to start with a lighter step (tray icon, open the dashboard
   automatically, a "copy overlay URL" button) before a full app.
+- Icons for the installers and the window: `.ico` (Windows) and `.icns`
+  (macOS) can be made from `assets/icon.svg`, the source of the current icon
+  files. Tauri also wants a set of PNG sizes, which `assets/` already has.
 
 ## 4. Fill in the API key, username and settings from the app
 
@@ -165,3 +168,24 @@ and matching is case-insensitive on the name and whole-word, so `!vid` is not
   both meaning YouTube) are written as several entries with the same source.
 - **The rejection notice names the right command** ("use `!vt` for TikTok
   links"), read from the same list of commands, not written into the text.
+
+## 6. An icon inside the Windows program file
+
+**Goal.** `stream-spectre.exe` shows the ghost icon in Explorer, the taskbar
+and the Alt+Tab list, instead of the plain default.
+
+**Today.** The program has no icon of its own on any system. The dashboard has
+a favicon, and `assets/` holds the icon as SVG and PNG, but nothing is
+embedded in the binary. Only Linux has been used so far, where a bare
+executable has no icon anyway.
+
+**What it needs**
+- A `.ico` file made from `assets/icon.svg` (several sizes in one file).
+- A build script that embeds it in the Windows build only, which means a
+  build-time dependency such as a resource-embedding crate. Its maintenance
+  status must be checked on crates.io first, as with every new crate here.
+- A look at the result on a real Windows machine; CI only builds there so far.
+
+**Order.** Not needed until Windows users exist. If item 3 is built, its
+installer tooling may do this on its own, which would make this item
+unnecessary.

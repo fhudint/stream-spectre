@@ -25,7 +25,6 @@ use std::time::Duration;
 
 use axum::Router;
 use axum::extract::DefaultBodyLimit;
-use axum::http::StatusCode;
 use axum::middleware;
 use axum::routing::{get, patch, post};
 use tokio::net::TcpListener;
@@ -80,7 +79,7 @@ impl<S> Clone for ServerState<S> {
 pub fn router<S: VideoSource + 'static>(state: ServerState<S>, guard: Arc<Guard>) -> Router {
     Router::new()
         .route("/", get(assets::to_dashboard))
-        .route("/favicon.ico", get(|| async { StatusCode::NO_CONTENT }))
+        .route("/favicon.ico", get(assets::favicon))
         .route("/dashboard", get(assets::to_dashboard))
         .route("/dashboard/", get(assets::dashboard_index))
         .route("/dashboard/{*path}", get(assets::dashboard_file))
@@ -292,6 +291,37 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn browsers_that_ask_for_favicon_ico_are_sent_to_the_icon() {
+        let server = start(Some(TOKEN)).await;
+        // No token: this is the browser's own request.
+        let response = server
+            .http
+            .get(server.url("/favicon.ico"))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), 307);
+        let target = response.headers()["location"].to_str().unwrap().to_owned();
+        assert_eq!(target, "/dashboard/favicon-32.png");
+
+        let icon = server.http.get(server.url(&target)).send().await.unwrap();
+        assert_eq!(icon.status(), 200);
+        assert_eq!(icon.headers()["content-type"], "image/png");
+        let bytes = icon.bytes().await.unwrap();
+        assert_eq!(&bytes[..8], b"\x89PNG\r\n\x1a\n");
+    }
+
+    #[test]
+    fn the_dashboard_icon_is_the_same_file_as_the_app_icon() {
+        // One source of truth: assets/icon.svg. The copy in static/ is what the
+        // program serves, so the two must not drift apart.
+        assert_eq!(
+            include_str!("../../assets/icon.svg"),
+            include_str!("../../static/dashboard/favicon.svg")
+        );
+    }
+
+    #[tokio::test]
     async fn the_page_files_are_served_with_the_right_types() {
         let server = start(Some(TOKEN)).await;
         for (path, kind) in [
@@ -303,6 +333,9 @@ mod tests {
             ("/dashboard/dashboard.css", "text/css"),
             ("/dashboard/fonts/inter-latin.woff2", "font/woff2"),
             ("/dashboard/fonts/firacode-latin.woff2", "font/woff2"),
+            ("/dashboard/favicon.svg", "image/svg+xml"),
+            ("/dashboard/favicon-32.png", "image/png"),
+            ("/dashboard/apple-touch-icon.png", "image/png"),
         ] {
             // Pages and their files need no token; they hold nothing secret.
             let response = server.http.get(server.url(path)).send().await.unwrap();

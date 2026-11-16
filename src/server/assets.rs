@@ -75,6 +75,12 @@ pub async fn dashboard_file(Path(path): Path<String>) -> Response {
     respond(Section::Dashboard, &path)
 }
 
+/// Browsers ask for `/favicon.ico` by themselves, whatever the page says.
+/// Send them to the dashboard's icon.
+pub async fn favicon() -> Redirect {
+    Redirect::temporary("/dashboard/favicon-32.png")
+}
+
 pub async fn to_dashboard() -> Redirect {
     Redirect::temporary("/dashboard/")
 }

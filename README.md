@@ -1,3 +1,5 @@
+<p align="center"><img src="assets/icon-128.png" width="96" height="96" alt="stream-spectre logo"></p>
+
 # stream-spectre
 
 An OBS browser-source overlay for streamers, written in Rust. The first feature

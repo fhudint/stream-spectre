@@ -1362,3 +1362,44 @@ test('a page that starts without a username shows the hint at once', async () =>
   assert.ok(!page.elements['setup-hint'].hidden);
   assert.equal(page.elements['tiktok-username'].value, '');
 });
+
+// --- the icon ---
+
+// Width, height and colour type of a PNG file, read from its header.
+function pngInfo(file) {
+  const bytes = fs.readFileSync(file);
+  assert.deepEqual([...bytes.subarray(0, 8)], [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a], `${file} is not a PNG`);
+  return { width: bytes.readUInt32BE(16), height: bytes.readUInt32BE(20), colorType: bytes[25] };
+}
+
+test('the page links an icon of each kind, and every one exists with the right type and size', () => {
+  const links = [...html.matchAll(/<link\b([^>]*)>/g)].map((m) => Object.fromEntries([...m[1].matchAll(/([\w-]+)="([^"]*)"/g)].map((a) => [a[1], a[2]])));
+  const icons = links.filter((l) => /icon/.test(l.rel));
+  assert.deepEqual(icons.map((l) => l.href), ['favicon-32.png', 'favicon.svg', 'apple-touch-icon.png']);
+  for (const link of icons) {
+    assert.ok(fs.existsSync(path.join(root, 'static/dashboard', link.href)), `${link.href} is missing`);
+  }
+  assert.equal(icons[0].type, 'image/png');
+  assert.equal(icons[1].type, 'image/svg+xml');
+  assert.deepEqual(pngInfo(path.join(root, 'static/dashboard/favicon-32.png')), { width: 32, height: 32, colorType: 6 });
+  // iOS rounds the corners itself, so its icon is a full square without transparency.
+  assert.deepEqual(pngInfo(path.join(root, 'static/dashboard/apple-touch-icon.png')), { width: 180, height: 180, colorType: 2 });
+});
+
+test('the app icon comes in the sizes the README and the repository need', () => {
+  for (const size of [16, 32, 48, 64, 128, 256, 512]) {
+    const info = pngInfo(path.join(root, `assets/icon-${size}.png`));
+    assert.deepEqual([info.width, info.height], [size, size], `icon-${size}.png`);
+    assert.equal(info.colorType, 6, `icon-${size}.png keeps its transparent corners`);
+  }
+});
+
+test('the icon is the ghost of the sidebar in the accent colour', () => {
+  const svg = fs.readFileSync(path.join(root, 'assets/icon.svg'), 'utf8');
+  const ghost = /<path d="([^"]+)"/.exec(html)[1];
+  assert.ok(svg.includes(`d="${ghost}"`), 'the same outline as the logo in the page');
+  const accent = /--accent:\s*(#[0-9a-f]{6})/i.exec(fs.readFileSync(path.join(root, 'static/dashboard/dashboard.css'), 'utf8'))[1];
+  assert.ok(svg.includes(`fill="${accent}"`), 'the same colour as the page accent');
+  assert.match(svg, /^<svg xmlns="http:\/\/www\.w3\.org\/2000\/svg" viewBox="0 0 64 64"/);
+  assert.ok(!/<script|onload|href=/i.test(svg), 'an icon has no scripts or links');
+});
