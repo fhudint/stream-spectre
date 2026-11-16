@@ -9,8 +9,8 @@ viewer: !v dQw4w9WgXcQ   →   checked   →   dashboard (approve / reject / ski
 ```
 
 > **Status: early.** The code is complete for the first version and well
-> tested, but it has not yet been run against a real TikTok live or inside OBS.
-> See [Known limitations](#known-limitations).
+> tested, but it has had only light testing in OBS and against real TikTok
+> lives. See [Known limitations](#known-limitations).
 
 ## Copyright warning
 
@@ -63,9 +63,12 @@ macOS, but those have not been tried by hand.
 cargo run --example demo
 ```
 
-Open <http://127.0.0.1:8787/dashboard/>. Pretend viewers send real public
+Open <http://localhost:8787/dashboard/>. Pretend viewers send real public
 YouTube videos every few seconds; approve one and it plays in
-<http://127.0.0.1:8787/overlay/>.
+<http://localhost:8787/overlay/>.
+
+Always use `localhost`, not `127.0.0.1`, in these addresses: see
+[the note on addresses](#use-localhost-not-an-ip-address) below.
 
 ## Set up
 
@@ -126,7 +129,8 @@ reconnects if the connection drops. The dashboard shows the chat status.
 ### 4. Add the overlay to OBS
 
 1. In OBS, add a **Browser** source.
-2. URL: `http://127.0.0.1:8787/overlay/`
+2. URL: `http://localhost:8787/overlay/` (`localhost`, not `127.0.0.1`: see
+   [the note below](#use-localhost-not-an-ip-address))
 3. Set width and height to your canvas (for example 1920 × 1080). The page is
    transparent; videos appear when one is playing and the source is empty
    otherwise.
@@ -134,10 +138,26 @@ reconnects if the connection drops. The dashboard shows the chat status.
    mixer. The volume is set from the dashboard.
 5. Move and resize the source in your scene.
 
-Open <http://127.0.0.1:8787/dashboard/> in a normal browser (for you or your
+Open <http://localhost:8787/dashboard/> in a normal browser (for you or your
 moderators) to approve, reject and skip requests, and to change the settings
 while live. Settings changed in the dashboard are not written back to
 `config.toml`.
+
+#### Use `localhost`, not an IP address
+
+Open the overlay as `http://localhost:8787/overlay/`. When the overlay was
+opened as `http://127.0.0.1:8787/overlay/`, every video failed with YouTube
+player error 150 and was skipped at once, even ordinary ones. With `localhost`
+the same videos played. This was measured in Firefox, and switching to
+`localhost` fixed it in the author's own setup; the exact rule YouTube applies
+is not documented, so treat it as observed behaviour rather than a guarantee.
+
+#### Autoplay
+
+In OBS a video starts by itself. In a regular browser tab, autoplay with sound
+is blocked until you have clicked on the page once, so the video may sit
+paused there; that is the browser's rule, not a bug. Test in OBS, or click the
+page first.
 
 ### Letting moderators on another computer in
 
@@ -155,25 +175,29 @@ DASHBOARD_TOKEN=a-long-random-string
 
 The program refuses to start on a non-local address without a token. Then
 open `http://<your-ip>:8787/dashboard/#token=a-long-random-string` (the part
-after `#` is never sent to the server) and, in OBS,
-`http://<your-ip>:8787/overlay/?token=a-long-random-string`.
+after `#` is never sent to the server). Keep OBS on the same computer as the
+program if you can, and use `http://localhost:8787/overlay/?token=a-long-random-string`
+there. An overlay opened through a bare IP address is likely to hit the
+player error 150 described [above](#use-localhost-not-an-ip-address); if OBS has
+to run on another computer, try a hostname for the server instead (not tested).
 
 The token is sent without encryption over plain HTTP. Use this on a network you
 trust, not across the internet.
 
 ## Known limitations
 
-- **Not yet tried on a real stream.** The TikTok connection, the role and level
-  mapping (follower, subscriber, gifter and fan club levels), and playback
-  inside OBS are tested against fakes and in a regular browser, not against a
-  live TikTok room or OBS. Please report what you find.
+- **Lightly tested on real streams.** Playback has been tried in OBS. The
+  TikTok connection and the role and level mapping (follower, subscriber,
+  gifter and fan club levels) are mostly tested against fakes, so they may not
+  match every kind of viewer. Please report what you find.
 - **TikTok has no official chat API.** The connection uses an unofficial client
   (`piratetok-live-rs`) and can break whenever TikTok changes something.
-- **"Embeddable" is not a promise.** YouTube sometimes reports a video as
-  embeddable and then refuses to play it. The overlay reports that back, the
-  video is skipped, and the moderators get a notice.
-- **Autoplay in OBS** depends on the OBS version and browser source settings;
-  it has not been checked yet.
+- **Some videos still fail to play.** The YouTube API saying a video is
+  embeddable does not guarantee it plays (the owner may restrict playback). The
+  overlay reports the failure, the video is skipped, and the moderators get a
+  notice with the player's error code. If *every* video fails with code 150,
+  you most likely opened the overlay through an IP address; see
+  [above](#use-localhost-not-an-ip-address).
 - **Settings are in memory.** Changes made in the dashboard last until the
   program restarts.
 - **Chat is not stored.** The dashboard's chat view shows what arrives while it
