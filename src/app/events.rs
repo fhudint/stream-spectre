@@ -181,6 +181,8 @@ pub struct Hello {
     /// `settings.dashboard.chat_history` of them.
     pub chat_log: Vec<ChatLineView>,
     pub stats: StatsView,
+    /// The video that is playing was paused by a moderator.
+    pub playback_paused: bool,
 }
 
 impl Hello {
@@ -253,6 +255,11 @@ pub enum Event {
     ChatMessage(ChatLineView),
     /// The counters changed (dashboard).
     StatsUpdated(StatsView),
+    /// A moderator paused or resumed the video that is playing.
+    PlaybackPaused {
+        item_id: u64,
+        paused: bool,
+    },
     /// How far the video that is playing has got (dashboard).
     Playback {
         item_id: u64,
@@ -528,6 +535,7 @@ mod tests {
                 approved: 3,
                 rejected: 1,
             },
+            playback_paused: true,
         };
         let value = to_json(&Event::Hello(Box::new(hello)));
         assert_eq!(value["type"], "hello");
@@ -536,6 +544,7 @@ mod tests {
             data["stats"],
             json!({"since_ms": 1000, "received": 5, "approved": 3, "rejected": 1})
         );
+        assert_eq!(data["playback_paused"], true);
         assert_eq!(data["server_version"], "1.2.3");
         assert_eq!(data["language"], "id");
         assert_eq!(data["seq"], 9);
@@ -587,6 +596,7 @@ mod tests {
                 approved: 3,
                 rejected: 1,
             },
+            playback_paused: true,
         };
         let overlay = hello.for_overlay();
         assert_eq!(overlay.seq, 3);
@@ -597,6 +607,10 @@ mod tests {
         assert!(overlay.chat.is_none());
         assert!(overlay.chat_log.is_empty());
         assert_eq!(overlay.stats, StatsView::default());
+        assert!(
+            overlay.playback_paused,
+            "the overlay must know to stay paused"
+        );
 
         let json = serde_json::to_string(&overlay).unwrap();
         assert!(!json.contains("secretword") && !json.contains("Secret Channel"));
@@ -644,6 +658,13 @@ mod tests {
             json!({"type": "stats_updated", "data": {
                 "since_ms": 5, "received": 4, "approved": 3, "rejected": 1
             }})
+        );
+        assert_eq!(
+            to_json(&Event::PlaybackPaused {
+                item_id: 7,
+                paused: true
+            }),
+            json!({"type": "playback_paused", "data": {"item_id": 7, "paused": true}})
         );
         assert_eq!(
             to_json(&Event::Playback {

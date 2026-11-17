@@ -27,6 +27,8 @@ function setup({ connected = true, texts = {} } = {}) {
     play: (videoId, volume) => calls.push(['play', videoId, volume]),
     stop: () => calls.push(['stop']),
     setVolume: (volume) => calls.push(['setVolume', volume]),
+    pause: () => calls.push(['pause']),
+    resume: () => calls.push(['resume']),
   };
   const ui = {
     show: (info) => calls.push(['show', info]),
@@ -53,8 +55,8 @@ function setup({ connected = true, texts = {} } = {}) {
 }
 
 const envelope = (seq, type, data) => ({ v: 1, seq, ts: 0, type, data });
-const hello = (seq, nowPlaying, volume = 50) =>
-  envelope(seq, 'hello', { volume, queue: { pending: [], approved: [], now_playing: nowPlaying } });
+const hello = (seq, nowPlaying, volume = 50, paused = false) =>
+  envelope(seq, 'hello', { volume, playback_paused: paused, queue: { pending: [], approved: [], now_playing: nowPlaying } });
 
 // --- helpers ---
 
@@ -368,4 +370,98 @@ test('tick is harmless when the player cannot tell its position', () => {
   controller.handle(hello(0, item(5)));
   controller.tick();
   assert.deepEqual(calls, []);
+});
+
+// --- pausing ---
+
+const paused = (seq, itemId, flag) => envelope(seq, 'playback_paused', { item_id: itemId, paused: flag });
+
+test('the video on screen is paused and resumed when the server says so', () => {
+  const t = setup();
+  t.controller.handle(hello(0, item(5)));
+  t.calls.length = 0;
+  t.controller.handle(paused(1, 5, true));
+  assert.deepEqual(t.calls, [['pause']]);
+  t.controller.handle(paused(2, 5, false));
+  assert.deepEqual(t.calls, [['pause'], ['resume']]);
+});
+
+test('saying the same thing twice does not touch the player again', () => {
+  const t = setup();
+  t.controller.handle(hello(0, item(5)));
+  t.calls.length = 0;
+  t.controller.handle(paused(1, 5, true));
+  t.controller.handle(paused(2, 5, true));
+  t.controller.handle(paused(3, 5, false));
+  t.controller.handle(paused(4, 5, false));
+  assert.deepEqual(t.names(), ['pause', 'resume']);
+});
+
+test('a pause for a video that is not the one on screen is ignored', () => {
+  const t = setup();
+  t.controller.handle(hello(0, item(5)));
+  t.calls.length = 0;
+  t.controller.handle(paused(1, 99, true));
+  assert.deepEqual(t.calls, []);
+  const idle = setup();
+  idle.controller.handle(paused(1, 5, true));
+  assert.deepEqual(idle.calls, []);
+});
+
+test('a video that starts after a pause plays, and can be paused again', () => {
+  const t = setup();
+  t.controller.handle(hello(0, item(5)));
+  t.controller.handle(paused(1, 5, true));
+  t.calls.length = 0;
+  t.controller.handle(envelope(2, 'play', { item: item(6, ID_B), volume: 50 }));
+  assert.ok(!t.names().includes('pause'));
+  t.controller.handle(paused(3, 6, true));
+  assert.equal(t.names().at(-1), 'pause');
+
+  // Clearing the screen forgets the pause too.
+  t.controller.handle(envelope(4, 'stop', {}));
+  t.controller.handle(envelope(5, 'play', { item: item(7), volume: 50 }));
+  t.calls.length = 0;
+  t.controller.handle(paused(6, 7, true));
+  assert.deepEqual(t.names(), ['pause'], 'it is not already paused');
+});
+
+test('a page that opens in the middle of a pause starts the video and pauses it', () => {
+  const t = setup();
+  t.controller.handle(hello(7, item(3), 40, true));
+  assert.deepEqual(t.names().filter((n) => ['play', 'pause'].includes(n)), ['play', 'pause']);
+});
+
+test('after a reconnect a pause is kept, and a resume that was missed is applied', () => {
+  const t = setup();
+  t.controller.handle(hello(0, item(5)));
+  t.controller.handle(paused(1, 5, true));
+  t.calls.length = 0;
+  t.controller.handle(hello(9, item(5), 50, true));
+  assert.ok(!t.names().includes('pause') && !t.names().includes('play'), 'already paused: left alone');
+  t.controller.handle(hello(12, item(5), 50, false));
+  assert.deepEqual(t.names().filter((n) => n === 'resume' || n === 'play'), ['resume']);
+});
+
+test('a hello without a video clears a pause', () => {
+  const t = setup();
+  t.controller.handle(hello(0, item(5)));
+  t.controller.handle(paused(1, 5, true));
+  t.controller.handle(hello(5, null));
+  t.controller.handle(hello(6, item(8, ID_B)));
+  t.calls.length = 0;
+  t.controller.handle(paused(7, 8, true));
+  assert.deepEqual(t.names(), ['pause']);
+});
+
+test('a player that cannot pause is not a problem', () => {
+  const calls = [];
+  const controller = core.createController({
+    player: { play() {}, stop() {}, setVolume() {} },
+    ui: { show() {}, hide() {} },
+    send: (m) => calls.push(m),
+  });
+  controller.handle(hello(0, item(5)));
+  assert.doesNotThrow(() => controller.handle(paused(1, 5, true)));
+  assert.doesNotThrow(() => controller.handle(paused(2, 5, false)));
 });

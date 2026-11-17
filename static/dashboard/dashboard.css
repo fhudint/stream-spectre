@@ -368,6 +368,18 @@ li.empty { padding: 18px 22px; border-top: 1px solid var(--rule); }
 
 .now-media { flex: none; width: 288px; display: flex; flex-direction: column; gap: 8px; }
 .now-info { flex: 1 1 260px; min-width: 0; display: flex; flex-direction: column; gap: 12px; }
+.live-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.badge-paused {
+  height: 20px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: var(--warn-bg);
+  color: var(--warn);
+  font-size: 12px;
+  line-height: 20px;
+}
+.label.is-paused .dot { background: var(--warn); }
+
 .label { display: inline-flex; align-items: center; gap: 8px; color: var(--muted); font-size: 12px; }
 
 .preview {

@@ -483,17 +483,29 @@
     var elapsed = h('span');
     var remaining = h('span');
     var next = h('p', { className: 'dim small' });
-    nowRefs = { id: item.id, progress: progress, elapsed: elapsed, remaining: remaining, next: next };
+    var live = h('span', { className: 'label live' }, [
+      h('span', { className: 'dot' }),
+      h('span', { text: t('dashboard.now_playing.title') }),
+    ]);
+    var badge = h('span', { className: 'badge-paused hidden', text: t('dashboard.now.paused') });
+    var pause = button('dashboard.action.pause', 'pause', togglePause);
+    nowRefs = {
+      id: item.id,
+      progress: progress,
+      elapsed: elapsed,
+      remaining: remaining,
+      next: next,
+      live: live,
+      badge: badge,
+      pause: pause,
+    };
     $('now').replaceChildren(
       h('div', { className: 'now-media' }, [
         h('span', { className: 'label', text: t('dashboard.now.preview') }),
         h('div', { className: picture.className }, picture.children),
       ]),
       h('div', { className: 'now-info' }, [
-        h('span', { className: 'label live' }, [
-          h('span', { className: 'dot' }),
-          h('span', { text: t('dashboard.now_playing.title') }),
-        ]),
+        h('div', { className: 'live-row' }, [live, badge]),
         h('div', { className: 'now-title', text: item.title }),
         h('div', { className: 'row-sub' }, [
           h('span', { text: item.channel }),
@@ -510,6 +522,7 @@
         ]),
         h('div', { className: 'progress' }, [progress, h('div', { className: 'times' }, [elapsed, remaining])]),
         h('div', { className: 'actions' }, [
+          pause,
           button('dashboard.action.skip', 'skip', function () {
             act('POST', '/api/skip');
           }),
@@ -536,10 +549,22 @@
     nowRefs.remaining.textContent = tf('dashboard.now.remaining', {
       time: core.formatWaiting(Math.max(0, item.duration_secs - position), timeTemplates()),
     });
+    // Paused: say so, and the button offers to go on.
+    nowRefs.badge.classList[state.paused ? 'remove' : 'add']('hidden');
+    nowRefs.live.className = state.paused ? 'label live is-paused' : 'label live';
+    nowRefs.pause.textContent = t(state.paused ? 'dashboard.action.resume' : 'dashboard.action.pause');
+    nowRefs.pause.setAttribute('aria-pressed', state.paused ? 'true' : 'false');
     var upcoming = state.queue.approved[0];
     nowRefs.next.textContent = upcoming
       ? tf('dashboard.now.next', { title: upcoming.title })
       : t('dashboard.now.next_none');
+  }
+
+  /* Pauses the video that is playing, or goes on if it is paused. */
+  function togglePause() {
+    act('PUT', '/api/playback/pause', { paused: !state.paused }, function (result) {
+      adopt(result.data);
+    });
   }
 
   function itemPath(item, action) {
@@ -1092,6 +1117,9 @@
     } else if (command === 'skip' && state.queue.now_playing) {
       event.preventDefault();
       act('POST', '/api/skip');
+    } else if (command === 'pause' && state.queue.now_playing) {
+      event.preventDefault();
+      togglePause();
     }
   });
 

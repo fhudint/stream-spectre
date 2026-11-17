@@ -82,6 +82,12 @@ function load({ search = '', protocol = 'http:', host = '127.0.0.1:8787', fetchB
     stopVideo() {
       this.calls.push(['stopVideo']);
     }
+    pauseVideo() {
+      this.calls.push(['pauseVideo']);
+    }
+    playVideo() {
+      this.calls.push(['playVideo']);
+    }
   }
 
   const elements = {
@@ -330,4 +336,69 @@ test('progress is reported once a second, but only while the video is playing', 
   page.socket().receive(envelope(2, 'stop', {}));
   tick();
   assert.equal(progress().length, 1, 'nothing after the screen is cleared');
+});
+
+test('a pause from the server pauses the player, and a resume plays it again', () => {
+  const page = load();
+  page.apiReady();
+  page.player().options.events.onReady();
+  page.socket().open();
+  page.socket().receive(envelope(1, 'play', { item: item(7), volume: 40 }));
+  page.player().options.events.onStateChange({ data: 1 });
+  page.player().calls.length = 0;
+
+  page.socket().receive(envelope(2, 'playback_paused', { item_id: 7, paused: true }));
+  assert.deepEqual(page.player().calls, [['pauseVideo']]);
+  page.socket().receive(envelope(3, 'playback_paused', { item_id: 7, paused: false }));
+  assert.deepEqual(page.player().calls.at(-1), ['playVideo']);
+});
+
+test('a video that is paused while it loads is stopped as soon as it starts', () => {
+  const page = load();
+  page.apiReady();
+  page.socket().open();
+  // The player is not ready yet: the pause is wanted before the video even loads.
+  page.socket().receive({ v: 1, seq: 1, ts: 0, type: 'hello', data: { volume: 40, playback_paused: true, queue: { pending: [], approved: [], now_playing: item(7) } } });
+  page.player().options.events.onReady();
+  page.player().calls.length = 0;
+  page.player().options.events.onStateChange({ data: 1 }); // autoplay begins
+  assert.deepEqual(page.player().calls, [['pauseVideo']]);
+});
+
+test('the next video plays even after a pause, and stopping forgets the pause', () => {
+  const page = load();
+  page.apiReady();
+  page.player().options.events.onReady();
+  page.socket().open();
+  page.socket().receive(envelope(1, 'play', { item: item(7), volume: 40 }));
+  page.socket().receive(envelope(2, 'playback_paused', { item_id: 7, paused: true }));
+  page.socket().receive(envelope(3, 'play', { item: item(8), volume: 40 }));
+  page.player().calls.length = 0;
+  page.player().options.events.onStateChange({ data: 1 });
+  assert.deepEqual(page.player().calls, [], 'the new video is left playing');
+
+  page.socket().receive(envelope(4, 'playback_paused', { item_id: 8, paused: true }));
+  page.socket().receive(envelope(5, 'stop', {}));
+  page.socket().receive(envelope(6, 'play', { item: item(9), volume: 40 }));
+  page.player().calls.length = 0;
+  page.player().options.events.onStateChange({ data: 1 });
+  assert.deepEqual(page.player().calls, []);
+});
+
+test('no progress is reported while the video is paused', () => {
+  const page = load();
+  const tick = page.log.intervals[0].fn;
+  page.apiReady();
+  page.player().options.events.onReady();
+  page.socket().open();
+  page.socket().receive(envelope(1, 'play', { item: item(7), volume: 40 }));
+  page.player().options.events.onStateChange({ data: 1 });
+  page.log.position = 12;
+  tick();
+  const progress = () => page.socket().sent.filter((m) => m.type === 'progress').length;
+  assert.equal(progress(), 1);
+  page.socket().receive(envelope(2, 'playback_paused', { item_id: 7, paused: true }));
+  page.player().options.events.onStateChange({ data: 2 }); // the player reports PAUSED
+  tick();
+  assert.equal(progress(), 1);
 });

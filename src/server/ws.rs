@@ -45,7 +45,11 @@ impl Kind {
             Self::Dashboard => true,
             Self::Overlay => matches!(
                 event,
-                Event::Play { .. } | Event::Skip { .. } | Event::Stop {} | Event::Volume { .. }
+                Event::Play { .. }
+                    | Event::Skip { .. }
+                    | Event::Stop {}
+                    | Event::Volume { .. }
+                    | Event::PlaybackPaused { .. }
             ),
         }
     }

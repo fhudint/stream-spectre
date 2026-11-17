@@ -169,5 +169,9 @@
   "dashboard.account.menu.disconnect": "Putuskan chat",
   "dashboard.account.menu.connect": "Sambungkan chat",
   "dashboard.chat.disconnected": "Chat diputus",
-  "dashboard.chat.connecting": "Menyambungkan chat"
+  "dashboard.chat.connecting": "Menyambungkan chat",
+  "dashboard.action.pause": "Jeda",
+  "dashboard.action.resume": "Lanjutkan",
+  "dashboard.now.paused": "Dijeda",
+  "dashboard.keys.pause": "jeda atau lanjutkan"
 }

@@ -109,6 +109,13 @@ gets the events that change what is on screen. The dashboard page counts
 waiting times itself, but on the server's clock (taken from the `ts` of the
 events it receives), so a moderator's wrong clock does not show.
 
+**A moderator can pause the video that is playing.** The pipeline keeps one
+flag, `playback_paused`, and publishes `playback_paused` when it changes; the
+overlay tells its YouTube player to pause or play. The flag is cleared whenever
+another video starts or the screen empties (`play_next_or_stop`), so a pause
+never carries over to the next video, and it is in `hello` so an overlay that
+reloads in the middle of a pause stays paused.
+
 **One event stream, versioned.** Everything the pages show comes from the
 events described in [`websocket-events.md`](websocket-events.md). A client
 subscribes, receives `hello` with the whole state, and then applies events

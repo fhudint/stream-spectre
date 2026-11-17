@@ -198,6 +198,27 @@ pub async fn chat_connection<S: VideoSource + 'static>(
     Ok(Json(state.pipeline.hello()))
 }
 
+/// `PUT /api/playback/pause` with `{"paused": true|false}`: pauses or resumes
+/// the video that is playing. `409` when nothing is playing.
+pub async fn pause_playback<S: VideoSource + 'static>(
+    State(state): State<ServerState<S>>,
+    Json(body): Json<Value>,
+) -> ApiResult<Json<Hello>> {
+    let Some(paused) = body.get("paused").and_then(Value::as_bool) else {
+        return Err(ApiError::new(
+            StatusCode::BAD_REQUEST,
+            "the body must be {\"paused\": true or false}",
+        )
+        .coded("bad_request"));
+    };
+    if !state.pipeline.set_playback_paused(paused) {
+        return Err(
+            ApiError::new(StatusCode::CONFLICT, "no video is playing").coded("nothing_playing")
+        );
+    }
+    Ok(Json(state.pipeline.hello()))
+}
+
 /// Credentials can only be changed from the computer the program runs on,
 /// even when the dashboard is opened to the network with a token: a moderator
 /// who has the token can approve videos but not swap the YouTube key.

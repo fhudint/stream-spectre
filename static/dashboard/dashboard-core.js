@@ -207,6 +207,8 @@
       messages: [],
       notices: [],
       stats: cleanStats(null),
+      /* The video that is playing was paused by a moderator. */
+      paused: false,
       /* { item_id, position_secs } of the video that is playing, or null. */
       playback: null,
     };
@@ -229,6 +231,7 @@
         chat: isObject(data.chat) ? data.chat : null,
         messages: cleanLines(data.chat_log),
         stats: cleanStats(data.stats),
+        paused: data.playback_paused === true,
         playback: null,
       });
     }
@@ -255,6 +258,15 @@
       case 'stats_updated':
         next.stats = cleanStats(data);
         break;
+      case 'playback_paused':
+        next.paused = data.paused === true;
+        break;
+      case 'play':
+      case 'skip':
+      case 'stop':
+        // Another video, or an empty screen: it is not paused any more.
+        next.paused = false;
+        break;
       case 'playback':
         if (Number.isInteger(data.item_id) && Number.isInteger(data.position_secs) && data.position_secs >= 0) {
           next.playback = { item_id: data.item_id, position_secs: data.position_secs };
@@ -273,7 +285,7 @@
           .slice(0, MAX_NOTICES);
         break;
       default:
-        break; // play, skip, stop: queue_updated follows and carries the result
+        break; // queue_updated follows play, skip and stop and carries the queue
     }
     return next;
   }
@@ -411,7 +423,7 @@
   }
 
   /* What a key press asks for on the queue page, or null: up, down,
-   * approve, reject or skip. Presses with Ctrl, Alt or Meta are left to the
+   * approve, reject, skip or pause. Presses with Ctrl, Alt or Meta are left to the
    * browser. */
   function keyCommand(event) {
     if (!event || event.ctrlKey || event.metaKey || event.altKey) return null;
@@ -429,6 +441,9 @@
       case 's':
       case 'S':
         return 'skip';
+      case 'p':
+      case 'P':
+        return 'pause';
       default:
         return null;
     }

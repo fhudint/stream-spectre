@@ -20,6 +20,7 @@ of truth; this page describes them for people writing clients.
 | `PATCH /api/blacklist` | Replace some blacklist lists (`video_ids`, `channels`, `title_words`), keep the rest |
 | `PATCH /api/dashboard` | Change dashboard settings (`chat_history`), keep the rest |
 | `PATCH /api/chat/tiktok` | Body `{"username": "name"}`: set the TikTok username (an empty string stops reading chat); the chat follows it without a restart. Letters, digits, `_` and `.`, at most 64; a leading `@` and spaces are dropped. Answers the new state. |
+| `PUT /api/playback/pause` | Body `{"paused": true or false}`: pauses or resumes the video that is playing. Answers the new state. `409` with `"code": "nothing_playing"` when no video is playing. |
 | `PUT /api/chat/connection` | Body `{"connected": true or false}`: disconnects the chat (`false`) or connects it again (`true`), for as long as the program runs; not saved. Answers the new state. |
 | `GET /api/account` | What is set, never the secrets: `{"youtube_key": {"set", "source": "none"/"environment"/"saved", "last4"}, "dashboard_token": {"set"}, "editable"}`. `last4` is the key's last four characters, or `null` (no key, or one too short to show any part of). `editable` is false for a connection that does not come from the computer the program runs on. |
 | `PUT /api/account/youtube-key` | Body `{"key": "..."}`. Checks the key with one YouTube request (1 quota unit), saves it in the secrets file and starts using it at once. Answers like `GET /api/account` plus `"checked": "valid"` or `"quota_exhausted"` (the key is real but today's quota is used up). Errors carry a `code`: `key_empty`, `key_bad_format` (400), `key_rejected` (400, YouTube refused it), `cannot_check` (502, could not reach YouTube), `not_saved` (500), `loopback_only` (403). The key is never sent back. |
@@ -33,7 +34,7 @@ network with a token; any other connection gets `403` with `"code": "loopback_on
 Reading `GET /api/account` is allowed to anyone with the token.
 
 The two sockets carry the events below. The overlay socket only receives
-what changes the screen (`play`, `skip`, `stop`, `volume`) and a trimmed
+what changes the screen (`play`, `skip`, `stop`, `volume`, `playback_paused`) and a trimmed
 `hello` without waiting requests, blacklist, chat status or chat messages; the dashboard
 socket receives everything. Dashboard actions go through the REST API.
 
@@ -120,7 +121,8 @@ Sent once to each client, first.
     "queue": { "pending": [], "approved": [], "now_playing": null },
     "chat": { "state": "connected", "channel": "streamer", "text": "..." },
     "chat_log": [ ChatLine ],
-    "stats": { "since_ms": 1700000000000, "received": 30, "approved": 15, "rejected": 9 }
+    "stats": { "since_ms": 1700000000000, "received": 30, "approved": 15, "rejected": 9 },
+    "playback_paused": false
 } }
 ```
 
@@ -316,6 +318,21 @@ The counters of what the moderators decided since the program started
 
 At any moment `received = approved + rejected + waiting`, where `waiting` is
 the length of `queue.pending`. The counters live in memory only.
+
+### `playback_paused`
+
+A moderator paused or resumed the video that is playing (dashboard and overlay).
+
+```json
+{ "type": "playback_paused", "data": { "item_id": 7, "paused": true } }
+```
+
+The overlay pauses or resumes its player. Saying what is already so is not
+published again. A video that starts, and an empty screen, always end a pause:
+no event is sent for that, because `play`, `skip` and `stop` already say it.
+`hello.playback_paused` tells a client that connects in the middle of a pause,
+so a reloaded overlay stays paused. The overlay's `hello` carries it too. While
+a video is paused the overlay sends no `progress`.
 
 ### `playback`
 

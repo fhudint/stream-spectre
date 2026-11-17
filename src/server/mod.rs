@@ -93,6 +93,7 @@ pub fn router<S: VideoSource + 'static>(state: ServerState<S>, guard: Arc<Guard>
         .route("/api/state", get(api::state::<S>))
         .route("/api/i18n", get(api::catalog::<S>))
         .route("/api/skip", post(api::skip::<S>))
+        .route("/api/playback/pause", put(api::pause_playback::<S>))
         .route("/api/volume", post(api::volume::<S>))
         .route("/api/queue/{id}/approve", post(api::approve::<S>))
         .route("/api/queue/{id}/reject", post(api::reject::<S>))
@@ -982,6 +983,72 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(emptied["settings"]["chat"]["tiktok"]["username"], "");
+    }
+
+    #[tokio::test]
+    async fn the_playing_video_is_paused_from_the_dashboard_and_the_overlay_hears_it() {
+        let server = start(None).await;
+        let put = |body: Value| {
+            server
+                .http
+                .put(server.url("/api/playback/pause"))
+                .json(&body)
+                .send()
+        };
+
+        // Nothing is playing yet.
+        let refused = put(json!({"paused": true})).await.unwrap();
+        assert_eq!(refused.status(), 409);
+        assert_eq!(
+            refused.json::<Value>().await.unwrap()["code"],
+            "nothing_playing"
+        );
+
+        server.submit(1, ID_A).await;
+        server.pipeline.approve(crate::queue::ItemId(1)).unwrap();
+        let mut overlay = connect(&server, "/ws/overlay", None).await.unwrap();
+        assert_eq!(
+            next_json(&mut overlay).await["data"]["playback_paused"],
+            false
+        );
+        let mut dashboard = connect(&server, "/ws/dashboard", None).await.unwrap();
+        next_json(&mut dashboard).await;
+
+        let paused: Value = put(json!({"paused": true}))
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        assert_eq!(paused["playback_paused"], true);
+        for socket in [&mut overlay, &mut dashboard] {
+            let event = next_json(socket).await;
+            assert_eq!(event["type"], "playback_paused");
+            assert_eq!(event["data"], json!({"item_id": 1, "paused": true}));
+        }
+
+        // Someone who connects now is told, so a reloaded overlay stays paused.
+        let mut late = connect(&server, "/ws/overlay", None).await.unwrap();
+        assert_eq!(next_json(&mut late).await["data"]["playback_paused"], true);
+
+        let resumed: Value = put(json!({"paused": false}))
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        assert_eq!(resumed["playback_paused"], false);
+
+        for bad in [
+            json!({}),
+            json!({"paused": "yes"}),
+            json!({"paused": 1}),
+            json!(["x"]),
+            json!(null),
+        ] {
+            let refused = put(bad.clone()).await.unwrap();
+            assert_eq!(refused.status(), 400, "{bad}");
+        }
     }
 
     #[tokio::test]

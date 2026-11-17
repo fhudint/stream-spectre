@@ -1787,3 +1787,98 @@ test('a refused disconnect shows the error and leaves the item as it was', async
   await settle();
   assert.ok(!page.elements.login.hidden);
 });
+
+// --- pausing the video that is playing ---
+
+const pauseCalls = (page) => page.log.requests.filter((r) => r.path === '/api/playback/pause');
+const pauseButton = (page) => buttons(page.elements.now, 'pause')[0];
+
+test('the playing card has a pause button, and pressing it sends the pause', async () => {
+  const page = await ready();
+  assert.equal(pauseButton(page).textContent, 'Pause');
+  assert.equal(buttons(page.elements.now, 'skip').length, 1, 'next to the skip button');
+  assert.ok(descendants(page.elements.now).find((n) => n.classes.has('badge-paused')).hidden);
+
+  page.table['PUT /api/playback/pause'] = { status: 200, body: snapshot({ playback_paused: true }) };
+  pauseButton(page).fire('click');
+  await settle();
+  assert.equal(pauseCalls(page).length, 1);
+  assert.equal(pauseCalls(page)[0].method, 'PUT');
+  assert.deepEqual(pauseCalls(page)[0].body, { paused: true });
+  assert.equal(pauseButton(page).textContent, 'Resume');
+  assert.equal(pauseButton(page).attrs['aria-pressed'], 'true');
+  const badge = descendants(page.elements.now).find((n) => n.classes.has('badge-paused'));
+  assert.ok(!badge.hidden);
+  assert.equal(badge.textContent, 'Paused');
+  assert.ok(descendants(page.elements.now).find((n) => n.classes.has('live')).classes.has('is-paused'));
+});
+
+test('while paused the same button resumes', async () => {
+  const body = snapshot({ playback_paused: true });
+  const page = await ready({ routes: { 'GET /api/state': () => ({ status: 200, body }) } });
+  assert.equal(pauseButton(page).textContent, 'Resume');
+  page.table['PUT /api/playback/pause'] = { status: 200, body: snapshot({ playback_paused: false }) };
+  pauseButton(page).fire('click');
+  await settle();
+  assert.deepEqual(pauseCalls(page)[0].body, { paused: false });
+  assert.equal(pauseButton(page).textContent, 'Pause');
+});
+
+test('a pause made on another dashboard shows here without rebuilding the card', async () => {
+  const page = await ready();
+  const bar = descendants(page.elements.now).find((n) => n.tag === 'progress');
+  page.socket().receive(envelope(6, 'playback_paused', { item_id: 3, paused: true }));
+  assert.equal(pauseButton(page).textContent, 'Resume');
+  assert.equal(descendants(page.elements.now).find((n) => n.tag === 'progress'), bar, 'the same card');
+  page.socket().receive(envelope(7, 'playback_paused', { item_id: 3, paused: false }));
+  assert.equal(pauseButton(page).textContent, 'Pause');
+});
+
+test('the next video shows as playing, not paused', async () => {
+  const page = await ready();
+  page.socket().receive(envelope(6, 'playback_paused', { item_id: 3, paused: true }));
+  page.socket().receive(envelope(7, 'play', { item: item(4), volume: 50 }));
+  page.socket().receive(envelope(8, 'queue_updated', { pending: [], approved: [], now_playing: item(4) }));
+  assert.equal(pauseButton(page).textContent, 'Pause');
+  assert.ok(descendants(page.elements.now).find((n) => n.classes.has('badge-paused')).hidden);
+});
+
+test('P pauses and resumes, but only while a video is playing and not while typing', async () => {
+  const page = await ready();
+  page.table['PUT /api/playback/pause'] = { status: 200, body: snapshot({ playback_paused: true }) };
+  assert.equal(page.press('p'), true);
+  await settle();
+  assert.deepEqual(pauseCalls(page).map((r) => r.body), [{ paused: true }]);
+
+  page.table['PUT /api/playback/pause'] = { status: 200, body: snapshot({ playback_paused: false }) };
+  assert.equal(page.press('P'), true);
+  await settle();
+  assert.deepEqual(pauseCalls(page).map((r) => r.body), [{ paused: true }, { paused: false }]);
+
+  assert.equal(page.press('p', { target: { tagName: 'INPUT' } }), false);
+  assert.equal(page.press('p', { ctrlKey: true }), false);
+  assert.equal(pauseCalls(page).length, 2);
+
+  page.socket().receive(envelope(6, 'queue_updated', { pending: [], approved: [], now_playing: null }));
+  assert.equal(page.press('p'), false);
+  await settle();
+  assert.equal(pauseCalls(page).length, 2, 'nothing is playing');
+});
+
+test('a refused pause shows the error and the card stays as it was', async () => {
+  const page = await ready();
+  page.table['PUT /api/playback/pause'] = { status: 409, body: { error: 'no video is playing', code: 'nothing_playing' } };
+  pauseButton(page).fire('click');
+  await settle();
+  assert.equal(page.elements.error.textContent, 'Request failed: no video is playing');
+  assert.equal(pauseButton(page).textContent, 'Pause');
+
+  page.table['PUT /api/playback/pause'] = { status: 401, body: { error: 'missing or wrong token' } };
+  pauseButton(page).fire('click');
+  await settle();
+  assert.ok(!page.elements.login.hidden);
+});
+
+test('the keyboard hint lists P', () => {
+  assert.match(html, /<kbd>P<\/kbd><span data-i18n="dashboard\.keys\.pause">/);
+});

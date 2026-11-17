@@ -197,8 +197,10 @@ when moderators open the dashboard over the network with a token: they see what
 is set, and the form is locked for them.
 
 On the Queue page the keyboard works when you are not typing in a field:
-**↑ ↓** choose a waiting request, **A** approves it, **R** rejects it and **S**
-skips the video that is playing.
+**↑ ↓** choose a waiting request, **A** approves it, **R** rejects it, **S**
+skips the video that is playing and **P** pauses it or lets it go on. The
+playing card also has a **Pause** button (it becomes **Resume**). A pause lasts
+for that one video: the next one always plays.
 
 How long a request has waited is measured on the program's clock, so it is
 right even when a moderator's computer has the wrong time. The session counters

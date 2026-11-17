@@ -458,6 +458,7 @@ test('only plain presses of the shortcut keys are commands', () => {
   for (const key of ['a', 'A']) assert.equal(press(key), 'approve');
   for (const key of ['r', 'R']) assert.equal(press(key), 'reject');
   for (const key of ['s', 'S']) assert.equal(press(key), 'skip');
+  for (const key of ['p', 'P']) assert.equal(press(key), 'pause');
   for (const key of ['a', 'r', 's', 'ArrowDown']) {
     for (const modifier of ['ctrlKey', 'metaKey', 'altKey']) {
       assert.equal(press(key, { [modifier]: true }), null, `${modifier}+${key}`);
@@ -503,4 +504,26 @@ test('the key is read like the server reads it', () => {
   for (const bad of ['two words', 'line\nbreak', 'tab\there', 'café', '\u0000', 'a b', 'x'.repeat(201), '​hidden']) {
     assert.deepEqual(core.readYoutubeKey(bad), { error: 'format' }, JSON.stringify(bad));
   }
+});
+
+test('the pause comes with hello and playback_paused, and any new video or empty screen clears it', () => {
+  let state = core.reduce(core.initialState(), hello(1, { playback_paused: true, queue: { pending: [], approved: [], now_playing: item(7) } }));
+  assert.equal(state.paused, true);
+  state = core.reduce(state, envelope(2, 'playback_paused', { item_id: 7, paused: false }));
+  assert.equal(state.paused, false);
+  state = core.reduce(state, envelope(3, 'playback_paused', { item_id: 7, paused: true }));
+  assert.equal(state.paused, true);
+  for (const type of ['play', 'skip', 'stop']) {
+    let s = core.reduce(core.initialState(), hello(1, { playback_paused: true }));
+    assert.equal(s.paused, true);
+    s = core.reduce(s, envelope(2, type, type === 'play' ? { item: item(8), volume: 50 } : { item_id: 7 }));
+    assert.equal(s.paused, false, type);
+  }
+  // Missing or odd values mean "not paused".
+  for (const junk of [undefined, null, 'yes', 1, {}]) {
+    assert.equal(core.reduce(core.initialState(), hello(1, { playback_paused: junk })).paused, false, String(junk));
+  }
+  assert.equal(core.reduce(state, envelope(4, 'playback_paused', { paused: 'yes' })).paused, false);
+  // An event the snapshot already covers is ignored.
+  assert.equal(core.reduce(state, envelope(3, 'playback_paused', { item_id: 7, paused: false })), state);
 });

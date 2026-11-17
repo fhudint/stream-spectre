@@ -73,6 +73,9 @@ struct Inner {
     /// The chat was disconnected from the account menu. Only for this run: it
     /// is neither saved nor part of the settings.
     chat_paused: bool,
+    /// The video that is playing was paused by a moderator. Cleared whenever
+    /// another video starts or the screen empties.
+    playback_paused: bool,
     stats: StatsView,
     /// The last playback position published, to skip repeats.
     progress: Option<(ItemId, u64)>,
@@ -129,6 +132,7 @@ impl<S: VideoSource> Pipeline<S> {
                 chat_rate: ChatRate::default(),
                 tiktok,
                 chat_paused: false,
+                playback_paused: false,
                 stats: StatsView {
                     since_ms: unix_ms(SystemTime::now()),
                     ..StatsView::default()
@@ -462,6 +466,23 @@ impl<S: VideoSource> Pipeline<S> {
         Ok(())
     }
 
+    /// Pauses (`paused`) or resumes the video that is playing. Returns false,
+    /// and changes nothing, when no video is playing. Saying what is already
+    /// so changes nothing and publishes nothing. A video that starts later
+    /// always begins playing.
+    pub fn set_playback_paused(&self, paused: bool) -> bool {
+        let mut inner = self.lock();
+        let Some(item) = inner.queue.now_playing() else {
+            return false;
+        };
+        let item_id = item.id.0;
+        if inner.playback_paused != paused {
+            inner.playback_paused = paused;
+            self.bus.publish(Event::PlaybackPaused { item_id, paused });
+        }
+        true
+    }
+
     /// Disconnects the chat (`paused`) or connects it again. Only for this
     /// run: after a restart the chat connects by itself. Saying what is
     /// already so changes nothing. The chat status is published at once, so
@@ -599,6 +620,7 @@ impl<S: VideoSource> Pipeline<S> {
             chat: inner.chat.clone(),
             chat_log: inner.chat_log.iter().cloned().collect(),
             stats: inner.stats,
+            playback_paused: inner.playback_paused,
         }
     }
 
@@ -651,6 +673,8 @@ impl<S: VideoSource> Pipeline<S> {
     /// After a video ends: play the next one, or tell clients the screen is
     /// free.
     fn play_next_or_stop(&self, inner: &mut Inner) {
+        // Whatever happens next, it does not begin paused.
+        inner.playback_paused = false;
         if !self.advance(inner) {
             self.bus.publish(Event::Stop {});
         }
@@ -1927,6 +1951,86 @@ mod tests {
         p.approve(waiting).unwrap();
         assert!(p.skip());
         assert!(p.player_progress(waiting, 5).is_err());
+    }
+
+    // --- pausing the video that is playing ---
+
+    #[tokio::test]
+    async fn the_playing_video_can_be_paused_and_resumed() {
+        let p = default_pipeline();
+        let id = playing(&p).await;
+        let mut rx = p.subscribe();
+        assert!(!p.hello().playback_paused);
+
+        assert!(p.set_playback_paused(true));
+        assert!(p.hello().playback_paused);
+        let events = drain_all(&mut rx);
+        assert_eq!(kinds(&events), vec!["playback_paused"]);
+        assert_eq!(
+            data(&events[0]),
+            serde_json::json!({"item_id": id.0, "paused": true})
+        );
+
+        // Saying what is already so is fine and silent.
+        assert!(p.set_playback_paused(true));
+        assert!(drain_all(&mut rx).is_empty());
+
+        assert!(p.set_playback_paused(false));
+        assert!(!p.hello().playback_paused);
+        let events = drain_all(&mut rx);
+        assert_eq!(data(&events[0])["paused"], false);
+    }
+
+    #[tokio::test]
+    async fn with_nothing_playing_there_is_nothing_to_pause() {
+        let p = default_pipeline();
+        let mut rx = p.subscribe();
+        assert!(!p.set_playback_paused(true));
+        assert!(!p.hello().playback_paused);
+        assert!(!p.set_playback_paused(false));
+        assert!(drain_all(&mut rx).is_empty());
+
+        // A request that is only waiting is not playing either.
+        say(&p, sender(1, Role::Follower), &format!("!v {ID_A}")).await;
+        assert!(!p.set_playback_paused(true));
+    }
+
+    #[tokio::test]
+    async fn the_next_video_never_starts_paused() {
+        for how in ["skip", "ended", "error", "last one ends"] {
+            let p = default_pipeline();
+            say(&p, sender(1, Role::Follower), &format!("!v {ID_A}")).await;
+            say(&p, sender(2, Role::Follower), &format!("!v {ID_B}")).await;
+            let (a, b) = (ItemId(pending_ids(&p)[0]), ItemId(pending_ids(&p)[1]));
+            p.approve(a).unwrap();
+            if how != "last one ends" {
+                p.approve(b).unwrap();
+            }
+            p.set_playback_paused(true);
+            assert!(p.hello().playback_paused, "{how}");
+
+            match how {
+                "skip" => assert!(p.skip()),
+                "ended" | "last one ends" => p.player_ended(a).unwrap(),
+                _ => p.player_error(a, "150").unwrap(),
+            }
+            assert!(!p.hello().playback_paused, "{how}: cleared");
+            // And pausing again works for whatever plays now.
+            if how != "last one ends" {
+                assert_eq!(p.hello().queue.now_playing.map(|i| i.id), Some(b.0));
+                assert!(p.set_playback_paused(true), "{how}");
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn skipping_a_paused_video_with_nothing_after_it_leaves_no_pause_behind() {
+        let p = default_pipeline();
+        playing(&p).await;
+        p.set_playback_paused(true);
+        assert!(p.skip());
+        assert!(!p.hello().playback_paused);
+        assert!(!p.set_playback_paused(true), "nothing is playing now");
     }
 
     // --- the YouTube API key, changed while running ---

@@ -67,6 +67,7 @@
 
   /* deps:
    *   player: { play(videoId, volume), stop(), setVolume(volume),
+   *             pause(), resume(),
    *             position() -> seconds into the video, or null when not playing }
    *   ui:     { show({ requestedBy, title }), hide() }
    *   send:   (message) => boolean, false when the socket is not open
@@ -82,15 +83,26 @@
     var volume = 50;
     var current = null; // { id } of the video that should be on screen
     var reported = false; // ended or error already reported for `current`
+    var paused = false; // a moderator paused `current`
     var unsent = null; // a report that could not be sent yet
 
     function report(message) {
       if (!send(message)) unsent = message;
     }
 
+    /* Pauses or resumes the video on screen; saying what is already so does
+     * nothing. */
+    function setPaused(flag) {
+      if (flag === paused) return;
+      paused = flag;
+      var action = flag ? player.pause : player.resume;
+      if (typeof action === 'function') action.call(player);
+    }
+
     function clear() {
       current = null;
       reported = false;
+      paused = false;
       player.stop();
       ui.hide();
     }
@@ -100,6 +112,7 @@
       // Set before playing: the player may report an error synchronously.
       current = { id: item.id };
       reported = false;
+      paused = false; // a video that starts always plays
       unsent = null;
       if (!isVideoId(item.video_id)) {
         reported = true;
@@ -132,6 +145,8 @@
       } else {
         start(playing, volume);
       }
+      // A page that opens, or reconnects, in the middle of a pause stays paused.
+      if (id !== null) setPaused(data.playback_paused === true);
     }
 
     function handle(message) {
@@ -158,6 +173,9 @@
         case 'volume':
           volume = clampVolume(data.volume, volume);
           player.setVolume(volume);
+          break;
+        case 'playback_paused':
+          if (current && current.id === data.item_id) setPaused(data.paused === true);
           break;
         default:
           break; // events this overlay does not use

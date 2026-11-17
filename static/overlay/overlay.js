@@ -49,6 +49,7 @@
     var volume = 50;
     var pending = null;
     var playing = false;
+    var wantPaused = false; // a moderator paused this video
 
     function load(next) {
       playing = false;
@@ -84,6 +85,8 @@
           },
           onStateChange: function (event) {
             playing = event.data === YT.PlayerState.PLAYING;
+            // A video that is loaded while paused starts, so stop it again.
+            if (playing && wantPaused) yt.pauseVideo();
             if (event.data === YT.PlayerState.ENDED) callbacks.onEnded();
           },
           onError: function (event) {
@@ -107,6 +110,7 @@
 
     return {
       play: function (videoId, requestedVolume) {
+        wantPaused = false; // a new video always plays
         volume = requestedVolume;
         if (failed) {
           callbacks.onError('api_unavailable');
@@ -116,8 +120,17 @@
           load({ videoId: videoId, volume: requestedVolume });
         }
       },
+      pause: function () {
+        wantPaused = true;
+        if (ready && typeof yt.pauseVideo === 'function') yt.pauseVideo();
+      },
+      resume: function () {
+        wantPaused = false;
+        if (ready && typeof yt.playVideo === 'function') yt.playVideo();
+      },
       stop: function () {
         pending = null;
+        wantPaused = false;
         playing = false;
         if (ready) yt.stopVideo();
       },
