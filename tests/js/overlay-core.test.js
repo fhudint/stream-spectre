@@ -627,3 +627,67 @@ test('each video starts over', () => {
   assert.deepEqual(posts, ASK(50));
 });
 
+test('TikTok\'s player says a video is over with state 0, and fails with onPlayerError', () => {
+  const say = (type, value, flag = true) => core.tiktokOutcome({ 'x-tiktok-player': flag, type, value });
+  assert.deepEqual(say('onStateChange', 0), { ended: true });
+  for (const state of [1, 2, 3, -1, '0', null, undefined, false, [0]]) assert.equal(say('onStateChange', state), null, String(state));
+
+  assert.deepEqual(say('onPlayerError', { errorCode: 1001, errorType: 'INVALID_VIDEO' }), { ended: false, code: '1001' });
+  assert.deepEqual(say('onPlayerError', { errorType: 'INVALID_VIDEO' }), { ended: false, code: 'INVALID_VIDEO' });
+  for (const value of [undefined, null, 'oops', 5, {}, { errorCode: '1001' }, { errorCode: 1.5 }, { errorType: 7 }]) {
+    assert.deepEqual(say('onPlayerError', value), { ended: false, code: 'tiktok' }, JSON.stringify(value));
+  }
+  // The code goes through sanitizeCode on its way to the server.
+  assert.equal(core.sanitizeCode(say('onPlayerError', { errorType: '<b>x</b> a very long error type' }).code), 'bxbaverylongerro');
+
+  // Everything else is not about how the video went.
+  for (const type of ['onError', 'onPlayerReady', 'onCurrentTime', 'onMute', 'onVolumeChange', 'onStateChange']) {
+    assert.equal(say(type, { errorCode: 1001 }), null, type);
+  }
+  for (const data of [null, undefined, 'onStateChange', 0, [], {}, { type: 'onStateChange', value: 0 }]) assert.equal(core.tiktokOutcome(data), null, JSON.stringify(data));
+  assert.equal(say('onStateChange', 0, false), null);
+  assert.equal(say('onStateChange', 0, 'true'), null);
+});
+
+test('the pause at the very end of a short video is not the browser refusing sound', () => {
+  const { say, posts, tick, sound } = tiktokSound();
+  say('onCurrentTime', { currentTime: 0.1, duration: 2 });
+  tick(1500);
+  say('onCurrentTime', { currentTime: 1.8, duration: 2 });
+  say('onStateChange', 2); // the player pauses just before it says 0
+  assert.equal(sound.state().silent, false);
+  assert.ok(!posts.some((c) => c.type === 'mute' || c.type === 'play'));
+});
+
+test('a pause in the middle of a video right after asking is still a refusal', () => {
+  const { say, posts, tick } = tiktokSound();
+  say('onCurrentTime', { currentTime: 0.4, duration: 23.3 });
+  tick(300);
+  say('onStateChange', 2);
+  assert.deepEqual(posts.slice(2).map((c) => c.type), ['mute', 'play']);
+});
+
+test('a pause is a refusal too when the length is not known', () => {
+  const { say, posts, tick } = tiktokSound();
+  say('onCurrentTime', {});
+  tick(300);
+  say('onStateChange', 2);
+  assert.deepEqual(posts.slice(2).map((c) => c.type), ['mute', 'play']);
+  const odd = tiktokSound();
+  odd.say('onCurrentTime', { currentTime: 'x', duration: null });
+  odd.tick(300);
+  odd.say('onStateChange', 2);
+  assert.deepEqual(odd.posts.slice(2).map((c) => c.type), ['mute', 'play']);
+});
+
+test('begin forgets how far the last video had got', () => {
+  const { say, posts, tick, sound } = tiktokSound();
+  say('onCurrentTime', { currentTime: 1.9, duration: 2 });
+  sound.begin();
+  posts.length = 0;
+  say('onCurrentTime', {});
+  tick(300);
+  say('onStateChange', 2);
+  assert.deepEqual(posts.slice(2).map((c) => c.type), ['mute', 'play']);
+});
+

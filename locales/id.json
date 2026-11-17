@@ -192,6 +192,6 @@
   "dashboard.action.pause": "Jeda",
   "dashboard.action.resume": "Lanjutkan",
   "dashboard.now.paused": "Dijeda",
-  "dashboard.now.manual_end": "TikTok tidak memberi tahu kapan video selesai. Lewati sendiri kalau sudah habis.",
+  "dashboard.now.manual_end": "Panjang video TikTok belum ditampilkan. Pindah sendiri saat selesai; lewati kalau mau lebih cepat.",
   "dashboard.keys.pause": "jeda atau lanjutkan"
 }

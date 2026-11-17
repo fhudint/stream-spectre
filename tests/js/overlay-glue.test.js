@@ -649,3 +649,74 @@ test('a video after a refused one gets its own try at sound', () => {
   assert.deepEqual(posted(page).map((p) => p.data.type), ['setVolume', 'unMute']);
 });
 
+// --- the end of a TikTok video, and videos that cannot be played ---
+
+const reports = (page) => page.socket().sent.filter((m) => m.type === 'ended' || m.type === 'player_error');
+
+test('when TikTok\'s player says the video is over, the server is told', () => {
+  const page = readyPage();
+  page.socket().receive(envelope(1, 'play', { item: tiktokItem(4), volume: 50 }));
+  fromPlayer(page, 'onStateChange', 1);
+  assert.deepEqual(reports(page), []);
+  fromPlayer(page, 'onStateChange', 0);
+  assert.deepEqual(reports(page), [{ type: 'ended', item_id: 4 }]);
+  // Said again, or followed by an error, it is still reported once.
+  fromPlayer(page, 'onStateChange', 0);
+  fromPlayer(page, 'onPlayerError', { errorCode: 1001 });
+  assert.equal(reports(page).length, 1);
+});
+
+test('the pause TikTok sends just before the end does not stop the video from ending', () => {
+  const page = readyPage();
+  page.socket().receive(envelope(1, 'play', { item: tiktokItem(4), volume: 50 }));
+  fromPlayer(page, 'onCurrentTime', { currentTime: 0.2, duration: 23.7 });
+  fromPlayer(page, 'onCurrentTime', { currentTime: 23.7, duration: 23.7 });
+  fromPlayer(page, 'onStateChange', 2);
+  fromPlayer(page, 'onStateChange', 0);
+  assert.deepEqual(reports(page), [{ type: 'ended', item_id: 4 }]);
+  assert.ok(!posted(page).some((p) => p.data.type === 'mute' || p.data.type === 'play'), 'not muted and not played again');
+});
+
+test('a video TikTok cannot play is reported as an error with its code, once', () => {
+  const page = readyPage();
+  page.socket().receive(envelope(1, 'play', { item: tiktokItem(9), volume: 50 }));
+  fromPlayer(page, 'onError', 1);
+  assert.deepEqual(reports(page), [], 'the short form says nothing about why');
+  fromPlayer(page, 'onPlayerError', { errorCode: 1001, errorType: 'INVALID_VIDEO' });
+  fromPlayer(page, 'onPlayerError', { errorCode: 1001, errorType: 'INVALID_VIDEO' });
+  assert.deepEqual(reports(page), [{ type: 'player_error', item_id: 9, code: '1001' }]);
+});
+
+test('an end or an error from anything but the TikTok frame on screen is ignored', () => {
+  const page = readyPage();
+  page.socket().receive(envelope(1, 'play', { item: tiktokItem(4), volume: 50 }));
+  const ended = { 'x-tiktok-player': true, type: 'onStateChange', value: 0 };
+  const failed = { 'x-tiktok-player': true, type: 'onPlayerError', value: { errorCode: 1001 } };
+  for (const data of [ended, failed]) {
+    page.message({ origin: 'https://evil.example', source: frames(page)[0].contentWindow, data });
+    page.message({ origin: TT_ORIGIN, source: {}, data });
+    page.message({ origin: TT_ORIGIN, data });
+  }
+  assert.deepEqual(reports(page), []);
+});
+
+test('the end of an old TikTok video cannot end the next one', () => {
+  const page = readyPage();
+  page.socket().receive(envelope(1, 'play', { item: tiktokItem(4), volume: 50 }));
+  const old = frames(page)[0].contentWindow;
+  page.socket().receive(envelope(2, 'play', { item: tiktokItem(5, { video_id: '7219950637247728923' }), volume: 50 }));
+  page.message({ origin: TT_ORIGIN, source: old, data: { 'x-tiktok-player': true, type: 'onStateChange', value: 0 } });
+  assert.deepEqual(reports(page), []);
+  fromPlayer(page, 'onStateChange', 0);
+  assert.deepEqual(reports(page), [{ type: 'ended', item_id: 5 }]);
+});
+
+test('a video that skipped by a moderator is not reported as ended afterwards', () => {
+  const page = readyPage();
+  page.socket().receive(envelope(1, 'play', { item: tiktokItem(4), volume: 50 }));
+  const win = frames(page)[0].contentWindow;
+  page.socket().receive(envelope(2, 'skip', { item_id: 4, reason: 'moderator' }));
+  page.message({ origin: TT_ORIGIN, source: win, data: { 'x-tiktok-player': true, type: 'onStateChange', value: 0 } });
+  assert.deepEqual(reports(page), []);
+});
+

@@ -79,12 +79,17 @@
       if (!tiktokFrame || event.origin !== TIKTOK_ORIGIN) return;
       if (event.source !== tiktokFrame.contentWindow) return;
       sound.handle(event.data);
+      var outcome = core.tiktokOutcome(event.data);
+      if (outcome === null) return;
+      if (outcome.ended) callbacks.onEnded();
+      else callbacks.onError(outcome.code);
     });
 
     /* TikTok's embedded player: one frame per video, removed afterwards. The
      * ID is digits only (checked by overlay-core). Its sound is asked for as
-     * described at `createTiktokSound`. Nothing else it reports is used, so a
-     * TikTok video ends when a moderator skips it. */
+     * described at `createTiktokSound`. It says when the video ends and when
+     * it cannot be played (`tiktokOutcome`); a video that says neither stays
+     * until a moderator skips it. */
     function showTiktok(videoId) {
       hideTiktok();
       var frame = document.createElement('iframe');

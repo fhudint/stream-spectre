@@ -139,8 +139,10 @@ player, in the same stage; the frame is replaced or removed with the next
 video. TikTok's player mutes every video it starts; the overlay talks to it by
 `postMessage` (only to and from TikTok's origin and the frame on screen) to ask
 for sound and to set the volume, and mutes it and sets it playing again when the
-browser refuses sound (`createTiktokSound` in `overlay-core.js`). Nothing else it
-reports is used, so those entries end by skip.
+browser refuses sound (`createTiktokSound` in `overlay-core.js`). It also tells
+when the video ends (state 0) and when it cannot be played (`onPlayerError`);
+the overlay turns those into the same `ended` and `player_error` reports as
+for YouTube (`tiktokOutcome`). Nothing else it reports is used.
 
 **One event stream, versioned.** Everything the pages show comes from the
 events described in [`websocket-events.md`](websocket-events.md). A client

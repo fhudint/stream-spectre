@@ -35,8 +35,8 @@ for what plays on your stream.
   (`!vt ZSpGELffb`, from `vt.tiktok.com/ZSpGELffb`), or a full link. A command
   takes only its own source: `!yt` with a TikTok link is answered with the
   command to use. TikTok videos always wait for a moderator, are played in the
-  same overlay and the same queue, and must be skipped by hand when they end
-  (see [Known limitations](#known-limitations)).
+  same overlay and the same queue, and move on by themselves when they end (see
+  [Known limitations](#known-limitations)).
 - Checks each video with the YouTube Data API (one quota unit per new video,
   results cached): rejects videos that cannot be embedded, are age-restricted,
   are live streams, or are too long.
@@ -303,17 +303,18 @@ trust, not across the internet.
   without a developer account, so there is no title, thumbnail or length: the
   queue shows the account (when the link had it) and the ID, the maximum length
   cannot be enforced, and they always wait for a moderator even with automatic
-  approval. The overlay does not use what TikTok's player reports back about
-  the end of a video, so a TikTok video stays on screen until a moderator
-  presses skip. It cannot be paused from the dashboard. TikTok's player starts
+  approval. TikTok's player tells the overlay when a video ends and when it
+  cannot be played (it does not exist, is private or is removed), and then the
+  queue moves on, with a notice for the moderators in the second case. If the
+  player says neither, the video stays until a moderator presses skip. It
+  cannot be paused from the dashboard. TikTok's player starts
   every video muted, so the overlay asks it for sound (with the volume of the
   dashboard's slider): in OBS that works, in an ordinary browser tab the browser
   usually refuses sound without a click and the video plays silently. If a
   TikTok video has no sound in OBS, check that "Control audio via OBS" is on for
-  the browser source. A private, deleted or region-locked
-  video cannot be told from a good one beforehand and shows TikTok's own
-  message on screen until it is skipped. A short link is opened with one request
-  to TikTok's own server, which only the code is sent to.
+  the browser source. A private, deleted or region-locked video cannot be told
+  from a good one beforehand, only when it is tried. A short link is opened with
+  one request to TikTok's own server, which only the code is sent to.
 - **Saved settings replace whole tables.** A table saved from the dashboard
   (for example all of `[moderation]`) replaces that table in `config.toml`;
   single keys are not merged. Apart from the TikTok username, the settings for

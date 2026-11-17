@@ -2106,7 +2106,7 @@ test('the playing card of a TikTok video has no progress and no pause button, an
   const page = await ready({ routes: { 'GET /api/state': () => ({ status: 200, body }) } });
   const card = page.elements.now;
   assert.ok(!descendants(card).some((n) => n.tag === 'progress'));
-  assert.match(card.textContent, /TikTok does not say when a video ends\. Skip it when it is over\./);
+  assert.match(card.textContent, /The length of a TikTok video is not shown\. It moves on by itself when it ends; skip it to go sooner\./);
   assert.match(card.textContent, /@cherlynn052/);
   assert.ok(!/0:00 of/.test(card.textContent), 'no elapsed time');
   assert.ok(pauseButton(page).hidden, 'the pause button is not offered');

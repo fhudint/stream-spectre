@@ -91,22 +91,53 @@
    *
    * deps: post(command), volume() -> 0..100, now() -> milliseconds.
    */
+  var TIKTOK_ENDED = 0;
   var TIKTOK_PAUSED = 2;
   var TIKTOK_MAX_ASKS = 6;
-  /* A pause this soon after asking for sound is the browser refusing. */
+  /* A pause this soon after asking for sound is the browser refusing... */
   var TIKTOK_REFUSAL_MS = 3000;
+  /* ...unless the video is at its end, which also pauses before it ends. */
+  var TIKTOK_END_MARGIN_SECS = 1;
+
+  /* What a message from TikTok's player says about how the video went, as
+   * { ended: true } (it finished: state 0, as for YouTube) or
+   * { ended: false, code } (it could not play: `onPlayerError`, for example
+   * 1001 INVALID_VIDEO for a video that does not exist), or null for any
+   * other message. */
+  function tiktokOutcome(data) {
+    if (!data || typeof data !== 'object' || data['x-tiktok-player'] !== true) return null;
+    if (data.type === 'onStateChange' && data.value === TIKTOK_ENDED) return { ended: true };
+    if (data.type === 'onPlayerError') {
+      var detail = data.value && typeof data.value === 'object' ? data.value : {};
+      var code = Number.isInteger(detail.errorCode)
+        ? String(detail.errorCode)
+        : typeof detail.errorType === 'string'
+          ? detail.errorType
+          : 'tiktok';
+      return { ended: false, code: code };
+    }
+    return null;
+  }
 
   function createTiktokSound(deps) {
     var muted;
     var asks;
     var askedAt;
     var silent; // the browser refused sound: stay muted
+    var position; // seconds into the video, and how long it is, as last told
+    var length;
 
     function begin() {
       muted = null;
       asks = 0;
       askedAt = null;
       silent = false;
+      position = null;
+      length = null;
+    }
+
+    function atTheEnd() {
+      return length !== null && position !== null && position >= length - TIKTOK_END_MARGIN_SECS;
     }
 
     function ask() {
@@ -129,10 +160,15 @@
         if (!data || typeof data !== 'object' || data['x-tiktok-player'] !== true) return;
         if (typeof data.type !== 'string') return;
         if (data.type === 'onMute') muted = data.value === true;
+        if (data.type === 'onCurrentTime' && data.value && typeof data.value === 'object') {
+          position = Number.isFinite(data.value.currentTime) ? data.value.currentTime : position;
+          length = Number.isFinite(data.value.duration) ? data.value.duration : length;
+        }
         if (
           data.type === 'onStateChange' &&
           data.value === TIKTOK_PAUSED &&
           !silent &&
+          !atTheEnd() &&
           askedAt !== null &&
           deps.now() - askedAt <= TIKTOK_REFUSAL_MS
         ) {
@@ -315,6 +351,7 @@
     PROTOCOL_VERSION: PROTOCOL_VERSION,
     createController: createController,
     createTiktokSound: createTiktokSound,
+    tiktokOutcome: tiktokOutcome,
     format: format,
     isVideoId: isVideoId,
     isVideoRef: isVideoRef,
