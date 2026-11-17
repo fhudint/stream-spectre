@@ -357,6 +357,13 @@ cargo test
 node --test "tests/js/*.test.js"      # Node 22 or newer
 ```
 
+## Credits
+
+The idea of mediashare through chat, where viewers put a command and a video ID
+in a comment, comes from Antonius Wilson (GLHFSon): Instagram
+[@glhfson](https://www.instagram.com/glhfson/), TikTok
+[@jendralson](https://www.tiktok.com/@jendralson).
+
 ## License
 
 [AGPL-3.0-only](LICENSE). If you run a modified version as a network service,
