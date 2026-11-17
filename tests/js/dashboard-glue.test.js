@@ -83,6 +83,9 @@ class FakeNode {
   focus() {
     this.focused = true;
   }
+  scrollIntoView(options) {
+    this.scrolledTo = options;
+  }
   select() {
     this.selected = true;
   }
@@ -1216,6 +1219,12 @@ test('the first waiting request is selected, and the arrow keys move the choice'
   page.press('ArrowUp');
   page.press('ArrowUp');
   assert.match(selectedTitle(page), /Title 7/, 'and at the first one');
+});
+
+test('the arrow keys bring the chosen request into view, as the list scrolls by itself', async () => {
+  const page = await ready();
+  page.press('ArrowDown');
+  assert.equal(page.elements.pending.children[1].scrolledTo.block, 'nearest');
 });
 
 test('A approves, R rejects and S skips, for the chosen request', async () => {

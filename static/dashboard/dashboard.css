@@ -484,6 +484,12 @@ kbd { padding: 1px 6px; border-radius: 4px; background: var(--button); color: va
 
 .rows > .row > .actions { justify-content: flex-end; }
 
+/* A long list of waiting requests scrolls inside its card. On a phone the
+   page itself scrolls instead, so a swipe is never caught by a nested list. */
+@media (min-width: 900px) {
+  #pending { max-height: min(60vh, 560px); overflow-y: auto; }
+}
+
 /* The requests page has room for both blacklist buttons on one line. */
 @media (min-width: 900px) {
   #requests > .row { grid-template-columns: 96px minmax(0, 1fr) 190px 240px; }

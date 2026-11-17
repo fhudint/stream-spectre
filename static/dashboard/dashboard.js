@@ -636,6 +636,9 @@
     selectedId = id;
     selectedIndex = Math.max(0, pendingIds().indexOf(id));
     renderQueues();
+    // The list scrolls by itself on a wide screen, and the arrow keys do not.
+    var row = $('pending').children[selectedIndex];
+    if (row && row.scrollIntoView) row.scrollIntoView({ block: 'nearest' });
   }
 
   /* Keeps the keyboard's choice on a request that still waits: the same one,
