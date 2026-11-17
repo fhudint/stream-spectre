@@ -433,9 +433,9 @@ How far the video that is playing has got (dashboard only).
 
 The overlay reports its position about once a second while a video plays (see
 [Messages from the overlay](#messages-from-the-overlay)); the server passes it
-on. `duration_secs` is the length of the video: the one in the queue item, or for
-a TikTok video (whose item has `0`) the length its player told the overlay. Until
-a TikTok video's length is known, no `playback` is sent for it. `position_secs`
+on. `duration_secs` is the length of the video: the one its player told the
+overlay, else the one in the queue item (for a TikTok video, whose item has `0`,
+only the first). Until a TikTok video's length is known, no `playback` is sent for it. `position_secs`
 never exceeds `duration_secs`, a repeat of the last position and length is not
 sent again, and a report for a video that is not the one playing is dropped. A dashboard that opens in the middle of a video learns the
 position from the next event; `hello` does not carry it.
@@ -477,7 +477,7 @@ The overlay sends JSON text messages with a `type`:
 | `{"type":"player_ready"}` | The page loaded and is listening. |
 | `{"type":"ended","item_id":7}` | The video finished. The server then plays the next one or sends `stop`. |
 | `{"type":"player_error","item_id":7,"code":"150"}` | The YouTube player could not play the video. `code` is the player's error code (at most 16 characters of `A-Z a-z 0-9 _ - .`; anything else is dropped). |
-| `{"type":"progress","item_id":7,"position_secs":23}` | How far the video has got, in whole seconds, about once a second while it plays (not while it loads, is paused or buffers). For a TikTok video it also carries `"duration_secs": 15`, the length its player told (a whole number of seconds, rounded up; it is only believed from 1 second to 10 hours). The server publishes it as [`playback`](#playback). |
+| `{"type":"progress","item_id":7,"position_secs":23}` | How far the video has got, in whole seconds, about once a second while it plays (not while it loads, is paused or buffers). It also carries `"duration_secs": 15` when the player knows the length (a whole number of seconds, rounded up; it is only believed from 1 second to 10 hours). The server prefers it to the length in the queue item (for YouTube that comes from the API, and in the demo it is made up). The server publishes it as [`playback`](#playback). |
 
 An `ended`, `player_error` or `progress` for a video that is not the one
 playing (for example a late message after a skip) is ignored.

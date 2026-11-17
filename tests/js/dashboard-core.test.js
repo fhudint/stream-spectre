@@ -708,8 +708,11 @@ test('a TikTok video has a position once the overlay has told its length, the se
   assert.equal(core.playbackPosition(state('tiktok', 0, { duration_secs: 60 })), 40);
   assert.equal(core.playbackPosition(state('tiktok', 0, { duration_secs: 15 })), 15, 'never past its length');
   assert.equal(core.playbackDuration(state('tiktok', 0, { duration_secs: 15 })), 15);
-  // The server's length is not replaced by a report's.
-  assert.equal(core.playbackDuration(state('youtube', 213, { duration_secs: 15 })), 213);
+  // What the player says is the length of the video it plays: it wins over the queue item's.
+  assert.equal(core.playbackDuration(state('youtube', 213, { duration_secs: 91 })), 91);
+  assert.equal(core.playbackPosition(state('youtube', 213, { position_secs: 100, duration_secs: 91 })), 91);
+  // A length told for another video does not replace this one's.
+  assert.equal(core.playbackDuration(state('youtube', 213, { item_id: 4, duration_secs: 91 })), 213);
   // A length told for another video is not this one's.
   assert.equal(core.playbackDuration(state('tiktok', 0, { item_id: 4, duration_secs: 15 })), 0);
   assert.equal(core.playbackDuration({ queue: { now_playing: null }, playback: null }), 0);

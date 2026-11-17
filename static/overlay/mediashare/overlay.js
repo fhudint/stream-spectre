@@ -293,10 +293,11 @@
         if (!ready || !playing || typeof yt.getCurrentTime !== 'function') return null;
         return yt.getCurrentTime();
       },
-      /* How long the video is, when only its player can say (TikTok);
-       * otherwise null: the server knows the length of a YouTube video. */
+      /* How long the video is, as its player says, or null. The server uses
+       * it in preference to the one in the queue item. */
       duration: function () {
-        return tiktokOn && tiktokClock ? tiktokClock.duration : null;
+        var length = this.clock().duration;
+        return length > 0 ? length : null;
       },
       setVolume: function (requestedVolume) {
         volume = requestedVolume;

@@ -392,14 +392,14 @@
   }
 
   /* How long the video that is playing is, in seconds, or 0 when not known
-   * (yet): the length the server has for it, else what the overlay's player
-   * told for this very video, which is how a TikTok video gets one. */
+   * (yet): what the overlay's player told for this very video (which is how a
+   * TikTok video gets one), else the length the server has for it. */
   function playbackDuration(state) {
     var playing = state.queue.now_playing;
     if (!playing) return 0;
-    if (playing.duration_secs > 0) return playing.duration_secs;
     var playback = state.playback;
-    return playback && playback.item_id === playing.id && playback.duration_secs > 0 ? playback.duration_secs : 0;
+    if (playback && playback.item_id === playing.id && playback.duration_secs > 0) return playback.duration_secs;
+    return playing.duration_secs > 0 ? playing.duration_secs : 0;
   }
 
   /* How far the video that is playing has got, in seconds. Zero until the

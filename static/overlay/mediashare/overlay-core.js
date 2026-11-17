@@ -413,7 +413,7 @@
         var seconds = player.position();
         if (typeof seconds !== 'number' || !isFinite(seconds) || seconds < 0) return;
         var message = { type: 'progress', item_id: current.id, position_secs: Math.floor(seconds) };
-        // A TikTok video's length is only known to its player.
+        // The server prefers it to the length it has for a YouTube video.
         var length = typeof player.duration === 'function' ? player.duration() : null;
         if (typeof length === 'number' && isFinite(length) && length > 0) message.duration_secs = Math.ceil(length);
         send(message);

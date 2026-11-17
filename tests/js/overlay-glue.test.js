@@ -369,7 +369,7 @@ test('progress is reported once a second, but only while the video is playing', 
   page.player().options.events.onStateChange({ data: 1 }); // playing
   page.log.position = 4.7;
   tick();
-  assert.deepEqual(plain(progress()), [{ type: 'progress', item_id: 7, position_secs: 4 }]);
+  assert.deepEqual(plain(progress()), [{ type: 'progress', item_id: 7, position_secs: 4, duration_secs: 200 }]);
 
   page.player().options.events.onStateChange({ data: 2 }); // paused or buffering
   page.log.position = 9;
@@ -544,10 +544,13 @@ test('a TikTok video reports its position and its length once its player has sai
   page.log.intervals[0].fn();
   assert.deepEqual(page.socket().sent.at(-1), { type: 'progress', item_id: 1, position_secs: 5, duration_secs: 16 });
 
-  // A YouTube video does not say a length: the server knows it.
+  // A YouTube video says the length its player has too; the server uses it only when it has none.
   page.socket().receive(envelope(2, 'play', { item: item(2), volume: 40 }));
   page.log.position = 7;
   page.player().options.events.onStateChange({ data: 1 });
+  page.log.intervals[0].fn();
+  assert.deepEqual(page.socket().sent.at(-1), { type: 'progress', item_id: 2, position_secs: 7, duration_secs: 200 });
+  page.log.duration = 0; // its player does not know it yet
   page.log.intervals[0].fn();
   assert.deepEqual(page.socket().sent.at(-1), { type: 'progress', item_id: 2, position_secs: 7 });
 });

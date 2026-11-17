@@ -760,8 +760,9 @@ impl<S: VideoSource> Pipeline<S> {
         Ok(())
     }
 
-    /// The overlay reports how far `id` has got, and for a video whose length
-    /// only its player knows (TikTok) how long it is. Reports for a video that
+    /// The overlay reports how far `id` has got, and how long the video is:
+    /// that length is the one shown, and for a video whose length we do not
+    /// have (TikTok) the only one. Reports for a video that
     /// is not playing are errors and change nothing; repeats of the last
     /// position are dropped. The position is limited to the video's length.
     /// Until a length is known there is no position to show.
@@ -776,21 +777,19 @@ impl<S: VideoSource> Pipeline<S> {
             Some(item) if item.id == id => item.media.duration_secs(),
             _ => return Err(QueueError::NotPlaying(id)),
         };
-        let duration = match known {
-            Some(duration) => duration,
-            None => {
-                // A report is a number from a browser: it is only believed
-                // within what a video can be.
-                if let Some(reported) = reported_duration_secs
-                    .filter(|seconds| (1..=MAX_LEARNED_DURATION_SECS).contains(seconds))
-                {
-                    inner.learned_duration = Some((id, reported));
-                }
-                match inner.learned_duration {
-                    Some((learned_for, duration)) if learned_for == id => duration,
-                    _ => return Ok(()),
-                }
-            }
+        // A report is a number from a browser: it is only believed within what
+        // a video can be. What the player says wins over the queue item's
+        // length, which for YouTube comes from the API (and in the demo is made
+        // up).
+        if let Some(reported) = reported_duration_secs
+            .filter(|seconds| (1..=MAX_LEARNED_DURATION_SECS).contains(seconds))
+        {
+            inner.learned_duration = Some((id, reported));
+        }
+        let duration = match (inner.learned_duration, known) {
+            (Some((learned_for, duration)), _) if learned_for == id => duration,
+            (_, Some(duration)) => duration,
+            _ => return Ok(()),
         };
         let position_secs = position_secs.min(duration);
         if inner.progress == Some((id, position_secs, duration)) {
@@ -3603,6 +3602,28 @@ mod tests {
         // A stray length is not taken once it is known to be nonsense.
         p.player_progress(id, 4, Some(0)).unwrap();
         assert_eq!(data(&drain_all(&mut rx)[0])["duration_secs"], 15);
+    }
+
+    #[tokio::test]
+    async fn the_length_the_player_reports_wins_over_the_one_in_the_queue() {
+        let p = default_pipeline();
+        let id = playing(&p).await;
+        let mut rx = p.subscribe();
+        // Before the player says, the queue item's length is used.
+        p.player_progress(id, 12, None).unwrap();
+        assert_eq!(data(&drain_all(&mut rx)[0])["duration_secs"], 200);
+        // Then the player's: the position follows the real video.
+        p.player_progress(id, 12, Some(91)).unwrap();
+        assert_eq!(data(&drain_all(&mut rx)[0])["duration_secs"], 91);
+        p.player_progress(id, 150, None).unwrap();
+        let events = drain_all(&mut rx);
+        assert_eq!(
+            data(&events[0]),
+            serde_json::json!({"item_id": id.0, "position_secs": 91, "duration_secs": 91})
+        );
+        // A report that is not believed leaves it as it was.
+        p.player_progress(id, 20, Some(0)).unwrap();
+        assert_eq!(data(&drain_all(&mut rx)[0])["duration_secs"], 91);
     }
 
     #[tokio::test]
