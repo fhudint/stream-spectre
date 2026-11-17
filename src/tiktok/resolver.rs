@@ -6,11 +6,19 @@ use reqwest::header::LOCATION;
 use url::Url;
 
 use super::ids::{ShortCode, TiktokVideoId};
-use super::link::video_from_url;
+use super::link::{is_account, video_from_url};
 
 /// Where short links live. The code is appended to this; nothing else of what
 /// a viewer typed ever reaches the address.
 const SHORT_LINK_BASE: &str = "https://vt.tiktok.com/";
+
+/// Where TikTok serves a video's page. Only a validated ID is appended.
+#[cfg_attr(test, allow(dead_code))] // tests ask a made-up address instead
+const PAGE_BASE: &str = "https://www.tiktok.com/";
+
+/// A page larger than this is not read any further: the one that holds the
+/// video's data is about 450 KB.
+const MAX_PAGE_BYTES: usize = 2 * 1024 * 1024;
 
 /// How long to wait for TikTok's answer.
 pub const REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
@@ -44,11 +52,11 @@ pub enum ResolveError {
 
 struct TtlPolicy;
 
-impl Expiry<ShortCode, Option<Resolved>> for TtlPolicy {
+impl<K, V> Expiry<K, Option<V>> for TtlPolicy {
     fn expire_after_create(
         &self,
-        _key: &ShortCode,
-        value: &Option<Resolved>,
+        _key: &K,
+        value: &Option<V>,
         _created_at: Instant,
     ) -> Option<Duration> {
         Some(if value.is_some() {
@@ -59,8 +67,8 @@ impl Expiry<ShortCode, Option<Resolved>> for TtlPolicy {
     }
 }
 
-/// Finds the video behind a TikTok short link, with one request to TikTok's
-/// own host.
+/// Finds the video behind a TikTok short link, and the account behind a video
+/// ID, each with one request to TikTok's own host.
 ///
 /// - The address is built here from a validated `ShortCode`; viewers cannot
 ///   point it elsewhere.
@@ -70,22 +78,40 @@ impl Expiry<ShortCode, Option<Resolved>> for TtlPolicy {
 /// - The body is never read.
 /// - Answers are cached, and concurrent lookups of one code share one request.
 ///   Failures are not cached.
+///
+/// The account of a video ID is read from the page TikTok serves for it (an
+/// unofficial source, so only a best effort): the account is taken from the
+/// data in the page, and only when that data is about this very video. The
+/// page is read up to a limit and never followed anywhere.
 pub struct ShortLinkResolver {
     http: reqwest::Client,
     base: Url,
+    /// Where video pages are asked for.
+    page_base: Url,
     cache: Cache<ShortCode, Option<Resolved>>,
+    accounts: Cache<TiktokVideoId, Option<String>>,
 }
 
 impl ShortLinkResolver {
     pub fn new() -> Result<Self, ResolveError> {
-        match Url::parse(SHORT_LINK_BASE) {
-            Ok(base) => Self::with_base_url(REQUEST_TIMEOUT, base),
-            Err(_) => Err(ResolveError::Unavailable("bad address")),
+        // The tests of the code around this must never reach the real TikTok:
+        // here nothing listens, and every lookup fails at once.
+        #[cfg(test)]
+        let (short, page) = ("http://127.0.0.1:9/", "http://127.0.0.1:9/");
+        #[cfg(not(test))]
+        let (short, page) = (SHORT_LINK_BASE, PAGE_BASE);
+        match (Url::parse(short), Url::parse(page)) {
+            (Ok(short), Ok(page)) => Self::with_base_urls(REQUEST_TIMEOUT, short, page),
+            _ => Err(ResolveError::Unavailable("bad address")),
         }
     }
 
-    /// Like `new`, with another address to ask (for tests).
+    /// Like `new`, with another address to ask for both (for tests).
     pub fn with_base_url(timeout: Duration, base: Url) -> Result<Self, ResolveError> {
+        Self::with_base_urls(timeout, base.clone(), base)
+    }
+
+    fn with_base_urls(timeout: Duration, base: Url, page_base: Url) -> Result<Self, ResolveError> {
         let mut builder = reqwest::Client::builder()
             .timeout(timeout)
             .user_agent(concat!(
@@ -105,11 +131,60 @@ impl ShortLinkResolver {
         Ok(Self {
             http,
             base,
+            page_base,
             cache: Cache::builder()
                 .max_capacity(MAX_ENTRIES)
                 .expire_after(TtlPolicy)
                 .build(),
+            accounts: Cache::builder()
+                .max_capacity(MAX_ENTRIES)
+                .expire_after(TtlPolicy)
+                .build(),
         })
+    }
+
+    /// The account that posted video `id`, or `None` when it cannot be told:
+    /// TikTok did not answer, or its page does not say. Never an error, since
+    /// a video is as good without it; a failure is not remembered.
+    pub async fn account_of(&self, id: &TiktokVideoId) -> Option<String> {
+        match self
+            .accounts
+            .try_get_with(id.clone(), self.fetch_account(id))
+            .await
+        {
+            Ok(account) => account,
+            Err(error) => {
+                tracing::debug!(%error, "cannot look up the account of a TikTok video");
+                None
+            }
+        }
+    }
+
+    async fn fetch_account(&self, id: &TiktokVideoId) -> Result<Option<String>, ResolveError> {
+        // Any account name in the address gets the page of the right video.
+        let url = self
+            .page_base
+            .join(&format!("@_/video/{id}"))
+            .map_err(|_| ResolveError::Unavailable("bad address"))?;
+        let mut response = self.http.get(url).send().await.map_err(request_failed)?;
+        let status = response.status();
+        if status.as_u16() == 429 {
+            return Err(ResolveError::Unavailable("rate limited"));
+        }
+        if status.is_server_error() {
+            return Err(ResolveError::Unavailable("server error"));
+        }
+        if !status.is_success() {
+            return Ok(None);
+        }
+        let mut page = Vec::new();
+        while let Some(chunk) = response.chunk().await.map_err(request_failed)? {
+            page.extend_from_slice(&chunk);
+            if page.len() > MAX_PAGE_BYTES {
+                return Ok(None);
+            }
+        }
+        Ok(account_from_page(&String::from_utf8_lossy(&page), id))
     }
 
     /// `Ok(None)`: the code leads to no video.
@@ -129,15 +204,7 @@ impl ShortLinkResolver {
             .base
             .join(&format!("{code}/"))
             .map_err(|_| ResolveError::Unavailable("bad address"))?;
-        let response = self.http.get(url).send().await.map_err(|error| {
-            ResolveError::Unavailable(if error.is_timeout() {
-                "timeout"
-            } else if error.is_connect() {
-                "connection failed"
-            } else {
-                "request failed"
-            })
-        })?;
+        let response = self.http.get(url).send().await.map_err(request_failed)?;
 
         let status = response.status();
         if status.is_redirection() {
@@ -162,6 +229,32 @@ impl ShortLinkResolver {
         // code does not lead to a video.
         Ok(None)
     }
+}
+
+fn request_failed(error: reqwest::Error) -> ResolveError {
+    ResolveError::Unavailable(if error.is_timeout() {
+        "timeout"
+    } else if error.is_connect() {
+        "connection failed"
+    } else {
+        "request failed"
+    })
+}
+
+/// The account in the page's own data (the JSON in the script tag with the
+/// ID `__UNIVERSAL_DATA_FOR_REHYDRATION__`), when that data is about video
+/// `id` and the name is one we would show.
+fn account_from_page(page: &str, id: &TiktokVideoId) -> Option<String> {
+    let tag = page.find("id=\"__UNIVERSAL_DATA_FOR_REHYDRATION__\"")?;
+    let start = tag + page[tag..].find('>')? + 1;
+    let end = start + page[start..].find("</script>")?;
+    let data: serde_json::Value = serde_json::from_str(&page[start..end]).ok()?;
+    let item = data.pointer("/__DEFAULT_SCOPE__/webapp.video-detail/itemInfo/itemStruct")?;
+    if item.pointer("/id")?.as_str()? != id.as_str() {
+        return None;
+    }
+    let name = item.pointer("/author/uniqueId")?.as_str()?;
+    is_account(name).then(|| name.to_owned())
 }
 
 fn is_loopback(url: &Url) -> bool {
@@ -417,6 +510,116 @@ mod tests {
             assert_eq!(result.unwrap().unwrap().id.as_str(), ID);
         }
         assert_eq!(server.await.unwrap().len(), 1);
+    }
+
+    const VIDEO: &str = "7703227524993649928";
+
+    fn video() -> TiktokVideoId {
+        TiktokVideoId::parse(VIDEO).unwrap()
+    }
+
+    /// A page like TikTok's, with the data of video `id` posted by `account`.
+    fn page_body(id: &str, account: &str) -> String {
+        let data = format!(
+            r#"{{"__DEFAULT_SCOPE__":{{"webapp.video-detail":{{"itemInfo":{{"itemStruct":{{"id":"{id}","author":{{"uniqueId":"{account}"}}}}}}}}}}}}"#
+        );
+        format!(
+            r#"<html><script id="__UNIVERSAL_DATA_FOR_REHYDRATION__" type="application/json">{data}</script></html>"#
+        )
+    }
+
+    fn page(id: &str, account: &str) -> String {
+        ok(&page_body(id, account))
+    }
+
+    fn ok(body: &str) -> String {
+        format!(
+            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+            body.len()
+        )
+    }
+
+    #[tokio::test]
+    async fn the_account_of_a_video_comes_from_the_pages_own_data() {
+        let (base, server) = serve(vec![page(VIDEO, "gabyjohanes")]).await;
+        assert_eq!(
+            resolver(base).account_of(&video()).await.as_deref(),
+            Some("gabyjohanes")
+        );
+        let heads = server.await.unwrap();
+        assert_eq!(
+            heads[0].lines().next().unwrap(),
+            format!("GET /@_/video/{VIDEO} HTTP/1.1")
+        );
+        let lower = heads[0].to_ascii_lowercase();
+        assert!(!lower.contains("cookie") && !lower.contains("authorization"));
+    }
+
+    #[tokio::test]
+    async fn a_page_that_does_not_say_who_posted_the_video_gives_no_account() {
+        let wrapped = |data: &str| {
+            ok(&format!(
+                r#"<script id="__UNIVERSAL_DATA_FOR_REHYDRATION__" type="application/json">{data}</script>"#
+            ))
+        };
+        for response in [
+            ok("<html>no data at all</html>"),
+            wrapped("{not json"),
+            wrapped(r#"{"__DEFAULT_SCOPE__":{}}"#),
+            // The data is about another video.
+            page("7700124541145599252", "someone"),
+            // A name we would not show.
+            page(VIDEO, "a b<script>"),
+            page(VIDEO, ""),
+            status_only("404 Not Found"),
+            status_only("302 Found"),
+        ] {
+            let (base, server) = serve(vec![response.clone()]).await;
+            assert_eq!(
+                resolver(base).account_of(&video()).await,
+                None,
+                "{response}"
+            );
+            server.await.unwrap();
+        }
+    }
+
+    fn status_only(status: &str) -> String {
+        plain(status)
+    }
+
+    #[tokio::test]
+    async fn an_account_is_remembered_but_a_failure_is_not() {
+        let (base, server) = serve(vec![
+            plain("500 Internal Server Error"),
+            page(VIDEO, "gabyjohanes"),
+        ])
+        .await;
+        let resolver = resolver(base);
+        assert_eq!(resolver.account_of(&video()).await, None);
+        assert_eq!(
+            resolver.account_of(&video()).await.as_deref(),
+            Some("gabyjohanes")
+        );
+        // The server is gone by now: this one can only come from memory.
+        assert_eq!(
+            resolver.account_of(&video()).await.as_deref(),
+            Some("gabyjohanes")
+        );
+        assert_eq!(server.await.unwrap().len(), 2);
+    }
+
+    #[tokio::test]
+    async fn an_endless_page_is_given_up_on() {
+        // The data is there, but only after more than the limit.
+        let body = format!(
+            "{}{}",
+            page_body(VIDEO, "gabyjohanes"),
+            "x".repeat(MAX_PAGE_BYTES)
+        );
+        let (base, server) = serve(vec![ok(&body)]).await;
+        assert_eq!(resolver(base).account_of(&video()).await, None);
+        server.await.unwrap();
     }
 
     #[test]

@@ -359,7 +359,14 @@ impl<S: VideoSource> Pipeline<S> {
         }
 
         let details = match target {
-            TiktokRef::Video { id, account } => TiktokDetails { id, account },
+            TiktokRef::Video { id, account } => {
+                // A bare ID does not say who posted it: ask, if TikTok will tell.
+                let account = match account {
+                    Some(account) => Some(account),
+                    None => self.short_links.account_of(&id).await,
+                };
+                TiktokDetails { id, account }
+            }
             TiktokRef::Short(code) => match self.short_links.resolve(&code).await {
                 Ok(Some(found)) => TiktokDetails {
                     id: found.id,
@@ -2983,19 +2990,77 @@ mod tests {
         assert_eq!(kinds(&drain(&mut rx)), vec!["queue_updated"]);
     }
 
+    /// What TikTok serves for a video: the page whose data says who posted it.
+    fn video_page(id: &str, account: &str) -> String {
+        let body = format!(
+            r#"<script id="__UNIVERSAL_DATA_FOR_REHYDRATION__" type="application/json">{{"__DEFAULT_SCOPE__":{{"webapp.video-detail":{{"itemInfo":{{"itemStruct":{{"id":"{id}","author":{{"uniqueId":"{account}"}}}}}}}}}}}}</script>"#
+        );
+        format!(
+            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+            body.len()
+        )
+    }
+
     #[tokio::test]
-    async fn an_id_needs_no_request_to_tiktok() {
-        let (resolver, hits) = short_link_host(redirect_to(TT_LOCATION)).await;
+    async fn only_a_bare_id_costs_a_request_to_tiktok() {
+        let (resolver, hits) = short_link_host(status_only("404 Not Found")).await;
         let p = pipeline(&both_sources(|_| {})).with_short_links(resolver);
-        say(&p, sender(1, Role::Follower), &format!("!vt {TT_ID}")).await;
         say(
             &p,
             sender(2, Role::Follower),
             &format!("!vt https://www.tiktok.com/@a/video/{TT_ID}"),
         )
         .await;
-        assert_eq!(p.hello().queue.pending.len(), 2);
-        assert_eq!(hits.load(Ordering::SeqCst), 0);
+        assert_eq!(
+            hits.load(Ordering::SeqCst),
+            0,
+            "the link carries the account"
+        );
+
+        // TikTok does not say who posted it: the request goes on without.
+        say(&p, sender(1, Role::Follower), &format!("!vt {TT_ID}")).await;
+        assert_eq!(hits.load(Ordering::SeqCst), 1);
+        let titles: Vec<String> = p
+            .hello()
+            .queue
+            .pending
+            .iter()
+            .map(|i| i.title.clone())
+            .collect();
+        assert_eq!(titles, ["@a", TT_ID]);
+    }
+
+    #[tokio::test]
+    async fn a_bare_id_shows_its_account_when_tiktok_tells() {
+        let (resolver, hits) = short_link_host(video_page(TT_ID, "gabyjohanes")).await;
+        let p = pipeline(&both_sources(|_| {})).with_short_links(resolver);
+        say(&p, sender(1, Role::Follower), &format!("!vt {TT_ID}")).await;
+        say(&p, sender(2, Role::Follower), &format!("!vt {TT_ID}")).await;
+        let pending = p.hello().queue.pending;
+        assert_eq!(pending[0].title, "@gabyjohanes");
+        assert_eq!(pending[1].title, "@gabyjohanes");
+        assert_eq!(
+            hits.load(Ordering::SeqCst),
+            1,
+            "asked once, then remembered"
+        );
+        // The history has it too, so the account can be blacklisted from there.
+        assert_eq!(p.history()[0].channel, "gabyjohanes");
+    }
+
+    #[tokio::test]
+    async fn the_account_found_for_a_bare_id_is_held_to_the_blacklist() {
+        let (resolver, _) = short_link_host(video_page(TT_ID, "gabyjohanes")).await;
+        let mut config = both_sources(|_| {});
+        config.blacklist.channels = vec!["Gabyjohanes".to_owned()];
+        let p = pipeline(&config).with_short_links(resolver);
+        let mut rx = p.subscribe();
+        say(&p, sender(1, Role::Follower), &format!("!vt {TT_ID}")).await;
+        assert_eq!(
+            notice_of(&drain(&mut rx))["code"],
+            "reject.blacklisted_channel"
+        );
+        assert!(p.hello().queue.pending.is_empty());
     }
 
     #[tokio::test]

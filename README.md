@@ -317,7 +317,7 @@ trust, not across the internet.
 - **TikTok videos are new and not tried in OBS yet.** They play in TikTok's own
   embedded player, in the same overlay. TikTok tells us nothing about a video
   without a developer account, so there is no title, thumbnail or length: the
-  queue shows the account (when the link had it) and the ID, the maximum length
+  queue shows the account (when it is known) and the ID, the maximum length
   cannot be enforced, and they always wait for a moderator even with automatic
   approval. TikTok's player tells the overlay when a video ends and when it
   cannot be played (it does not exist, is private or is removed), and then the
@@ -337,6 +337,14 @@ trust, not across the internet.
   the browser source. A private, deleted or region-locked video cannot be told
   from a good one beforehand, only when it is tried. A short link is opened with
   one request to TikTok's own server, which only the code is sent to.
+  **The account is known only when it is in the link.** For a bare ID
+  (`!vt 7703227524993649928`) the program tries to read it from the page
+  TikTok serves for that video (one request that only the ID goes into, a few
+  seconds at most, remembered afterwards). That page is not an official source:
+  it tells the account for some videos and not for others, and it may change.
+  Without the account the queue shows the ID, and **Blacklist account** and a
+  blacklisted account name do not apply, so send the full link or the short
+  link from the TikTok app when the account matters.
 - **Saved settings replace whole tables.** A table saved from the dashboard
   (for example all of `[moderation]`) replaces that table in `config.toml`;
   single keys are not merged. Apart from the TikTok username, the settings for

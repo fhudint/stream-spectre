@@ -131,7 +131,10 @@ account). `CommandParser` returns `Parsed::Youtube` or `Parsed::Tiktok` by the
 `source` of the command word that was used, and refuses the other source's
 links with the command to use instead. A short TikTok code is looked up by
 `tiktok::ShortLinkResolver` (one request to `vt.tiktok.com`, redirects not
-followed). The gates are the same for both (role, level, queue length,
+followed). The same type reads the account of a bare video ID from the page
+TikTok serves for it (`@_/video/<id>`; only the JSON data in the page is used,
+and only when it is about that ID), best effort: any failure just leaves the
+account unknown. The gates are the same for both (role, level, queue length,
 cooldown, blacklist), but a TikTok entry has no length, age or embedding check
 and so never skips the approval queue (`Media::can_auto_approve`). The overlay
 shows YouTube in its IFrame player and TikTok in a frame of TikTok's embedded

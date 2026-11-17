@@ -175,8 +175,8 @@ URL: exactly 11 characters from `A-Z a-z 0-9 _ -` for YouTube, 15 to 20 digits
 for TikTok.
 
 A **TikTok** item carries little, because TikTok gives nothing more without a
-developer account: `title` is the account (`"@name"`) when the link told it,
-otherwise the ID; `channel` is `"TikTok"`; `duration_secs` is `0`, meaning not
+developer account: `title` is the account (`"@name"`) when it is known (from the
+link, or looked up for a bare ID on a best-effort basis), otherwise the ID; `channel` is `"TikTok"`; `duration_secs` is `0`, meaning not
 known; `thumbnail_url` is an empty string. Such an item always waits for a
 moderator, even when automatic approval is on, because nothing about it
 (length, age, whether it can be embedded) has been checked. The overlay shows

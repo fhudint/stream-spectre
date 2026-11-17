@@ -92,16 +92,21 @@ fn video_from_segments(segments: &[&str]) -> Option<(String, TiktokVideoId)> {
     match segments {
         [account, "video", id] => {
             let name = account.strip_prefix('@')?;
-            let valid = !name.is_empty()
-                && name.len() <= MAX_ACCOUNT_LEN
-                && name
-                    .bytes()
-                    .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'.');
             let id = TiktokVideoId::parse(id).ok()?;
-            valid.then(|| (name.to_owned(), id))
+            is_account(name).then(|| (name.to_owned(), id))
         }
         _ => None,
     }
+}
+
+/// Whether `name` can be an account name (without the `@`): letters, digits,
+/// `_` and `.`, so it is safe to show and to put in a list.
+pub(super) fn is_account(name: &str) -> bool {
+    !name.is_empty()
+        && name.len() <= MAX_ACCOUNT_LEN
+        && name
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'.')
 }
 
 /// The path split in segments, tolerating one trailing slash.
