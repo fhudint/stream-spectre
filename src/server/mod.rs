@@ -675,7 +675,7 @@ mod tests {
 
     // --- the account: credentials changed from the dashboard ---
 
-    const GOOD_KEY: &str = "AIzaSyA-1234567890abcdefghijklmnopqrstu";
+    const GOOD_KEY: &str = "TESTKEY-1234567890abcdefghijklmnopqrstu";
 
     async fn put_key(server: &Running, body: Value) -> reqwest::Response {
         server

@@ -297,7 +297,7 @@ mod tests {
             .map(|k| k.expose().to_owned())
     }
 
-    const GOOD: &str = "AIzaSyA-1234567890abcdefghijklmnopqrstu";
+    const GOOD: &str = "TESTKEY-1234567890abcdefghijklmnopqrstu";
 
     #[tokio::test]
     async fn the_status_says_where_the_key_is_from_and_shows_only_its_ending() {

@@ -1425,7 +1425,7 @@ test('the icon is the ghost of the sidebar in the accent colour', () => {
 
 // --- the account menu and page ---
 
-const KEY = 'AIzaSyA-1234567890abcdefghijklmnopqrstu';
+const KEY = 'TESTKEY-1234567890abcdefghijklmnopqrstu';
 const accountRoute = (body) => ({ status: 200, body });
 const menuOpen = (page) => !page.elements['account-menu'].hidden;
 
