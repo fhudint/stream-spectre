@@ -20,6 +20,7 @@
   var VIDEO_ID = /^[A-Za-z0-9_-]{11}$/;
   var TIKTOK_VIDEO_ID = /^[0-9]{15,20}$/;
   var DEFAULT_REQUESTED_BY = 'Requested by {name}';
+  var DEFAULT_PAUSED = 'Paused';
 
   function isVideoId(value) {
     return typeof value === 'string' && VIDEO_ID.test(value);
@@ -216,7 +217,8 @@
    *   player: { play(videoId, volume, source), stop(), setVolume(volume),
    *             pause(), resume(),
    *             position() -> seconds into the video, or null when not playing }
-   *   ui:     { show({ requestedBy, title }), hide() }
+   *   ui:     { show({ requestedBy, title }), hide(),
+   *             setPaused(paused, label) (optional): the "Paused" notice }
    *   send:   (message) => boolean, false when the socket is not open
    *   text:   (key) => string | undefined, for translated UI texts
    */
@@ -244,6 +246,12 @@
       paused = flag;
       var action = flag ? player.pause : player.resume;
       if (typeof action === 'function') action.call(player);
+      showPaused();
+    }
+
+    /* Tells the screen whether to say "Paused" over the video. */
+    function showPaused() {
+      if (typeof ui.setPaused === 'function') ui.setPaused(paused, text('overlay.paused') || DEFAULT_PAUSED);
     }
 
     function clear() {
@@ -274,6 +282,7 @@
         requestedBy: format(text('overlay.requested_by') || DEFAULT_REQUESTED_BY, { name: name }),
         title: typeof item.title === 'string' ? item.title : '',
       });
+      showPaused(); // a new video always plays: the notice goes away
     }
 
     function applyHello(message) {

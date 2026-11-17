@@ -23,6 +23,7 @@
   var requester = document.getElementById('requester');
   var title = document.getElementById('title');
   var barFill = document.getElementById('bar-fill');
+  var pausedLabel = document.getElementById('paused-label');
 
   var ui = {
     show: function (info) {
@@ -33,7 +34,13 @@
     hide: function () {
       requester.textContent = '';
       title.textContent = '';
+      this.setPaused(false, '');
       root.classList.add('hidden');
+    },
+    /* The "Paused" notice over the video, and the level meter standing still. */
+    setPaused: function (paused, label) {
+      pausedLabel.textContent = paused ? label : '';
+      root.classList[paused ? 'add' : 'remove']('paused');
     },
   };
 
@@ -313,6 +320,6 @@
   setInterval(controller.tick, 1000);
   // The line under the video moves smoothly between these steps (see the CSS).
   setInterval(function () {
-    barFill.style.width = player.percent().toFixed(1) + '%';
+    barFill.style.transform = 'scaleX(' + (player.percent() / 100).toFixed(4) + ')';
   }, 250);
 })();

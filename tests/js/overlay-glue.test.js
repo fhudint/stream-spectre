@@ -113,6 +113,7 @@ function load({ search = '', protocol = 'http:', host = '127.0.0.1:8787', fetchB
     stage: new FakeElement('stage'),
     tiktok: new FakeElement('tiktok'),
     'bar-fill': new FakeElement('bar-fill'),
+    'paused-label': new FakeElement('paused-label'),
   };
   elements['bar-fill'].style = {};
 
@@ -674,38 +675,61 @@ test('when TikTok\'s player says the video is over, the server is told', () => {
   assert.equal(reports(page).length, 1);
 });
 
+// --- the "Paused" notice ---
+
+test('a paused video says so over the picture, and a new video, a skip or a stop takes it away', () => {
+  const page = readyPage();
+  const paused = () => page.elements.root.classList.contains('paused');
+  page.socket().receive(envelope(1, 'play', { item: item(1), volume: 50 }));
+  assert.ok(!paused());
+  page.socket().receive(envelope(2, 'playback_paused', { item_id: 1, paused: true }));
+  assert.ok(paused());
+  assert.equal(page.elements['paused-label'].textContent, 'Paused', 'the English text when there are no others');
+  page.socket().receive(envelope(3, 'playback_paused', { item_id: 1, paused: false }));
+  assert.ok(!paused());
+  assert.equal(page.elements['paused-label'].textContent, '');
+
+  page.socket().receive(envelope(4, 'playback_paused', { item_id: 1, paused: true }));
+  page.socket().receive(envelope(5, 'play', { item: item(2), volume: 50 }));
+  assert.ok(!paused(), 'the next video plays');
+  page.socket().receive(envelope(6, 'playback_paused', { item_id: 2, paused: true }));
+  page.socket().receive(envelope(7, 'stop', {}));
+  assert.ok(!paused(), 'nothing is left on screen to be paused');
+  assert.equal(page.elements['paused-label'].textContent, '');
+});
+
 // --- the line under the video ---
 
 const barStep = (page) => {
   page.log.intervals.find((i) => i.delay === 250).fn();
-  return page.elements['bar-fill'].style.width;
+  return page.elements['bar-fill'].style.transform;
 };
 
 test('the line under a YouTube video follows how much of it is done, also while paused', () => {
   const page = readyPage();
   page.socket().receive(envelope(1, 'play', { item: item(1), volume: 50 }));
-  assert.equal(barStep(page), '0.0%', 'nothing yet');
+  assert.equal(barStep(page), 'scaleX(0.0000)', 'nothing yet');
   page.log.position = 50;
-  assert.equal(barStep(page), '25.0%');
+  assert.equal(barStep(page), 'scaleX(0.2500)');
   page.socket().receive(envelope(2, 'playback_paused', { item_id: 1, paused: true }));
-  assert.equal(barStep(page), '25.0%', 'a pause does not empty it');
+  assert.equal(barStep(page), 'scaleX(0.2500)', 'a pause does not empty it');
   page.log.duration = 0; // the length is not known yet
-  assert.equal(barStep(page), '0.0%');
+  assert.equal(barStep(page), 'scaleX(0.0000)');
 });
 
 test('the line under a TikTok video follows what its player says, and starts over with the next one', () => {
   const page = readyPage();
   page.socket().receive(envelope(1, 'play', { item: tiktokItem(4), volume: 50 }));
-  assert.equal(barStep(page), '0.0%');
+  assert.equal(barStep(page), 'scaleX(0.0000)');
   fromPlayer(page, 'onCurrentTime', { currentTime: 5, duration: 20 });
-  assert.equal(barStep(page), '25.0%', 'not the YouTube player position, which is 0');
+  assert.equal(barStep(page), 'scaleX(0.2500)', 'not the YouTube player position, which is 0');
   fromPlayer(page, 'onCurrentTime', { currentTime: 25, duration: 20 });
-  assert.equal(barStep(page), '100.0%', 'never past the end');
+  assert.equal(barStep(page), 'scaleX(1.0000)', 'never past the end');
   fromPlayer(page, 'onCurrentTime', 'nonsense');
-  assert.equal(barStep(page), '100.0%', 'what is not a time changes nothing');
+  assert.equal(barStep(page), 'scaleX(1.0000)', 'what is not a time changes nothing');
 
   page.socket().receive(envelope(2, 'play', { item: tiktokItem(5, { video_id: '7219950637247728923' }), volume: 50 }));
-  assert.equal(barStep(page), '0.0%', 'the next video starts empty');
+  assert.equal(barStep(page), 'scaleX(0.0000)', 'the next video starts empty');
 });
 
 // --- a TikTok video that never starts ---

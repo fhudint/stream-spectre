@@ -231,5 +231,6 @@
   "dashboard.youtube_chat.enabled": "Read the YouTube chat",
   "dashboard.chat.switched_on": "Chat switched on",
   "dashboard.chat.switched_off": "Chat switched off",
-  "dashboard.setup.hint": "No chat to read yet. Enter a TikTok username or a YouTube live on the Account page."
+  "dashboard.setup.hint": "No chat to read yet. Enter a TikTok username or a YouTube live on the Account page.",
+  "overlay.paused": "Paused"
 }

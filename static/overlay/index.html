@@ -9,12 +9,19 @@
 <body>
 <main id="root" class="hidden">
   <div id="frame">
-    <div id="stage"><div id="player"></div><div id="tiktok"></div></div>
+    <div id="stage">
+      <div id="player"></div>
+      <div id="tiktok"></div>
+      <div id="paused" role="status"><span id="paused-icon" aria-hidden="true"><i></i><i></i></span><span id="paused-label"></span></div>
+    </div>
     <div id="bar"><div id="bar-fill"></div></div>
   </div>
   <div id="caption">
-    <span id="requester"></span>
-    <span id="title"></span>
+    <div id="caption-text">
+      <span id="requester"></span>
+      <span id="title"></span>
+    </div>
+    <span id="eq" aria-hidden="true"><i></i><i></i><i></i></span>
   </div>
 </main>
 <script src="overlay-core.js"></script>

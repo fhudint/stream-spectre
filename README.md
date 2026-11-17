@@ -170,8 +170,10 @@ page (see below): a live has a new link each time.
 4. Tick **Control audio via OBS** if you want the video's sound in the audio
    mixer. The volume is set from the dashboard.
 5. Move and resize the source in your scene. The overlay fills the source: the
-   video in a rounded frame with a thin progress line under it, and a card under
-   that with who asked for it and the title (for a TikTok video, its account).
+   video in a rounded frame with a progress line under it (in `#41A0E3`), and a
+   card under that with who asked for it and the title (for a TikTok video, its
+   account). While a moderator has a YouTube video paused, the overlay says
+   "Paused" over it.
    A tall source (for example 9:16) suits TikTok videos; the video takes
    whatever room the card leaves.
 

@@ -386,6 +386,33 @@ test('the video on screen is paused and resumed when the server says so', () => 
   assert.deepEqual(t.calls, [['pause'], ['resume']]);
 });
 
+test('the screen is told to say "Paused" while the video is paused, and not for a new video', () => {
+  const notes = [];
+  const controller = core.createController({
+    player: { play() {}, stop() {}, setVolume() {}, pause() {}, resume() {} },
+    ui: { show() {}, hide() {}, setPaused: (flag, label) => notes.push([flag, label]) },
+    send: () => true,
+    text: (key) => ({ 'overlay.paused': 'Dijeda' })[key],
+  });
+  controller.handle(hello(0, item(5)));
+  controller.handle(paused(1, 5, true));
+  controller.handle(paused(2, 5, true)); // said twice: told once
+  controller.handle(paused(3, 5, false));
+  controller.handle(paused(4, 5, true));
+  controller.handle(envelope(5, 'play', { item: item(6, ID_B), volume: 50 }));
+  assert.deepEqual(notes, [[false, 'Dijeda'], [true, 'Dijeda'], [false, 'Dijeda'], [true, 'Dijeda'], [false, 'Dijeda']]);
+
+  // A page that opens in the middle of a pause shows it at once; the English
+  // label is used when there are no texts.
+  const late = [];
+  core.createController({
+    player: { play() {}, stop() {}, setVolume() {}, pause() {}, resume() {} },
+    ui: { show() {}, hide() {}, setPaused: (flag, label) => late.push([flag, label]) },
+    send: () => true,
+  }).handle(hello(0, item(5), 50, true));
+  assert.deepEqual(late.at(-1), [true, 'Paused']);
+});
+
 test('saying the same thing twice does not touch the player again', () => {
   const t = setup();
   t.controller.handle(hello(0, item(5)));

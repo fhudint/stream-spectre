@@ -231,5 +231,6 @@
   "dashboard.youtube_chat.enabled": "Baca chat YouTube",
   "dashboard.chat.switched_on": "Chat dinyalakan",
   "dashboard.chat.switched_off": "Chat dimatikan",
-  "dashboard.setup.hint": "Belum ada chat yang dibaca. Isi username TikTok atau live YouTube di halaman Akun."
+  "dashboard.setup.hint": "Belum ada chat yang dibaca. Isi username TikTok atau live YouTube di halaman Akun.",
+  "overlay.paused": "Dijeda"
 }
