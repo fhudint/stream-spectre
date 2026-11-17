@@ -1,6 +1,6 @@
 'use strict';
 
-// Runs static/overlay/overlay.js against hand-made stand-ins for the browser
+// Runs static/overlay/mediashare/overlay.js against hand-made stand-ins for the browser
 // (document, WebSocket, fetch, timers) and the YouTube player.
 
 const test = require('node:test');
@@ -9,8 +9,8 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 
-const core = require('../../static/overlay/overlay-core.js');
-const source = fs.readFileSync(path.join(__dirname, '../../static/overlay/overlay.js'), 'utf8');
+const core = require('../../static/overlay/mediashare/overlay-core.js');
+const source = fs.readFileSync(path.join(__dirname, '../../static/overlay/mediashare/overlay.js'), 'utf8');
 
 const ID = 'dQw4w9WgXcQ';
 
@@ -186,14 +186,14 @@ const flush = () => new Promise((resolve) => setImmediate(resolve));
 test('it connects to the overlay socket and says it is ready', () => {
   const page = load();
   assert.equal(page.log.sockets.length, 1);
-  assert.equal(page.socket().url, 'ws://127.0.0.1:8787/ws/overlay');
+  assert.equal(page.socket().url, 'ws://127.0.0.1:8787/ws/overlay/mediashare');
   page.socket().open();
   assert.deepEqual(page.socket().sent, [{ type: 'player_ready' }]);
 });
 
 test('https pages use wss and the token goes in the query, encoded', () => {
   const page = load({ search: '?token=a%26b%3D', protocol: 'https:', host: 'example.com' });
-  assert.equal(page.socket().url, 'wss://example.com/ws/overlay?token=a%26b%3D');
+  assert.equal(page.socket().url, 'wss://example.com/ws/overlay/mediashare?token=a%26b%3D');
 });
 
 test('translated texts are fetched, with the token as a bearer header', async () => {
@@ -896,25 +896,25 @@ function playing(options, extra = {}) {
 test('the look comes from the server: in the hello and when it changes', () => {
   const page = load();
   page.socket().open();
-  page.socket().receive({ ...envelope(1, 'hello', { volume: 50, queue: { now_playing: null }, settings: { overlay: { theme: 'pixel' } } }) });
+  page.socket().receive({ ...envelope(1, 'hello', { volume: 50, queue: { now_playing: null }, settings: { overlay: { mediashare: { theme: 'pixel' } } } }) });
   assert.equal(themeOf(page), 'pixel');
-  page.socket().receive(envelope(2, 'overlay_theme', { theme: 'komik' }));
+  page.socket().receive(envelope(2, 'overlay_theme', { overlay: 'mediashare', theme: 'komik' }));
   assert.equal(themeOf(page), 'komik');
-  page.socket().receive(envelope(3, 'overlay_theme', { theme: 'neon<script>' }));
+  page.socket().receive(envelope(3, 'overlay_theme', { overlay: 'mediashare', theme: 'neon<script>' }));
   assert.equal(themeOf(page), 'komik', 'a name the page has no look for changes nothing');
 });
 
 test('?theme= in the address wins over the server, but only for a look that exists', () => {
   const forced = load({ search: '?token=t&theme=struk' });
   forced.socket().open();
-  forced.socket().receive(envelope(1, 'hello', { volume: 50, queue: { now_playing: null }, settings: { overlay: { theme: 'pixel' } } }));
+  forced.socket().receive(envelope(1, 'hello', { volume: 50, queue: { now_playing: null }, settings: { overlay: { mediashare: { theme: 'pixel' } } } }));
   assert.equal(themeOf(forced), 'struk');
-  forced.socket().receive(envelope(2, 'overlay_theme', { theme: 'garis' }));
+  forced.socket().receive(envelope(2, 'overlay_theme', { overlay: 'mediashare', theme: 'garis' }));
   assert.equal(themeOf(forced), 'struk');
 
   const wrong = load({ search: '?theme=nope' });
   wrong.socket().open();
-  wrong.socket().receive(envelope(1, 'overlay_theme', { theme: 'garis' }));
+  wrong.socket().receive(envelope(1, 'overlay_theme', { overlay: 'mediashare', theme: 'garis' }));
   assert.equal(themeOf(wrong), 'garis');
 });
 

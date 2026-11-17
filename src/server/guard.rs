@@ -271,7 +271,7 @@ mod tests {
         for path in [
             "/api/state",
             "/api/queue/1/approve",
-            "/ws/overlay",
+            "/ws/overlay/mediashare",
             "/ws/dashboard",
         ] {
             assert!(needs_token(path), "{path}");
@@ -280,7 +280,8 @@ mod tests {
             "/",
             "/dashboard/",
             "/overlay/",
-            "/overlay/app.js",
+            "/overlay/mediashare/",
+            "/overlay/mediashare/app.js",
             "/favicon.ico",
             "/apix",
             "/wsx/a",

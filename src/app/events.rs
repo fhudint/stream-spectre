@@ -11,7 +11,7 @@ use super::history::HistoryEntry;
 use crate::chat::{ChatStatus, Role};
 use crate::config::{
     BlacklistConfig, ChatSourceKind, CommandConfig, CommandSource, DashboardConfig, Language,
-    ModerationConfig, OverlayConfig, OverlayTheme, TiktokConfig, YoutubeChatConfig,
+    MediashareTheme, ModerationConfig, OverlayConfig, TiktokConfig, YoutubeChatConfig,
 };
 use crate::queue::{Media, QueueItem, QueueSnapshot};
 
@@ -220,10 +220,10 @@ pub struct Hello {
 }
 
 impl Hello {
-    /// The version sent to the overlay: it only needs to know what is playing
+    /// The version sent to the mediashare overlay: it only needs to know what is playing
     /// and how loud. Waiting requests (with viewers' names), the blacklist and
     /// the chat status stay out.
-    pub fn for_overlay(mut self) -> Self {
+    pub fn for_mediashare(mut self) -> Self {
         self.queue.pending.clear();
         self.queue.approved.clear();
         self.settings.blacklist = BlacklistConfig::default();
@@ -234,6 +234,13 @@ impl Hello {
         self.stats = StatsView::default();
         self
     }
+}
+
+/// The overlays there are.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OverlayKind {
+    Mediashare,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -277,9 +284,10 @@ pub enum Event {
         volume: u8,
     },
     SettingsUpdated(SettingsView),
-    /// The overlay theme changed (overlay and dashboard).
+    /// The look of an overlay changed (that overlay and the dashboard).
     OverlayTheme {
-        theme: OverlayTheme,
+        overlay: OverlayKind,
+        theme: MediashareTheme,
     },
     /// A message for the moderators, in the configured language.
     Notice {
@@ -708,7 +716,7 @@ mod tests {
             },
             playback_paused: true,
         };
-        let overlay = hello.for_overlay();
+        let overlay = hello.for_mediashare();
         assert_eq!(overlay.seq, 3);
         assert_eq!(overlay.volume, 42);
         assert_eq!(overlay.queue.now_playing.as_ref().map(|i| i.id), Some(3));

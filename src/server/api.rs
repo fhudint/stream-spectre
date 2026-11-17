@@ -184,14 +184,16 @@ pub async fn dashboard<S: VideoSource + 'static>(
     Ok(Json(state.pipeline.hello()))
 }
 
-/// `PATCH /api/overlay`: changes the overlay's `theme`. An unknown theme is
-/// refused and nothing changes.
-pub async fn overlay<S: VideoSource + 'static>(
+/// `PATCH /api/overlay/mediashare`: changes the mediashare overlay's `theme`.
+/// An unknown theme is refused and nothing changes.
+pub async fn mediashare<S: VideoSource + 'static>(
     State(state): State<ServerState<S>>,
     Json(patch): Json<Value>,
 ) -> ApiResult<Json<Hello>> {
-    let current = state.pipeline.hello().settings.overlay;
-    state.pipeline.update_overlay(merge_patch(&current, patch)?);
+    let current = state.pipeline.hello().settings.overlay.mediashare;
+    state
+        .pipeline
+        .update_mediashare(merge_patch(&current, patch)?);
     Ok(Json(state.pipeline.hello()))
 }
 

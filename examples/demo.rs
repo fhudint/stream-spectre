@@ -7,7 +7,7 @@
 //! ```
 //!
 //! Then open <http://localhost:8787/dashboard/> and add
-//! <http://localhost:8787/overlay/> as a browser source (use `localhost`, not
+//! <http://localhost:8787/overlay/mediashare/> as a browser source (use `localhost`, not
 //! `127.0.0.1`: YouTube's player refuses to play from an IP address). A pretend
 //! viewer asks for a video every few seconds, mostly YouTube and now and then
 //! TikTok; approve one in the dashboard and it plays in the overlay. A TikTok
@@ -322,7 +322,7 @@ async fn main() -> anyhow::Result<()> {
         .with_context(|| format!("cannot listen on {address}"))?;
     let host = server::browser_host(address);
     println!("dashboard: http://{host}/dashboard/");
-    println!("overlay:   http://{host}/overlay/");
+    println!("overlay:   http://{host}/overlay/mediashare/");
 
     pipeline.chat_status(
         ChatSourceKind::Tiktok,

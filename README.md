@@ -83,7 +83,7 @@ cargo run --example demo
 Open <http://localhost:8787/dashboard/>. Pretend viewers send real public
 YouTube videos, and now and then a TikTok one, every few seconds, using the
 commands of `config.example.toml` (`!yt` and `!vt`); approve one and it plays in
-<http://localhost:8787/overlay/>.
+<http://localhost:8787/overlay/mediashare/>.
 
 Always use `localhost`, not `127.0.0.1`, in these addresses: see
 [the note on addresses](#use-localhost-not-an-ip-address) below.
@@ -162,8 +162,9 @@ page (see below): a live has a new link each time.
 ### 4. Add the overlay to OBS
 
 1. In OBS, add a **Browser** source.
-2. URL: `http://localhost:8787/overlay/` (`localhost`, not `127.0.0.1`: see
-   [the note below](#use-localhost-not-an-ip-address))
+2. URL: `http://localhost:8787/overlay/mediashare/` (`localhost`, not `127.0.0.1`: see
+   [the note below](#use-localhost-not-an-ip-address)). The older address
+   `/overlay/` still works: it goes to this one.
 3. Set width and height to your canvas (for example 1920 × 1080). The page is
    transparent; videos appear when one is playing and the source is empty
    otherwise.
@@ -278,8 +279,8 @@ and names the file and the problem.
 
 #### Use `localhost`, not an IP address
 
-Open the overlay as `http://localhost:8787/overlay/`. When the overlay was
-opened as `http://127.0.0.1:8787/overlay/`, every video failed with YouTube
+Open the overlay as `http://localhost:8787/overlay/mediashare/`. When the overlay was
+opened as `http://127.0.0.1:8787/overlay/mediashare/`, every video failed with YouTube
 player error 150 and was skipped at once, even ordinary ones. With `localhost`
 the same videos played. This was measured in Firefox, and switching to
 `localhost` fixed it in the author's own setup; the exact rule YouTube applies
@@ -309,7 +310,7 @@ DASHBOARD_TOKEN=a-long-random-string
 The program refuses to start on a non-local address without a token. Then
 open `http://<your-ip>:8787/dashboard/#token=a-long-random-string` (the part
 after `#` is never sent to the server). Keep OBS on the same computer as the
-program if you can, and use `http://localhost:8787/overlay/?token=a-long-random-string`
+program if you can, and use `http://localhost:8787/overlay/mediashare/?token=a-long-random-string`
 there. An overlay opened through a bare IP address is likely to hit the
 player error 150 described [above](#use-localhost-not-an-ip-address); if OBS has
 to run on another computer, try a hostname for the server instead (not tested).
@@ -421,4 +422,4 @@ SIL Open Font License 1.1. Their license texts are in
 [`static/dashboard/fonts/`](static/dashboard/fonts/). The overlay's looks include
 Space Mono, Archivo Black, IBM Plex Mono, Fredoka, Press Start 2P, Bangers, Comic
 Neue, Courier Prime and Instrument Serif (latin subsets), under the same license;
-the texts are in [`static/overlay/fonts/OFL.txt`](static/overlay/fonts/OFL.txt).
+the texts are in [`static/overlay/shared/fonts/OFL.txt`](static/overlay/shared/fonts/OFL.txt).

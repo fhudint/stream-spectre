@@ -1044,7 +1044,7 @@
         attrs: { type: 'radio', name: 'overlay-theme', value: name },
         on: {
           change: function () {
-            act('PATCH', '/api/overlay', { theme: name }, function (result) {
+            act('PATCH', '/api/overlay/mediashare', { theme: name }, function (result) {
               adopt(result.data);
             });
           },

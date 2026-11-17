@@ -212,7 +212,7 @@ pub(crate) mod tests {
 
     use super::*;
     use crate::chat::Role;
-    use crate::config::{CommandEntry, ModerationMode, OverlayTheme};
+    use crate::config::{CommandEntry, MediashareConfig, MediashareTheme, ModerationMode};
 
     /// A new empty folder under the system temp folder.
     pub(crate) fn temp_dir(label: &str) -> PathBuf {
@@ -436,7 +436,9 @@ pub(crate) mod tests {
             blacklist: Some(changed_blacklist()),
             dashboard: Some(DashboardConfig { chat_history: 0 }),
             overlay: Some(OverlayConfig {
-                theme: OverlayTheme::Struk,
+                mediashare: MediashareConfig {
+                    theme: MediashareTheme::Struk,
+                },
             }),
             command: Some(changed_commands()),
             chat: Some(SavedChat {

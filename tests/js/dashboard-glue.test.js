@@ -1347,29 +1347,29 @@ test('S does nothing when no video is playing', async () => {
 
 test('the overlay address is shown without the token', async () => {
   const page = await ready({ stored: 'secret-token' });
-  assert.equal(page.elements['overlay-address'].textContent, 'localhost:8787/overlay/');
-  assert.equal(page.elements['overlay-shown'].textContent, 'localhost:8787/overlay/');
+  assert.equal(page.elements['overlay-address'].textContent, 'localhost:8787/overlay/mediashare/');
+  assert.equal(page.elements['overlay-shown'].textContent, 'localhost:8787/overlay/mediashare/');
 });
 
 test('copying gives OBS the address with localhost and the token', async () => {
   const page = await ready({ stored: 'tok en' });
   page.elements['copy-overlay'].fire('click');
   await settle();
-  assert.equal(page.log.clipboard, 'http://localhost:8787/overlay/?token=tok%20en');
+  assert.equal(page.log.clipboard, 'http://localhost:8787/overlay/mediashare/?token=tok%20en');
   assert.equal(page.elements.flash.textContent, 'Overlay URL copied');
   assert.ok(!page.elements.flash.hidden);
 
   page.log.clipboard = null;
   page.elements['copy-overlay-page'].fire('click');
   await settle();
-  assert.equal(page.log.clipboard, 'http://localhost:8787/overlay/?token=tok%20en');
+  assert.equal(page.log.clipboard, 'http://localhost:8787/overlay/mediashare/?token=tok%20en');
 });
 
 test('without a token the copied address has no query', async () => {
   const page = await ready();
   page.elements['copy-overlay'].fire('click');
   await settle();
-  assert.equal(page.log.clipboard, 'http://localhost:8787/overlay/');
+  assert.equal(page.log.clipboard, 'http://localhost:8787/overlay/mediashare/');
 });
 
 test('where the clipboard is not available the old way of copying is tried', async () => {
@@ -2437,7 +2437,7 @@ const themeInputs = (page) => descendants(page.elements.themes).filter((n) => n.
 test('the overlay page offers every look, marks the current one and saves a choice', async () => {
   const withTheme = (theme) => {
     const body = snapshot();
-    body.settings.overlay = { theme };
+    body.settings.overlay = { mediashare: { theme } };
     return body;
   };
   const page = await ready({ routes: { 'GET /api/state': () => ({ status: 200, body: withTheme('kertas') }) } });
@@ -2448,10 +2448,10 @@ test('the overlay page offers every look, marks the current one and saves a choi
   assert.equal(names[0], 'Obsidian');
   assert.equal(names[1], 'Paper');
 
-  page.table['PATCH /api/overlay'] = { status: 200, body: withTheme('pixel') };
+  page.table['PATCH /api/overlay/mediashare'] = { status: 200, body: withTheme('pixel') };
   inputs.find((i) => i.attrs.value === 'pixel').fire('change');
   await settle();
-  const patch = page.log.requests.find((r) => r.path === '/api/overlay');
+  const patch = page.log.requests.find((r) => r.path === '/api/overlay/mediashare');
   assert.equal(patch.method, 'PATCH');
   assert.deepEqual(patch.body, { theme: 'pixel' });
   assert.deepEqual(themeInputs(page).filter((i) => i.checked).map((i) => i.attrs.value), ['pixel']);
@@ -2464,7 +2464,7 @@ test('a server that sends no look shows the first one', async () => {
 
 test('the server refusing a look is shown and the choice stays where it was', async () => {
   const page = await ready();
-  page.table['PATCH /api/overlay'] = { status: 400, body: { error: 'unknown variant' } };
+  page.table['PATCH /api/overlay/mediashare'] = { status: 400, body: { error: 'unknown variant' } };
   themeInputs(page).find((i) => i.attrs.value === 'komik').fire('change');
   await settle();
   assert.match(page.elements.error.textContent, /unknown variant/);

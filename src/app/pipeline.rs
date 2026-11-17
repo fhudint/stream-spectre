@@ -8,14 +8,15 @@ use super::bus::EventBus;
 use super::events::ChatSettingsView;
 use super::events::{
     ChatLineView, ChatState, ChatStatusView, Envelope, Event, Hello, ItemView, NoticeLevel,
-    QueueView, SettingsView, SkipReason, StatsView, unix_ms,
+    OverlayKind, QueueView, SettingsView, SkipReason, StatsView, unix_ms,
 };
 use super::history::{History, HistoryEntry, RequestStatus, Subject};
 use crate::chat::{ChatEvent, ChatMessage, ChatSource, ChatStatus, Sender};
 use crate::command::{CommandParser, InvalidReason, Parsed};
 use crate::config::{
     BlacklistConfig, ChatSourceKind, CommandConfig, CommandSource, Config, ConfigError,
-    DashboardConfig, ModerationConfig, OverlayConfig, Secret, TiktokConfig, YoutubeChatConfig,
+    DashboardConfig, MediashareConfig, ModerationConfig, OverlayConfig, Secret, TiktokConfig,
+    YoutubeChatConfig,
 };
 use crate::i18n::I18n;
 use crate::queue::{
@@ -628,17 +629,20 @@ impl<S: VideoSource> Pipeline<S> {
         Ok(())
     }
 
-    /// Changes how the overlay looks. Every theme is valid. Only a change is
-    /// announced, to the overlay and to the dashboards.
-    pub fn update_overlay(&self, new: OverlayConfig) {
+    /// Changes how the mediashare overlay looks. Every theme is valid. Only a
+    /// change is announced, to the overlay and to the dashboards.
+    pub fn update_mediashare(&self, new: MediashareConfig) {
         let mut inner = self.lock();
-        if inner.overlay == new {
+        if inner.overlay.mediashare == new {
             return;
         }
-        inner.overlay = new;
+        inner.overlay.mediashare = new;
         self.bus
             .publish(Event::SettingsUpdated(Self::settings_view(&inner)));
-        self.bus.publish(Event::OverlayTheme { theme: new.theme });
+        self.bus.publish(Event::OverlayTheme {
+            overlay: OverlayKind::Mediashare,
+            theme: new.theme,
+        });
     }
 
     /// Replaces the chat commands (the prefix and the words). Invalid ones
@@ -1360,21 +1364,28 @@ mod tests {
 
     #[tokio::test]
     async fn the_overlay_theme_is_announced_once_and_only_when_it_changes() {
-        use crate::config::OverlayTheme;
+        use crate::config::MediashareTheme;
         let p = default_pipeline();
-        assert_eq!(p.hello().settings.overlay.theme, OverlayTheme::Obsidian);
+        assert_eq!(
+            p.hello().settings.overlay.mediashare.theme,
+            MediashareTheme::Obsidian
+        );
         let mut rx = p.subscribe();
 
-        p.update_overlay(OverlayConfig {
-            theme: OverlayTheme::Pixel,
+        p.update_mediashare(MediashareConfig {
+            theme: MediashareTheme::Pixel,
         });
         let events = drain(&mut rx);
         assert_eq!(kinds(&events), vec!["settings_updated", "overlay_theme"]);
         assert_eq!(data(&events[1])["theme"], "pixel");
-        assert_eq!(p.hello().settings.overlay.theme, OverlayTheme::Pixel);
+        assert_eq!(data(&events[1])["overlay"], "mediashare");
+        assert_eq!(
+            p.hello().settings.overlay.mediashare.theme,
+            MediashareTheme::Pixel
+        );
 
-        p.update_overlay(OverlayConfig {
-            theme: OverlayTheme::Pixel,
+        p.update_mediashare(MediashareConfig {
+            theme: MediashareTheme::Pixel,
         });
         assert!(drain(&mut rx).is_empty());
     }

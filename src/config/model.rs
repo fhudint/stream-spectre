@@ -317,11 +317,11 @@ impl Default for DashboardConfig {
     }
 }
 
-/// How the overlay looks. Each theme is a set of styles in the overlay page
-/// (`static/overlay/overlay.css`); the names there must match these.
+/// How the mediashare overlay looks. Each theme is a set of styles in its page
+/// (`static/overlay/mediashare/overlay.css`); the names there must match these.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
-pub enum OverlayTheme {
+pub enum MediashareTheme {
     #[default]
     Obsidian,
     Kertas,
@@ -337,6 +337,13 @@ pub enum OverlayTheme {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
+pub struct MediashareConfig {
+    pub theme: MediashareTheme,
+}
+
+/// The overlays, one table each (`[overlay.mediashare]`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, Serialize)]
+#[serde(default, deny_unknown_fields)]
 pub struct OverlayConfig {
-    pub theme: OverlayTheme,
+    pub mediashare: MediashareConfig,
 }

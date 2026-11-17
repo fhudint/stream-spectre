@@ -34,7 +34,7 @@ const SEND_TIMEOUT: Duration = Duration::from_secs(10);
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Kind {
-    Overlay,
+    Mediashare,
     Dashboard,
 }
 
@@ -43,7 +43,7 @@ impl Kind {
     fn wants(self, event: &Event) -> bool {
         match self {
             Self::Dashboard => true,
-            Self::Overlay => matches!(
+            Self::Mediashare => matches!(
                 event,
                 Event::Play { .. }
                     | Event::Skip { .. }
@@ -77,11 +77,11 @@ impl Drop for Slot {
     }
 }
 
-pub async fn overlay<S: VideoSource + 'static>(
+pub async fn mediashare<S: VideoSource + 'static>(
     State(state): State<ServerState<S>>,
     upgrade: WebSocketUpgrade,
 ) -> Response {
-    accept(state, upgrade, Kind::Overlay)
+    accept(state, upgrade, Kind::Mediashare)
 }
 
 pub async fn dashboard<S: VideoSource + 'static>(
@@ -121,7 +121,7 @@ async fn send_hello<S: VideoSource + 'static>(
     let hello = state.pipeline.hello();
     let seq = hello.seq;
     let hello = match kind {
-        Kind::Overlay => hello.for_overlay(),
+        Kind::Mediashare => hello.for_mediashare(),
         Kind::Dashboard => hello,
     };
     let envelope = Envelope {
@@ -171,7 +171,7 @@ async fn run<S: VideoSource + 'static>(
             incoming = socket.recv() => match incoming {
                 None | Some(Err(_) | Ok(Message::Close(_))) => break,
                 Some(Ok(Message::Text(text))) => {
-                    if kind == Kind::Overlay {
+                    if kind == Kind::Mediashare {
                         handle_overlay_message(&state, text.as_str());
                     }
                 }
@@ -268,11 +268,12 @@ mod tests {
             Event::Stop {},
             Event::Volume { volume: 5 },
             Event::OverlayTheme {
-                theme: crate::config::OverlayTheme::Komik,
+                overlay: crate::app::OverlayKind::Mediashare,
+                theme: crate::config::MediashareTheme::Komik,
             },
         ];
         for event in &screen {
-            assert!(Kind::Overlay.wants(event), "{event:?}");
+            assert!(Kind::Mediashare.wants(event), "{event:?}");
             assert!(Kind::Dashboard.wants(event));
         }
         let moderation = [
@@ -289,7 +290,7 @@ mod tests {
             }),
         ];
         for event in &moderation {
-            assert!(!Kind::Overlay.wants(event), "{event:?}");
+            assert!(!Kind::Mediashare.wants(event), "{event:?}");
             assert!(Kind::Dashboard.wants(event));
         }
     }

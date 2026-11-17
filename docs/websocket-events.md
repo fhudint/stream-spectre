@@ -8,7 +8,7 @@ of truth; this page describes them for people writing clients.
 
 | Endpoint | Purpose |
 |----------|---------|
-| `GET /ws/overlay` | WebSocket for the OBS overlay page |
+| `GET /ws/overlay/mediashare` | WebSocket for the OBS mediashare overlay page |
 | `GET /ws/dashboard` | WebSocket for the dashboard page |
 | `GET /api/state` | The current state, same shape as `hello`'s `data` |
 | `GET /api/i18n` | UI texts in the configured language |
@@ -19,7 +19,7 @@ of truth; this page describes them for people writing clients.
 | `PATCH /api/settings` | Change some moderation settings, keep the rest; answers the new state |
 | `PATCH /api/blacklist` | Replace some blacklist lists (`video_ids`, `channels`, `title_words`), keep the rest |
 | `PATCH /api/dashboard` | Change dashboard settings (`chat_history`), keep the rest |
-| `PATCH /api/overlay` | Change the overlay's look (`{"theme": "pixel"}`); an unknown theme is refused |
+| `PATCH /api/overlay/mediashare` | Change the mediashare overlay's look (`{"theme": "pixel"}`); an unknown theme is refused |
 | `PATCH /api/commands` | Change the chat commands: `{"prefix": "!", "commands": [{"name": "v", "source": "youtube"}, {"name": "vt", "source": "tiktok"}]}`. `source` is `youtube` or `tiktok`. Either field may be left out; `commands` is always the whole list. Takes effect for the next chat message. `400` for an empty list, more than 8, a name used twice (capitals do not count), a name with anything but ASCII letters, digits and `_`, an unknown source, or a prefix that is empty, longer than 4 or has spaces. Answers the new state. |
 | `PATCH /api/chat/tiktok` | Body `{"username": "name", "enabled": true}`, either or both: set the TikTok username (an empty string stops reading chat) and switch the chat on or off; the chat follows without a restart. Letters, digits, `_` and `.`, at most 64; a leading `@` and spaces are dropped. Answers the new state. |
 | `PATCH /api/chat/youtube` | Body `{"video": "link or ID", "enabled": true}`, either or both: set the YouTube live whose chat is read (a link or an 11-character ID, kept as the ID; an empty string stops reading chat) and switch the chat on or off. Something that is not a video is refused. Answers the new state. |
@@ -28,7 +28,7 @@ of truth; this page describes them for people writing clients.
 | `GET /api/account` | What is set, never the secrets: `{"youtube_key": {"set", "source": "none"/"environment"/"saved", "last4"}, "dashboard_token": {"set"}, "editable"}`. `last4` is the key's last four characters, or `null` (no key, or one too short to show any part of). `editable` is false for a connection that does not come from the computer the program runs on. |
 | `PUT /api/account/youtube-key` | Body `{"key": "..."}`. Checks the key with one YouTube request (1 quota unit), saves it in the secrets file and starts using it at once. Answers like `GET /api/account` plus `"checked": "valid"` or `"quota_exhausted"` (the key is real but today's quota is used up). Errors carry a `code`: `key_empty`, `key_bad_format` (400), `key_rejected` (400, YouTube refused it), `cannot_check` (502, could not reach YouTube), `not_saved` (500), `loopback_only` (403). The key is never sent back. |
 | `DELETE /api/account/youtube-key` | Forgets the saved key and goes back to the one in the environment, if any. Answers like `GET /api/account`. |
-| `GET /dashboard/`, `GET /overlay/` | The pages themselves |
+| `GET /dashboard/`, `GET /overlay/mediashare/` | The pages themselves. `/overlay/` (the address before there were more overlays) redirects to the mediashare page, keeping the query |
 
 Changing a credential (`PUT` and `DELETE` on `/api/account/youtube-key`) is only
 allowed for a connection from the computer the program runs on (loopback, including
@@ -54,7 +54,7 @@ refused as a whole.
   query parameter (browsers cannot set headers on a WebSocket). The pages
   themselves contain nothing secret and are served without it; open the
   dashboard as `/dashboard/#token=...` (a fragment is never sent to the
-  server) and the overlay as `/overlay/?token=...`. Without a configured
+  server) and the overlay as `/overlay/mediashare/?token=...`. Without a configured
   token the server only listens on the loopback address and needs none.
 - **Host.** On a loopback address the `Host` header must be `127.0.0.1`,
   `localhost` or `[::1]` with the server's port. This stops other websites
@@ -236,15 +236,16 @@ changes.
 
 ### `overlay_theme`
 
-The look of the overlay changed (overlay and dashboard). Sent only when it
-actually changes. The overlay also learns its look from `settings.overlay.theme`
-in `hello`. `theme` is one of `obsidian`, `kertas`, `brutal`, `terminal`,
+The look of an overlay changed (that overlay and the dashboard). Sent only when
+it actually changes. `overlay` says which one (for now only `mediashare`); an
+overlay ignores the look of another. The mediashare overlay also learns its look
+from `settings.overlay.mediashare.theme` in `hello`. `theme` is one of `obsidian`, `kertas`, `brutal`, `terminal`,
 `permen`, `pixel`, `komik`, `garis`, `struk`, `pesan`; the overlay ignores a name
 it has no look for. Adding `theme=name` to the overlay's address overrides it
 for that page.
 
 ```json
-{ "type": "overlay_theme", "data": { "theme": "pixel" } }
+{ "type": "overlay_theme", "data": { "overlay": "mediashare", "theme": "pixel" } }
 ```
 
 ### `settings_updated`
@@ -268,7 +269,7 @@ The moderation settings, the blacklist or the dashboard settings changed
     },
     "blacklist": { "video_ids": [], "channels": [], "title_words": [] },
     "dashboard": { "chat_history": 20 },
-    "overlay": { "theme": "obsidian" },
+    "overlay": { "mediashare": { "theme": "obsidian" } },
     "command": { "prefix": "!", "commands": [{ "name": "v", "source": "youtube" }] },
     "chat": { "tiktok": { "username": "streamer" } }
 } }

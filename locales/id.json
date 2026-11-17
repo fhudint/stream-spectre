@@ -139,6 +139,7 @@
   "dashboard.rules.max_queue": "Antrean {count}",
   "dashboard.rules.blocked": "{count} diblokir",
   "dashboard.overlay.title": "Overlay",
+  "dashboard.overlay.mediashare": "Mediashare",
   "dashboard.overlay.address": "Alamat overlay",
   "dashboard.overlay.copy": "Salin URL overlay",
   "dashboard.overlay.copied": "URL overlay disalin",

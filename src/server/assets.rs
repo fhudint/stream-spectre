@@ -4,7 +4,7 @@
 //! is a single executable. In debug builds they are read from disk, which
 //! lets you edit a page and just reload it.
 
-use axum::extract::Path;
+use axum::extract::{Path, RawQuery};
 use axum::http::{StatusCode, header};
 use axum::response::{IntoResponse, Redirect, Response};
 use rust_embed::RustEmbed;
@@ -60,8 +60,8 @@ impl Section {
     }
 }
 
-pub async fn overlay_index() -> Response {
-    respond(Section::Overlay, "")
+pub async fn mediashare_index() -> Response {
+    respond(Section::Overlay, "mediashare/index.html")
 }
 
 pub async fn overlay_file(Path(path): Path<String>) -> Response {
@@ -86,8 +86,25 @@ pub async fn to_dashboard() -> Redirect {
     Redirect::temporary("/dashboard/")
 }
 
-pub async fn to_overlay() -> Redirect {
-    Redirect::temporary("/overlay/")
+/// `/overlay` and `/overlay/` were the address of the mediashare overlay before
+/// there were more overlays, and are in OBS scenes already; `/overlay/mediashare`
+/// lacks the slash its own files need. The query (token, theme) goes along.
+pub async fn to_mediashare(RawQuery(query): RawQuery) -> Response {
+    redirect_with_query("/overlay/mediashare/", query)
+}
+
+fn redirect_with_query(path: &str, query: Option<String>) -> Response {
+    let target = match query {
+        Some(query) => format!("{path}?{query}"),
+        None => path.to_owned(),
+    };
+    let location = header::HeaderValue::try_from(target)
+        .unwrap_or_else(|_| header::HeaderValue::from_static("/overlay/mediashare/"));
+    (
+        StatusCode::TEMPORARY_REDIRECT,
+        [(header::LOCATION, location)],
+    )
+        .into_response()
 }
 
 /// Safe relative path inside a section: no empty, `.` or `..` segments and no
@@ -156,7 +173,7 @@ mod tests {
 
     #[test]
     fn the_embedded_index_pages_exist() {
-        assert!(Assets::get("overlay/index.html").is_some());
+        assert!(Assets::get("overlay/mediashare/index.html").is_some());
         assert!(Assets::get("dashboard/index.html").is_some());
         assert!(Assets::get("overlay/nope.js").is_none());
     }
@@ -179,7 +196,7 @@ mod tests {
         assert!(!csp.contains("youtube"), "the dashboard needs no YouTube");
         assert!(!csp.contains("tiktok"), "the dashboard needs no TikTok");
 
-        let overlay = respond(Section::Overlay, "");
+        let overlay = respond(Section::Overlay, "mediashare/index.html");
         assert_eq!(
             overlay.headers()[header::REFERRER_POLICY],
             "strict-origin-when-cross-origin"
@@ -260,7 +277,7 @@ mod tests {
 
     #[test]
     fn the_pages_obey_their_own_content_security_policy() {
-        assert_csp_clean("overlay");
+        assert_csp_clean("overlay/mediashare");
         assert_csp_clean("dashboard");
     }
 

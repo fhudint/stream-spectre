@@ -139,6 +139,7 @@
   "dashboard.rules.max_queue": "Queue of {count}",
   "dashboard.rules.blocked": "{count} blocked",
   "dashboard.overlay.title": "Overlay",
+  "dashboard.overlay.mediashare": "Mediashare",
   "dashboard.overlay.address": "Overlay address",
   "dashboard.overlay.copy": "Copy overlay URL",
   "dashboard.overlay.copied": "Overlay URL copied",

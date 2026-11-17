@@ -646,15 +646,16 @@
    * IP address. The token, when there is one, goes in the query. */
   function overlayUrl(protocol, host, token) {
     var shown = String(host).replace(/^(127\.0\.0\.1|\[::1\])(?=:|$)/, 'localhost');
-    return protocol + '//' + shown + '/overlay/' + (token ? '?token=' + encodeURIComponent(token) : '');
+    return protocol + '//' + shown + '/overlay/mediashare/' + (token ? '?token=' + encodeURIComponent(token) : '');
   }
 
   /* The looks of the overlay, as the server names them. */
   var OVERLAY_THEMES = ['obsidian', 'kertas', 'brutal', 'terminal', 'permen', 'pixel', 'komik', 'garis', 'struk', 'pesan'];
 
-  /* The look the settings say the overlay has; the first when they say none. */
+  /* The look the settings say the mediashare overlay has; the first when they say none. */
   function overlayTheme(settings) {
-    var name = settings && settings.overlay && settings.overlay.theme;
+    var look = settings && settings.overlay && settings.overlay.mediashare;
+    var name = look && look.theme;
     return OVERLAY_THEMES.indexOf(name) >= 0 ? name : OVERLAY_THEMES[0];
   }
 

@@ -17,8 +17,8 @@ pub use credentials::{
 };
 pub use events::{
     ChatLineView, ChatSettingsView, ChatState, ChatStatusView, Envelope, Event, Hello, ItemView,
-    NoticeLevel, OverlayMessage, PROTOCOL_VERSION, QueueView, SenderView, SettingsView, SkipReason,
-    StatsView, unix_ms,
+    NoticeLevel, OverlayKind, OverlayMessage, PROTOCOL_VERSION, QueueView, SenderView,
+    SettingsView, SkipReason, StatsView, unix_ms,
 };
 pub use history::{HISTORY_LIMIT, HistoryEntry, RequestStatus};
 pub use history_store::{autosave_history, history_path, load_history};

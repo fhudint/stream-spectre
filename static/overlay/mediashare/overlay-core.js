@@ -333,7 +333,8 @@
     function applyHello(message) {
       var data = message.data && typeof message.data === 'object' ? message.data : {};
       if (Number.isInteger(message.seq)) lastSeq = message.seq;
-      setTheme(data.settings && data.settings.overlay && data.settings.overlay.theme);
+      var look = data.settings && data.settings.overlay && data.settings.overlay.mediashare;
+      setTheme(look && look.theme);
       volume = clampVolume(data.volume, volume);
       var playing = data.queue && data.queue.now_playing;
       var id = playing && Number.isInteger(playing.id) ? playing.id : null;
@@ -380,7 +381,7 @@
           if (current && current.id === data.item_id) setPaused(data.paused === true);
           break;
         case 'overlay_theme':
-          setTheme(data.theme);
+          if (data.overlay === 'mediashare') setTheme(data.theme);
           break;
         default:
           break; // events this overlay does not use

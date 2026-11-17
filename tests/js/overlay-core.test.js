@@ -2,7 +2,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const core = require('../../static/overlay/overlay-core.js');
+const core = require('../../static/overlay/mediashare/overlay-core.js');
 
 const ID_A = 'aaaaaaaaaaa';
 const ID_B = 'bbbbbbbbbbb';
@@ -759,11 +759,12 @@ test('the look is set from the hello and from an event, never from junk', () => 
     send: () => true,
     text: () => undefined,
   });
-  controller.handle(envelope(1, 'hello', { volume: 50, settings: { overlay: { theme: 'terminal' } }, queue: { now_playing: null } }));
-  controller.handle(envelope(2, 'overlay_theme', { theme: 'komik' }));
-  controller.handle(envelope(2, 'overlay_theme', { theme: 'garis' })); // repeated sequence number
-  controller.handle(envelope(3, 'overlay_theme', { theme: 'neon' }));
+  controller.handle(envelope(1, 'hello', { volume: 50, settings: { overlay: { mediashare: { theme: 'terminal' } } }, queue: { now_playing: null } }));
+  controller.handle(envelope(2, 'overlay_theme', { overlay: 'mediashare', theme: 'komik' }));
+  controller.handle(envelope(2, 'overlay_theme', { overlay: 'mediashare', theme: 'garis' })); // repeated sequence number
+  controller.handle(envelope(3, 'overlay_theme', { overlay: 'mediashare', theme: 'neon' }));
   controller.handle(envelope(4, 'overlay_theme', {}));
+  controller.handle(envelope(6, 'overlay_theme', { overlay: 'chat', theme: 'pixel' })); // another overlay's look
   controller.handle(envelope(5, 'hello', { volume: 50, settings: null, queue: { now_playing: null } }));
   assert.deepEqual(themes, ['terminal', 'komik']);
 });

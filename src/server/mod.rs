@@ -5,8 +5,8 @@
 //!
 //! | Route | What |
 //! |-------|------|
-//! | `/overlay/`, `/dashboard/` | the pages (embedded in the binary) |
-//! | `/ws/overlay`, `/ws/dashboard` | event stream (WebSocket) |
+//! | `/overlay/mediashare/`, `/dashboard/` | the pages (embedded in the binary); `/overlay/` goes to the first |
+//! | `/ws/overlay/mediashare`, `/ws/dashboard` | event stream (WebSocket) |
 //! | `/api/...` | dashboard actions and state (JSON) |
 //!
 //! See `guard` for how requests are checked and `docs/websocket-events.md`
@@ -85,10 +85,12 @@ pub fn router<S: VideoSource + 'static>(state: ServerState<S>, guard: Arc<Guard>
         .route("/dashboard", get(assets::to_dashboard))
         .route("/dashboard/", get(assets::dashboard_index))
         .route("/dashboard/{*path}", get(assets::dashboard_file))
-        .route("/overlay", get(assets::to_overlay))
-        .route("/overlay/", get(assets::overlay_index))
+        .route("/overlay", get(assets::to_mediashare))
+        .route("/overlay/", get(assets::to_mediashare))
+        .route("/overlay/mediashare", get(assets::to_mediashare))
+        .route("/overlay/mediashare/", get(assets::mediashare_index))
         .route("/overlay/{*path}", get(assets::overlay_file))
-        .route("/ws/overlay", get(ws::overlay::<S>))
+        .route("/ws/overlay/mediashare", get(ws::mediashare::<S>))
         .route("/ws/dashboard", get(ws::dashboard::<S>))
         .route("/api/state", get(api::state::<S>))
         .route("/api/i18n", get(api::catalog::<S>))
@@ -100,7 +102,7 @@ pub fn router<S: VideoSource + 'static>(state: ServerState<S>, guard: Arc<Guard>
         .route("/api/settings", patch(api::settings::<S>))
         .route("/api/blacklist", patch(api::blacklist::<S>))
         .route("/api/dashboard", patch(api::dashboard::<S>))
-        .route("/api/overlay", patch(api::overlay::<S>))
+        .route("/api/overlay/mediashare", patch(api::mediashare::<S>))
         .route("/api/commands", patch(api::commands::<S>))
         .route("/api/chat/tiktok", patch(api::tiktok::<S>))
         .route("/api/chat/youtube", patch(api::youtube_chat::<S>))
@@ -314,7 +316,7 @@ mod tests {
     #[tokio::test]
     async fn pages_are_served_and_the_root_redirects() {
         let server = start(None).await;
-        for path in ["/dashboard/", "/overlay/"] {
+        for path in ["/dashboard/", "/overlay/mediashare/"] {
             let response = server.http.get(server.url(path)).send().await.unwrap();
             assert_eq!(response.status(), 200, "{path}");
             assert!(
@@ -329,12 +331,26 @@ mod tests {
         for (from, to) in [
             ("/", "/dashboard/"),
             ("/dashboard", "/dashboard/"),
-            ("/overlay", "/overlay/"),
+            ("/overlay", "/overlay/mediashare/"),
+            ("/overlay/", "/overlay/mediashare/"),
+            ("/overlay/mediashare", "/overlay/mediashare/"),
         ] {
             let response = server.http.get(server.url(from)).send().await.unwrap();
             assert_eq!(response.status(), 307, "{from}");
             assert_eq!(response.headers()["location"], to);
         }
+        // The old overlay address goes to the new one, with its query.
+        let old = server
+            .http
+            .get(server.url("/overlay/?token=a%26b&theme=pixel"))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(old.status(), 307);
+        assert_eq!(
+            old.headers()["location"],
+            "/overlay/mediashare/?token=a%26b&theme=pixel"
+        );
         let missing = server
             .http
             .get(server.url("/dashboard/nope.js"))
@@ -386,9 +402,10 @@ mod tests {
     async fn the_page_files_are_served_with_the_right_types() {
         let server = start(Some(TOKEN)).await;
         for (path, kind) in [
-            ("/overlay/overlay.js", "javascript"),
-            ("/overlay/overlay-core.js", "javascript"),
-            ("/overlay/overlay.css", "text/css"),
+            ("/overlay/mediashare/overlay.js", "javascript"),
+            ("/overlay/mediashare/overlay-core.js", "javascript"),
+            ("/overlay/mediashare/overlay.css", "text/css"),
+            ("/overlay/shared/fonts/spacemono-400.woff2", "font/woff2"),
             ("/dashboard/dashboard.js", "javascript"),
             ("/dashboard/dashboard-core.js", "javascript"),
             ("/dashboard/dashboard.css", "text/css"),
@@ -410,7 +427,7 @@ mod tests {
         }
         let overlay = server
             .http
-            .get(server.url("/overlay/"))
+            .get(server.url("/overlay/mediashare/"))
             .send()
             .await
             .unwrap();
@@ -450,7 +467,10 @@ mod tests {
         let get = |path: &str| server.http.get(server.url(path));
 
         assert_eq!(get("/dashboard/").send().await.unwrap().status(), 200);
-        assert_eq!(get("/overlay/").send().await.unwrap().status(), 200);
+        assert_eq!(
+            get("/overlay/mediashare/").send().await.unwrap().status(),
+            200
+        );
 
         let denied = get("/api/state").send().await.unwrap();
         assert_eq!(denied.status(), 401);
@@ -1013,7 +1033,9 @@ mod tests {
 
         server.submit(1, ID_A).await;
         server.pipeline.approve(crate::queue::ItemId(1)).unwrap();
-        let mut overlay = connect(&server, "/ws/overlay", None).await.unwrap();
+        let mut overlay = connect(&server, "/ws/overlay/mediashare", None)
+            .await
+            .unwrap();
         assert_eq!(
             next_json(&mut overlay).await["data"]["playback_paused"],
             false
@@ -1035,7 +1057,9 @@ mod tests {
         }
 
         // Someone who connects now is told, so a reloaded overlay stays paused.
-        let mut late = connect(&server, "/ws/overlay", None).await.unwrap();
+        let mut late = connect(&server, "/ws/overlay/mediashare", None)
+            .await
+            .unwrap();
         assert_eq!(next_json(&mut late).await["data"]["playback_paused"], true);
 
         let resumed: Value = put(json!({"paused": false}))
@@ -1070,7 +1094,9 @@ mod tests {
             .await;
         server.pipeline.approve(crate::queue::ItemId(1)).unwrap();
 
-        let mut overlay = connect(&server, "/ws/overlay", None).await.unwrap();
+        let mut overlay = connect(&server, "/ws/overlay/mediashare", None)
+            .await
+            .unwrap();
         let hello = next_json(&mut overlay).await;
         let playing = &hello["data"]["queue"]["now_playing"];
         assert_eq!(playing["source"], "tiktok");
@@ -1211,7 +1237,9 @@ mod tests {
     #[tokio::test]
     async fn the_overlay_never_hears_about_the_username() {
         let server = start(None).await;
-        let mut overlay = connect(&server, "/ws/overlay", None).await.unwrap();
+        let mut overlay = connect(&server, "/ws/overlay/mediashare", None)
+            .await
+            .unwrap();
         let hello = next_json(&mut overlay).await;
         server
             .http
@@ -1232,7 +1260,7 @@ mod tests {
         let patch = |body: Value| {
             server
                 .http
-                .patch(server.url("/api/overlay"))
+                .patch(server.url("/api/overlay/mediashare"))
                 .json(&body)
                 .send()
         };
@@ -1243,7 +1271,10 @@ mod tests {
             .json()
             .await
             .unwrap();
-        assert_eq!(updated["settings"]["overlay"]["theme"], "kertas");
+        assert_eq!(
+            updated["settings"]["overlay"]["mediashare"]["theme"],
+            "kertas"
+        );
 
         for bad in [
             json!({"theme": "neon"}),
@@ -1263,7 +1294,10 @@ mod tests {
             .json()
             .await
             .unwrap();
-        assert_eq!(state["settings"]["overlay"]["theme"], "kertas");
+        assert_eq!(
+            state["settings"]["overlay"]["mediashare"]["theme"],
+            "kertas"
+        );
     }
 
     #[tokio::test]
@@ -1491,7 +1525,9 @@ mod tests {
     async fn the_overlay_socket_gets_a_trimmed_hello_and_only_screen_events() {
         let server = start(None).await;
         server.submit(1, ID_A).await;
-        let mut ws = connect(&server, "/ws/overlay", None).await.unwrap();
+        let mut ws = connect(&server, "/ws/overlay/mediashare", None)
+            .await
+            .unwrap();
 
         let hello = next_json(&mut ws).await;
         assert_eq!(hello["type"], "hello");
@@ -1525,7 +1561,9 @@ mod tests {
         let server = start(None).await;
         server.submit(1, ID_A).await;
         server.pipeline.approve(crate::queue::ItemId(1)).unwrap();
-        let mut ws = connect(&server, "/ws/overlay", None).await.unwrap();
+        let mut ws = connect(&server, "/ws/overlay/mediashare", None)
+            .await
+            .unwrap();
         let hello = next_json(&mut ws).await;
         assert_eq!(hello["data"]["queue"]["now_playing"]["id"], 1);
 
@@ -1557,7 +1595,9 @@ mod tests {
         let server = start(None).await;
         server.submit(1, ID_A).await;
         server.pipeline.approve(crate::queue::ItemId(1)).unwrap();
-        let mut overlay = connect(&server, "/ws/overlay", None).await.unwrap();
+        let mut overlay = connect(&server, "/ws/overlay/mediashare", None)
+            .await
+            .unwrap();
         next_json(&mut overlay).await;
         let mut dashboard = connect(&server, "/ws/dashboard", None).await.unwrap();
         next_json(&mut dashboard).await;
@@ -1591,7 +1631,9 @@ mod tests {
         let server = start(None).await;
         server.submit(1, ID_A).await;
         server.pipeline.approve(crate::queue::ItemId(1)).unwrap();
-        let mut ws = connect(&server, "/ws/overlay", None).await.unwrap();
+        let mut ws = connect(&server, "/ws/overlay/mediashare", None)
+            .await
+            .unwrap();
         next_json(&mut ws).await;
 
         ws.send(Message::text(
@@ -1608,7 +1650,7 @@ mod tests {
     #[tokio::test]
     async fn websockets_need_the_token_and_a_matching_origin() {
         let server = start(Some(TOKEN)).await;
-        for path in ["/ws/dashboard", "/ws/overlay"] {
+        for path in ["/ws/dashboard", "/ws/overlay/mediashare"] {
             let no_token = connect(&server, path, None).await.unwrap_err();
             assert_eq!(status_of(no_token), 401, "{path}");
             let wrong = connect(&server, &format!("{path}?token=nope"), None)
@@ -1654,7 +1696,9 @@ mod tests {
     #[tokio::test]
     async fn oversized_websocket_messages_end_the_connection() {
         let server = start(None).await;
-        let mut ws = connect(&server, "/ws/overlay", None).await.unwrap();
+        let mut ws = connect(&server, "/ws/overlay/mediashare", None)
+            .await
+            .unwrap();
         next_json(&mut ws).await;
         ws.send(Message::text("x".repeat(64 * 1024))).await.unwrap();
         let outcome = tokio::time::timeout(Duration::from_secs(5), async {
@@ -1676,7 +1720,9 @@ mod tests {
     async fn shutting_down_closes_sockets_and_the_server_returns() {
         let server = start(None).await;
         let mut dashboard = connect(&server, "/ws/dashboard", None).await.unwrap();
-        let mut overlay = connect(&server, "/ws/overlay", None).await.unwrap();
+        let mut overlay = connect(&server, "/ws/overlay/mediashare", None)
+            .await
+            .unwrap();
         next_json(&mut dashboard).await;
         next_json(&mut overlay).await;
 

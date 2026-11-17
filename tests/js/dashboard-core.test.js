@@ -593,14 +593,14 @@ test('only plain presses of the shortcut keys are commands', () => {
 });
 
 test('the overlay address uses localhost for a loopback IP and carries the token', () => {
-  assert.equal(core.overlayUrl('http:', '127.0.0.1:8787', ''), 'http://localhost:8787/overlay/');
-  assert.equal(core.overlayUrl('http:', '[::1]:8787', ''), 'http://localhost:8787/overlay/');
-  assert.equal(core.overlayUrl('http:', '127.0.0.1', ''), 'http://localhost/overlay/');
-  assert.equal(core.overlayUrl('http:', 'localhost:8787', ''), 'http://localhost:8787/overlay/');
-  assert.equal(core.overlayUrl('https:', 'stream.example:8443', 'a b&c'), 'https://stream.example:8443/overlay/?token=a%20b%26c');
+  assert.equal(core.overlayUrl('http:', '127.0.0.1:8787', ''), 'http://localhost:8787/overlay/mediashare/');
+  assert.equal(core.overlayUrl('http:', '[::1]:8787', ''), 'http://localhost:8787/overlay/mediashare/');
+  assert.equal(core.overlayUrl('http:', '127.0.0.1', ''), 'http://localhost/overlay/mediashare/');
+  assert.equal(core.overlayUrl('http:', 'localhost:8787', ''), 'http://localhost:8787/overlay/mediashare/');
+  assert.equal(core.overlayUrl('https:', 'stream.example:8443', 'a b&c'), 'https://stream.example:8443/overlay/mediashare/?token=a%20b%26c');
   // Only a bare loopback host is rewritten, never something that merely starts like one.
-  assert.equal(core.overlayUrl('http:', '127.0.0.10:8787', ''), 'http://127.0.0.10:8787/overlay/');
-  assert.equal(core.overlayUrl('http:', '127.0.0.1.evil.example', ''), 'http://127.0.0.1.evil.example/overlay/');
+  assert.equal(core.overlayUrl('http:', '127.0.0.10:8787', ''), 'http://127.0.0.10:8787/overlay/mediashare/');
+  assert.equal(core.overlayUrl('http:', '127.0.0.1.evil.example', ''), 'http://127.0.0.1.evil.example/overlay/mediashare/');
 });
 
 test('the username is read like the server reads it', () => {
@@ -718,8 +718,8 @@ test('a TikTok video has a position once the overlay has told its length, the se
 
 test('the look of the overlay is read from the settings, the first when there is none', () => {
   assert.equal(core.OVERLAY_THEMES.length, 10);
-  assert.equal(core.overlayTheme({ overlay: { theme: 'pixel' } }), 'pixel');
-  for (const bad of [undefined, null, {}, { overlay: null }, { overlay: {} }, { overlay: { theme: 'neon' } }, { overlay: { theme: 3 } }]) {
+  assert.equal(core.overlayTheme({ overlay: { mediashare: { theme: 'pixel' } } }), 'pixel');
+  for (const bad of [undefined, null, {}, { overlay: null }, { overlay: {} }, { overlay: { mediashare: {} } }, { overlay: { theme: 'pixel' } }, { overlay: { mediashare: { theme: 'neon' } } }, { overlay: { mediashare: { theme: 3 } } }]) {
     assert.equal(core.overlayTheme(bad), 'obsidian', JSON.stringify(bad));
   }
 });

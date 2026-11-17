@@ -126,7 +126,7 @@ async fn serve(loaded: Loaded) -> anyhow::Result<()> {
     let host = server::browser_host(address);
     tracing::info!("dashboard: http://{host}/dashboard/{hint}");
     tracing::info!(
-        "overlay (OBS browser source): http://{host}/overlay/{}",
+        "overlay (OBS browser source): http://{host}/overlay/mediashare/{}",
         hint.replace('#', "?")
     );
 

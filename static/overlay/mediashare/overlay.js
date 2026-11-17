@@ -1,7 +1,8 @@
 /* Overlay page: connects the WebSocket, the YouTube player and the DOM to the
  * logic in overlay-core.js.
  *
- * Open it as /overlay/ (add ?token=... when a dashboard token is set).
+ * Open it as /overlay/mediashare/ (add ?token=... when a dashboard token is
+ * set, and theme=name to give this one source a look of its own).
  * Texts that come from other people (names, titles) are only ever assigned
  * with textContent, never as markup.
  */
@@ -327,7 +328,7 @@
   function connect() {
     var scheme = location.protocol === 'https:' ? 'wss:' : 'ws:';
     var query = token ? '?token=' + encodeURIComponent(token) : '';
-    var ws = new WebSocket(scheme + '//' + location.host + '/ws/overlay' + query);
+    var ws = new WebSocket(scheme + '//' + location.host + '/ws/overlay/mediashare' + query);
     ws.onopen = function () {
       socket = ws;
       attempt = 0;
