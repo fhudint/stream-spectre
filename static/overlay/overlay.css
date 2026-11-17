@@ -1,16 +1,77 @@
-/* OBS browser source: everything outside the video frame and the request card
-   stays transparent, and the whole overlay is hidden while nothing plays.
-   One accent colour; surfaces are off-black, never pure black. */
+/* OBS browser source: everything outside the card stays transparent, and the
+   whole overlay is hidden while nothing plays.
+
+   The page has one set of elements (see index.html) and ten looks, picked by
+   `data-theme` on #root; the names must match OverlayTheme in the server and
+   THEMES in overlay-core.js. The base rules below give the layout every look
+   shares: the video takes what the card leaves, and sizes are in em so a look
+   scales with the size of the browser source. A look shows the texts it wants
+   (the base hides them all) and may reorder them: where it needs to, it sets
+   `display: contents` on #caption so the texts can go above the video. */
+
+@font-face {
+  font-family: "Space Mono";
+  font-weight: 400;
+  src: url("fonts/spacemono-400.woff2") format("woff2");
+  font-display: swap;
+}
+@font-face {
+  font-family: "Space Mono";
+  font-weight: 700;
+  src: url("fonts/spacemono-700.woff2") format("woff2");
+  font-display: swap;
+}
+@font-face {
+  font-family: "Archivo Black";
+  src: url("fonts/archivoblack-400.woff2") format("woff2");
+  font-display: swap;
+}
+@font-face {
+  font-family: "IBM Plex Mono";
+  src: url("fonts/ibmplexmono-400.woff2") format("woff2");
+  font-display: swap;
+}
+@font-face {
+  font-family: "Fredoka";
+  font-weight: 400 600;
+  src: url("fonts/fredoka-400-600.woff2") format("woff2");
+  font-display: swap;
+}
+@font-face {
+  font-family: "Press Start 2P";
+  src: url("fonts/pressstart2p-400.woff2") format("woff2");
+  font-display: swap;
+}
+@font-face {
+  font-family: "Bangers";
+  src: url("fonts/bangers-400.woff2") format("woff2");
+  font-display: swap;
+}
+@font-face {
+  font-family: "Comic Neue";
+  font-weight: 700;
+  src: url("fonts/comicneue-700.woff2") format("woff2");
+  font-display: swap;
+}
+@font-face {
+  font-family: "Courier Prime";
+  font-weight: 400;
+  src: url("fonts/courierprime-400.woff2") format("woff2");
+  font-display: swap;
+}
+@font-face {
+  font-family: "Courier Prime";
+  font-weight: 700;
+  src: url("fonts/courierprime-700.woff2") format("woff2");
+  font-display: swap;
+}
+@font-face {
+  font-family: "Instrument Serif";
+  src: url("fonts/instrumentserif-400.woff2") format("woff2");
+  font-display: swap;
+}
 
 :root {
-  --accent: #41a0e3;
-  --accent-track: rgba(65, 160, 227, 0.2);
-  --void: #0c0e12;
-  --panel: rgba(22, 25, 31, 0.9);
-  --edge: rgba(255, 255, 255, 0.1);
-  --ink: #f3f6f9;
-  --ink-soft: #b4c0cc;
-  --shadow: rgba(6, 18, 32, 0.65);
   --ease: cubic-bezier(0.16, 1, 0.3, 1);
 }
 
@@ -30,7 +91,6 @@ body {
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
-  gap: 0.7em;
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   font-size: clamp(12px, 3.2vmin, 28px);
 }
@@ -39,24 +99,27 @@ body {
   visibility: hidden;
 }
 
-/* The video with its progress line under it, in one rounded piece. */
+#card {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+}
+
 #frame {
   flex: 1;
   min-height: 0;
   display: flex;
   flex-direction: column;
-  border-radius: 1.1em;
-  overflow: hidden;
-  background: var(--void);
-  box-shadow:
-    0 0 0 1px var(--edge),
-    0 1.2em 2.4em -1em var(--shadow);
 }
 
 #stage {
   position: relative;
   flex: 1;
   min-height: 0;
+  overflow: hidden;
   background: var(--void);
 }
 
@@ -91,6 +154,52 @@ body {
   display: block;
 }
 
+/* How far the video has got. The fill is as wide as the track and is scaled
+   by the script, so it moves without making the page lay itself out again. */
+#bar {
+  flex: none;
+  overflow: hidden;
+}
+
+#bar-fill {
+  width: 100%;
+  height: 100%;
+  background: var(--accent);
+  transform-origin: left center;
+  transform: scaleX(0);
+  transition: transform 0.3s linear;
+}
+
+#caption {
+  flex: none;
+}
+
+#who {
+  display: flex;
+  align-items: center;
+}
+
+#title {
+  overflow-wrap: anywhere;
+}
+
+/* Every text starts hidden; a look shows the ones it uses. An empty one
+   stays hidden in every look. */
+#head,
+#avatar,
+#eq,
+#requested,
+#name,
+#role,
+#channel,
+#time {
+  display: none;
+}
+
+#caption span:empty {
+  display: none !important;
+}
+
 /* "Paused", over the middle of the video while a moderator has paused it. */
 #paused {
   position: absolute;
@@ -100,15 +209,10 @@ body {
   align-items: center;
   gap: 0.6em;
   padding: 0.55em 1.1em 0.55em 0.9em;
-  border-radius: 999px;
-  background: var(--panel);
-  -webkit-backdrop-filter: blur(14px);
-  backdrop-filter: blur(14px);
-  box-shadow:
-    0 0 0 1px var(--edge),
-    inset 0 1px 0 rgba(255, 255, 255, 0.08),
-    0 1em 2em -0.8em var(--shadow);
-  color: var(--ink);
+  border-radius: var(--pill-radius);
+  background: var(--pill-bg);
+  box-shadow: 0 0 0 0.12em var(--pill-line);
+  color: var(--pill-ink);
   font-weight: 600;
   letter-spacing: 0.01em;
   opacity: 0;
@@ -137,100 +241,11 @@ body {
   background: var(--accent);
 }
 
-/* How far the video has got. The fill is as wide as the track and is scaled
-   by the script, so it moves without making the page lay itself out again. */
-#bar {
-  flex: none;
-  height: clamp(8px, 1.2vmin, 16px);
-  background: var(--accent-track);
-  overflow: hidden;
-}
-
-#bar-fill {
-  width: 100%;
-  height: 100%;
-  background: var(--accent);
-  transform-origin: left center;
-  transform: scaleX(0);
-  transition: transform 0.3s linear;
-}
-
-/* Who asked for it and what it is, in a card under the video: an accent
-   edge, the text, and a small level meter that says it is playing. */
-#caption {
-  flex: none;
-  position: relative;
-  display: grid;
-  grid-template-columns: 1fr auto;
-  align-items: end;
-  gap: 1em;
-  padding: 0.75em 1em 0.8em 1.3em;
-  border-radius: 1.1em;
-  background: var(--panel);
-  -webkit-backdrop-filter: blur(14px);
-  backdrop-filter: blur(14px);
-  box-shadow:
-    0 0 0 1px var(--edge),
-    inset 0 1px 0 rgba(255, 255, 255, 0.08),
-    0 1.2em 2.4em -1em var(--shadow);
-  color: var(--ink);
-  line-height: 1.3;
-  pointer-events: none;
-}
-
-#caption::before {
-  content: "";
-  position: absolute;
-  left: 0.55em;
-  top: 0.7em;
-  bottom: 0.7em;
-  width: 0.2em;
-  border-radius: 999px;
-  background: var(--accent);
-}
-
-#caption-text {
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 0.15em;
-}
-
-#requester {
-  font-size: 0.85em;
-  font-weight: 600;
-  letter-spacing: 0.01em;
-  color: var(--accent);
-}
-
-#title {
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-  overflow-wrap: anywhere;
-  font-weight: 600;
-  font-size: 1.05em;
-  letter-spacing: -0.005em;
-  color: var(--ink);
-}
-
-#caption:has(#requester:empty):has(#title:empty) {
-  display: none;
-}
-
-#requester:empty,
-#title:empty {
-  display: none;
-}
-
-/* Three bars rising and falling out of step. */
+/* Three bars rising and falling out of step: it is playing. */
 #eq {
-  display: flex;
   align-items: flex-end;
   gap: 0.18em;
   height: 1.2em;
-  padding-bottom: 0.15em;
 }
 
 #eq i {
@@ -267,33 +282,942 @@ body {
   }
 }
 
-/* The frame and the card come in when a video starts. */
-#root:not(.hidden) #frame {
+/* The card comes in when a video starts. */
+#root:not(.hidden) #card {
   animation: settle 0.7s var(--ease) both;
-}
-
-#root:not(.hidden) #caption {
-  animation: rise 0.7s var(--ease) 0.12s both;
 }
 
 @keyframes settle {
   from {
     opacity: 0;
-    transform: scale(0.97);
+    transform: translateY(1em) scale(0.98);
   }
 }
 
-@keyframes rise {
-  from {
+@keyframes blink {
+  50% {
     opacity: 0;
-    transform: translateY(1.2em);
   }
+}
+
+/* ---- obsidian: dark and quiet --------------------------------------- */
+
+#root[data-theme="obsidian"] {
+  --accent: #41a0e3;
+  --void: #22262b;
+  --pill-bg: rgba(21, 23, 26, 0.92);
+  --pill-ink: #fff;
+  --pill-line: rgba(255, 255, 255, 0.12);
+  --pill-radius: 999px;
+}
+
+[data-theme="obsidian"] #card {
+  gap: 0.75em;
+}
+
+[data-theme="obsidian"] #frame {
+  gap: 0.75em;
+}
+
+[data-theme="obsidian"] #stage {
+  border-radius: 1em;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08);
+}
+
+[data-theme="obsidian"] #bar {
+  height: clamp(7px, 1.1vmin, 14px);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+[data-theme="obsidian"] #caption {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 0.35em 0.7em;
+  padding: 1em 1.25em;
+  border-radius: 1.25em;
+  background: #15171a;
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.06),
+    0 1.2em 2.4em -1em rgba(6, 18, 32, 0.65);
+  color: #fff;
+  line-height: 1.3;
+}
+
+[data-theme="obsidian"] #who {
+  display: contents;
+}
+
+[data-theme="obsidian"] #eq {
+  display: flex;
+}
+
+[data-theme="obsidian"] #requested {
+  display: block;
+  font-weight: 600;
+}
+
+[data-theme="obsidian"] #role {
+  display: inline-flex;
+  align-items: center;
+  height: 1.6em;
+  padding: 0 0.7em;
+  border-radius: 999px;
+  background: #262a30;
+  font-size: 0.75em;
+}
+
+[data-theme="obsidian"] #title {
+  grid-column: 1 / -1;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  font-size: 1.2em;
+  font-weight: 600;
+}
+
+[data-theme="obsidian"] #channel {
+  grid-column: 1 / -1;
+  display: block;
+  font-size: 0.75em;
+  color: #949494;
+}
+
+/* ---- kertas: a sheet of paper, serif words --------------------------- */
+
+#root[data-theme="kertas"] {
+  --accent: #b3361b;
+  --void: #d8d2c4;
+  --pill-bg: #f4f1ea;
+  --pill-ink: #141414;
+  --pill-line: #141414;
+  --pill-radius: 0;
+}
+
+[data-theme="kertas"] #card {
+  gap: 0.75em;
+  padding: 1.25em;
+  background: #f4f1ea;
+  color: #141414;
+}
+
+[data-theme="kertas"] #head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding-bottom: 0.5em;
+  border-bottom: 1px solid #c9c3b5;
+  font-size: 0.75em;
+  color: #5c574d;
+}
+
+[data-theme="kertas"] #frame {
+  gap: 0.75em;
+}
+
+[data-theme="kertas"] #bar {
+  height: clamp(2px, 0.35vmin, 5px);
+  background: #c9c3b5;
+}
+
+[data-theme="kertas"] #caption {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5em;
+}
+
+[data-theme="kertas"] #title {
+  order: 1;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  font-family: "Instrument Serif", Georgia, serif;
+  font-size: 2em;
+  line-height: 1.1;
+}
+
+[data-theme="kertas"] #who {
+  order: 2;
+  gap: 0.5em;
+  align-items: baseline;
+  font-size: 0.875em;
+}
+
+[data-theme="kertas"] #name {
+  display: inline;
+  font-weight: 600;
+}
+
+[data-theme="kertas"] #role {
+  display: inline;
+  color: #5c574d;
+}
+
+[data-theme="kertas"] #channel {
+  order: 3;
+  display: block;
+  font-size: 0.75em;
+  color: #5c574d;
+}
+
+/* ---- brutal: thick lines, hard shadow -------------------------------- */
+
+#root[data-theme="brutal"] {
+  --accent: #ff3b30;
+  --void: #fff;
+  --pill-bg: #ffd60a;
+  --pill-ink: #000;
+  --pill-line: #000;
+  --pill-radius: 0;
+}
+
+[data-theme="brutal"] #card {
+  gap: 0.75em;
+  padding: 1em;
+  background: #ffd60a;
+  border: 0.25em solid #000;
+  box-shadow: 0.5em 0.5em 0 #000;
+  margin: 0 0.5em 0.5em 0;
+  color: #000;
+  font-family: "Space Mono", ui-monospace, monospace;
+}
+
+[data-theme="brutal"] #head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.875em;
+  font-weight: 700;
+}
+
+[data-theme="brutal"] #kicker {
+  padding: 0.35em 0.75em;
+  background: #000;
+  color: #ffd60a;
+  font-family: "Archivo Black", Impact, sans-serif;
+  font-size: 1.28em;
+  font-weight: 400;
+  text-transform: uppercase;
+  transform: rotate(-2deg);
+}
+
+[data-theme="brutal"] #frame {
+  gap: 0.75em;
+}
+
+[data-theme="brutal"] #stage {
+  border: 0.25em solid #000;
+  box-sizing: border-box;
+}
+
+[data-theme="brutal"] #bar {
+  height: 1.4em;
+  box-sizing: border-box;
+  border: 0.25em solid #000;
+  background: #fff;
+}
+
+[data-theme="brutal"] #caption {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75em;
+}
+
+[data-theme="brutal"] #title {
+  order: 1;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  font-size: 1.125em;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+[data-theme="brutal"] #who {
+  order: 2;
+  flex-wrap: wrap;
+  gap: 0.5em;
+}
+
+[data-theme="brutal"] #name,
+[data-theme="brutal"] #role {
+  display: inline-block;
+  padding: 0.1em 0.65em;
+  border: 0.2em solid #000;
+  font-size: 0.875em;
+  font-weight: 700;
+}
+
+[data-theme="brutal"] #name {
+  background: #fff;
+}
+
+[data-theme="brutal"] #role {
+  background: #000;
+  color: #ffd60a;
+}
+
+/* ---- terminal: a shell session --------------------------------------- */
+
+#root[data-theme="terminal"] {
+  --accent: #7ee2a0;
+  --void: #060a07;
+  --pill-bg: #0b100d;
+  --pill-ink: #d4f5dd;
+  --pill-line: #2f4636;
+  --pill-radius: 0;
+}
+
+[data-theme="terminal"] #card {
+  gap: 0.65em;
+  padding: 1em;
+  background: #0b100d;
+  border: 1px solid #2f4636;
+  color: #d4f5dd;
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 0.875em;
+  line-height: 1.5;
+}
+
+[data-theme="terminal"] #caption {
+  display: contents;
+}
+
+[data-theme="terminal"] #who {
+  order: -1;
+  display: block;
+  color: var(--accent);
+}
+
+[data-theme="terminal"] #name,
+[data-theme="terminal"] #role {
+  display: inline;
+}
+
+[data-theme="terminal"] #name::before {
+  content: "$ play --from ";
+}
+
+[data-theme="terminal"] #role::before {
+  content: " --role ";
+}
+
+[data-theme="terminal"] #frame {
+  gap: 0.65em;
+}
+
+[data-theme="terminal"] #stage {
+  border: 1px solid #2f4636;
+}
+
+/* Blocks, like [#####-----]: the mask cuts the track and the fill alike. */
+[data-theme="terminal"] #bar {
+  height: 0.95em;
+  background: #1c2a20;
+  -webkit-mask-image: repeating-linear-gradient(90deg, #000 0 0.55em, transparent 0.55em 0.75em);
+  mask-image: repeating-linear-gradient(90deg, #000 0 0.55em, transparent 0.55em 0.75em);
+}
+
+[data-theme="terminal"] #time {
+  order: 1;
+  display: block;
+  color: #6f9a7c;
+  font-variant-numeric: tabular-nums;
+}
+
+[data-theme="terminal"] #title {
+  order: 2;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+[data-theme="terminal"] #title::before {
+  content: "> ";
+  color: var(--accent);
+}
+
+[data-theme="terminal"] #title::after {
+  content: "\258C";
+  color: var(--accent);
+  animation: blink 1s steps(1) infinite;
+}
+
+[data-theme="terminal"] #channel {
+  order: 3;
+  display: block;
+  color: #6f9a7c;
+}
+
+[data-theme="terminal"] #channel::before {
+  content: "# ";
+}
+
+/* ---- permen: soft pink, round everything ----------------------------- */
+
+#root[data-theme="permen"] {
+  --accent: #ff6f9c;
+  --void: #ffd6e4;
+  --pill-bg: #fff0f5;
+  --pill-ink: #5b2a3c;
+  --pill-line: #ff8fb1;
+  --pill-radius: 999px;
+}
+
+[data-theme="permen"] #card {
+  gap: 0.85em;
+  padding: 1.1em;
+  background: #fff0f5;
+  border: 0.25em solid #ff8fb1;
+  border-radius: 2em;
+  color: #5b2a3c;
+  font-family: "Fredoka", "Nunito", system-ui, sans-serif;
+}
+
+[data-theme="permen"] #frame {
+  gap: 0.85em;
+}
+
+[data-theme="permen"] #stage {
+  border-radius: 1.4em;
+}
+
+[data-theme="permen"] #bar {
+  height: 0.9em;
+  border-radius: 999px;
+  background: #ffd6e4;
+}
+
+[data-theme="permen"] #caption {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7em;
+}
+
+[data-theme="permen"] #title {
+  order: 1;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  padding: 0.8em 1em;
+  border: 0.2em solid #ff8fb1;
+  border-radius: 1.4em;
+  background: #fff;
+  font-size: 1.1em;
+  font-weight: 500;
+  line-height: 1.35;
+}
+
+[data-theme="permen"] #who {
+  order: 2;
+  flex-wrap: wrap;
+  gap: 0.5em;
+}
+
+[data-theme="permen"] #requested,
+[data-theme="permen"] #role {
+  display: inline-block;
+  padding: 0.15em 0.8em;
+  border-radius: 999px;
+  font-size: 0.9em;
+  font-weight: 600;
+}
+
+[data-theme="permen"] #requested {
+  background: #ffb3cc;
+}
+
+[data-theme="permen"] #role {
+  background: #ffe066;
+  transform: rotate(-3deg);
+}
+
+/* ---- pixel: an old game's text box ----------------------------------- */
+
+#root[data-theme="pixel"] {
+  --accent: #ffe14d;
+  --void: #1c1c1e;
+  --pill-bg: #0f0f10;
+  --pill-ink: #f2f2f2;
+  --pill-line: #f2f2f2;
+  --pill-radius: 0;
+}
+
+[data-theme="pixel"] #card {
+  gap: 0.9em;
+  padding: 1em;
+  background: #0f0f10;
+  border: 0.25em solid #f2f2f2;
+  color: #f2f2f2;
+  font-family: "Press Start 2P", ui-monospace, monospace;
+  font-size: 0.72em;
+  line-height: 1.8;
+}
+
+[data-theme="pixel"] #head {
+  display: flex;
+  justify-content: space-between;
+  gap: 1em;
+  color: var(--accent);
+  text-transform: uppercase;
+}
+
+[data-theme="pixel"] #kicker::before {
+  content: "> ";
+}
+
+[data-theme="pixel"] #frame {
+  gap: 0.9em;
+}
+
+[data-theme="pixel"] #stage {
+  box-sizing: border-box;
+  border: 0.3em solid #f2f2f2;
+}
+
+/* Twenty blocks. */
+[data-theme="pixel"] #bar {
+  height: 1.3em;
+  background: #3a3a3a;
+  -webkit-mask-image: repeating-linear-gradient(90deg, #000 0 4%, transparent 4% 5%);
+  mask-image: repeating-linear-gradient(90deg, #000 0 4%, transparent 4% 5%);
+}
+
+[data-theme="pixel"] #caption {
+  padding: 0.9em;
+  border: 0.3em solid #f2f2f2;
+}
+
+[data-theme="pixel"] #who {
+  display: block;
+  color: var(--accent);
+}
+
+[data-theme="pixel"] #name,
+[data-theme="pixel"] #role {
+  display: inline;
+}
+
+[data-theme="pixel"] #role::before {
+  content: " [";
+}
+
+[data-theme="pixel"] #role::after {
+  content: "]";
+}
+
+[data-theme="pixel"] #title {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  margin-top: 0.5em;
+}
+
+/* ---- komik: stickers and a speech bubble ----------------------------- */
+
+#root[data-theme="komik"] {
+  --accent: #e63946;
+  --void: #fff;
+  --pill-bg: #ffe14d;
+  --pill-ink: #000;
+  --pill-line: #000;
+  --pill-radius: 0.6em;
+}
+
+/* Room for the sticker, the hard shadows and the tilted name tag. */
+[data-theme="komik"] #card {
+  gap: 1em;
+  padding: 1.5em 0.6em 0.6em 0.5em;
+  color: #000;
+  font-family: "Comic Neue", "Comic Sans MS", sans-serif;
+  font-weight: 700;
+}
+
+/* The sticker sits on the corner of the video and takes no room of its own. */
+[data-theme="komik"] #head {
+  display: block;
+  position: relative;
+  z-index: 2;
+  height: 0;
+}
+
+[data-theme="komik"] #kicker {
+  position: absolute;
+  left: -0.4em;
+  top: -0.5em;
+  padding: 0.05em 0.6em;
+  border: 0.25em solid #000;
+  background: #ffe14d;
+  font-family: "Bangers", Impact, sans-serif;
+  font-size: 1.6em;
+  font-weight: 400;
+  text-transform: uppercase;
+  white-space: nowrap;
+  transform: rotate(-8deg);
+}
+
+[data-theme="komik"] #frame {
+  gap: 0.9em;
+}
+
+[data-theme="komik"] #stage {
+  box-sizing: border-box;
+  border: 0.3em solid #000;
+  box-shadow: 0.4em 0.4em 0 #000;
+}
+
+[data-theme="komik"] #bar {
+  height: 1.3em;
+  box-sizing: border-box;
+  border: 0.25em solid #000;
+  background: #fff;
+}
+
+[data-theme="komik"] #caption {
+  display: flex;
+  flex-direction: column;
+  gap: 1.2em;
+}
+
+[data-theme="komik"] #title {
+  order: 1;
+  position: relative;
+  padding: 0.8em 1.1em;
+  border: 0.25em solid #000;
+  border-radius: 1.25em;
+  background: #fff;
+  box-shadow: 0.3em 0.3em 0 #000;
+  font-size: 1.1em;
+  line-height: 1.3;
+}
+
+/* The tail of the bubble: a black triangle with a white one on top. */
+[data-theme="komik"] #title::before,
+[data-theme="komik"] #title::after {
+  content: "";
+  position: absolute;
+  border-style: solid;
+  border-color: transparent;
+}
+
+[data-theme="komik"] #title::before {
+  left: 1.8em;
+  bottom: -1.05em;
+  border-width: 0.9em 0.65em 0;
+  border-top-color: #000;
+}
+
+[data-theme="komik"] #title::after {
+  left: 2.05em;
+  bottom: -0.65em;
+  border-width: 0.7em 0.4em 0;
+  border-top-color: #fff;
+}
+
+[data-theme="komik"] #who {
+  order: 2;
+  align-self: flex-start;
+  gap: 0.4em;
+  padding: 0 0.8em;
+  border: 0.25em solid #000;
+  background: #ffe14d;
+  font-family: "Bangers", Impact, sans-serif;
+  font-size: 1.5em;
+  font-weight: 400;
+  line-height: 1.3;
+  transform: rotate(-2deg);
+}
+
+[data-theme="komik"] #name,
+[data-theme="komik"] #role {
+  display: inline;
+}
+
+[data-theme="komik"] #role::before {
+  content: "\00B7  ";
+}
+
+/* ---- garis: outlines only, over the stream --------------------------- */
+
+#root[data-theme="garis"] {
+  --accent: #fff;
+  --void: rgba(12, 13, 15, 0.55);
+  --pill-bg: rgba(12, 13, 15, 0.75);
+  --pill-ink: #fff;
+  --pill-line: #fff;
+  --pill-radius: 0.5em;
+}
+
+[data-theme="garis"] #card {
+  gap: 0.7em;
+  color: #fff;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.55);
+}
+
+[data-theme="garis"] #frame {
+  gap: 0.6em;
+}
+
+[data-theme="garis"] #stage {
+  box-sizing: border-box;
+  border: 0.125em solid #fff;
+  border-radius: 0.5em;
+}
+
+[data-theme="garis"] #bar {
+  height: clamp(2px, 0.35vmin, 5px);
+  background: rgba(255, 255, 255, 0.4);
+}
+
+[data-theme="garis"] #caption {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4em;
+  padding: 0.75em 0.9em;
+  border-radius: 0.65em;
+  background: rgba(12, 13, 15, 0.6);
+}
+
+[data-theme="garis"] #who {
+  order: 1;
+  gap: 0.5em;
+  align-items: baseline;
+}
+
+[data-theme="garis"] #name {
+  display: inline;
+  font-weight: 600;
+}
+
+[data-theme="garis"] #role {
+  display: inline;
+  font-size: 0.875em;
+  color: #d8d8d8;
+}
+
+[data-theme="garis"] #title {
+  order: 2;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  font-size: 1.25em;
+  font-weight: 500;
+  line-height: 1.35;
+}
+
+/* ---- struk: a till receipt ------------------------------------------- */
+
+#root[data-theme="struk"] {
+  --accent: #1d1d1b;
+  --void: #e9e5d6;
+  --pill-bg: #fffdf6;
+  --pill-ink: #1d1d1b;
+  --pill-line: #1d1d1b;
+  --pill-radius: 0;
+}
+
+[data-theme="struk"] #card {
+  gap: 0.75em;
+  padding: 1.25em;
+  background: #fffdf6;
+  color: #1d1d1b;
+  font-family: "Courier Prime", "Courier New", monospace;
+  font-size: 0.9em;
+  line-height: 1.4;
+}
+
+[data-theme="struk"] #head {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding-bottom: 0.6em;
+  border-bottom: 0.14em dashed #1d1d1b;
+  text-align: center;
+}
+
+[data-theme="struk"] #kicker {
+  display: block;
+  font-size: 1.1em;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+[data-theme="struk"] #left {
+  display: block;
+}
+
+[data-theme="struk"] #frame {
+  gap: 0.75em;
+}
+
+[data-theme="struk"] #stage {
+  border: 1px dashed #1d1d1b;
+}
+
+[data-theme="struk"] #bar {
+  height: 0.7em;
+  box-sizing: border-box;
+  border: 1px dashed #1d1d1b;
+}
+
+[data-theme="struk"] #caption {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35em;
+}
+
+[data-theme="struk"] #who {
+  display: contents;
+}
+
+/* A row of the receipt: the label (set by the script) and the value, with a
+   dotted line under both. */
+[data-theme="struk"] #name,
+[data-theme="struk"] #role,
+[data-theme="struk"] #time {
+  display: flex;
+  justify-content: space-between;
+  gap: 1em;
+  border-bottom: 0.14em dotted #1d1d1b;
+  font-weight: 700;
+}
+
+[data-theme="struk"] #name::before,
+[data-theme="struk"] #role::before,
+[data-theme="struk"] #time::before {
+  content: attr(data-label);
+  font-weight: 400;
+}
+
+[data-theme="struk"] #name {
+  order: 1;
+}
+
+[data-theme="struk"] #role {
+  order: 2;
+}
+
+[data-theme="struk"] #time {
+  order: 3;
+}
+
+[data-theme="struk"] #title {
+  order: 4;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  margin-top: 0.3em;
+  padding-top: 0.6em;
+  border-top: 0.14em dashed #1d1d1b;
+}
+
+/* ---- pesan: a chat app ----------------------------------------------- */
+
+#root[data-theme="pesan"] {
+  --accent: #3ddc84;
+  --void: #2a2f33;
+  --pill-bg: #1f2326;
+  --pill-ink: #fff;
+  --pill-line: rgba(255, 255, 255, 0.12);
+  --pill-radius: 999px;
+}
+
+[data-theme="pesan"] #card {
+  gap: 0.7em;
+  padding: 1em;
+  border-radius: 1.5em;
+  background: #0f1112;
+  color: #fff;
+}
+
+[data-theme="pesan"] #caption {
+  display: contents;
+}
+
+[data-theme="pesan"] #who {
+  order: -1;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  column-gap: 0.65em;
+  align-items: center;
+}
+
+[data-theme="pesan"] #avatar {
+  grid-row: 1 / 3;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.3em;
+  height: 2.3em;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #05210f;
+  font-weight: 600;
+}
+
+[data-theme="pesan"] #name {
+  display: block;
+  align-self: end;
+  font-weight: 600;
+}
+
+[data-theme="pesan"] #role {
+  display: block;
+  align-self: start;
+  font-size: 0.75em;
+  color: #a9b0b4;
+}
+
+[data-theme="pesan"] #frame {
+  padding: 0.6em;
+  gap: 0.55em;
+  border-radius: 1.1em;
+  background: #1f2326;
+}
+
+[data-theme="pesan"] #stage {
+  border-radius: 0.7em;
+}
+
+[data-theme="pesan"] #bar {
+  height: clamp(4px, 0.6vmin, 8px);
+  border-radius: 999px;
+  background: #3a4044;
+}
+
+[data-theme="pesan"] #title {
+  order: 1;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  padding: 0.6em 0.9em;
+  border-radius: 1.1em;
+  background: #1f2326;
+  font-weight: 600;
+}
+
+[data-theme="pesan"] #channel {
+  order: 2;
+  display: block;
+  align-self: flex-end;
+  font-size: 0.75em;
+  color: #a9b0b4;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  #frame,
-  #caption,
-  #eq i {
+  #card,
+  #eq i,
+  [data-theme="terminal"] #title::after {
     animation: none !important;
   }
 

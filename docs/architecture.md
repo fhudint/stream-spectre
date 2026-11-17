@@ -55,7 +55,7 @@ The pages live in `static/overlay/` and `static/dashboard/` as plain HTML, CSS
 and JavaScript, embedded with `rust-embed`. The dashboard is one page with five
 views chosen by the address fragment (`#queue`, `#blacklist`, `#rules`,
 `#overlay`, `#settings`); its fonts are served from `static/dashboard/fonts/`
-so it needs nothing from other sites. Each page has a `*-core.js` file
+so it needs nothing from other sites. The overlay has one set of elements and ten looks (`data-theme` on its root, chosen on the dashboard's Overlay page and pushed as `overlay_theme`; `OverlayTheme` in the config), each a block of CSS with its own fonts from `static/overlay/fonts/`. Each page has a `*-core.js` file
 with no browser dependencies (state handling, parsing) and a thin `*.js` file
 that connects it to the DOM, the REST API and the WebSocket. The core files are
 tested with Node (`tests/js/`).

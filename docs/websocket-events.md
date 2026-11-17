@@ -19,6 +19,7 @@ of truth; this page describes them for people writing clients.
 | `PATCH /api/settings` | Change some moderation settings, keep the rest; answers the new state |
 | `PATCH /api/blacklist` | Replace some blacklist lists (`video_ids`, `channels`, `title_words`), keep the rest |
 | `PATCH /api/dashboard` | Change dashboard settings (`chat_history`), keep the rest |
+| `PATCH /api/overlay` | Change the overlay's look (`{"theme": "pixel"}`); an unknown theme is refused |
 | `PATCH /api/commands` | Change the chat commands: `{"prefix": "!", "commands": [{"name": "v", "source": "youtube"}, {"name": "vt", "source": "tiktok"}]}`. `source` is `youtube` or `tiktok`. Either field may be left out; `commands` is always the whole list. Takes effect for the next chat message. `400` for an empty list, more than 8, a name used twice (capitals do not count), a name with anything but ASCII letters, digits and `_`, an unknown source, or a prefix that is empty, longer than 4 or has spaces. Answers the new state. |
 | `PATCH /api/chat/tiktok` | Body `{"username": "name", "enabled": true}`, either or both: set the TikTok username (an empty string stops reading chat) and switch the chat on or off; the chat follows without a restart. Letters, digits, `_` and `.`, at most 64; a leading `@` and spaces are dropped. Answers the new state. |
 | `PATCH /api/chat/youtube` | Body `{"video": "link or ID", "enabled": true}`, either or both: set the YouTube live whose chat is read (a link or an 11-character ID, kept as the ID; an empty string stops reading chat) and switch the chat on or off. Something that is not a video is refused. Answers the new state. |
@@ -36,7 +37,7 @@ network with a token; any other connection gets `403` with `"code": "loopback_on
 Reading `GET /api/account` is allowed to anyone with the token.
 
 The two sockets carry the events below. The overlay socket only receives
-what changes the screen (`play`, `skip`, `stop`, `volume`, `playback_paused`) and a trimmed
+what changes the screen (`play`, `skip`, `stop`, `volume`, `overlay_theme`, `playback_paused`) and a trimmed
 `hello` without waiting requests, blacklist, chat status or chat messages; the dashboard
 socket receives everything. Dashboard actions go through the REST API.
 
@@ -233,6 +234,19 @@ changes.
 { "type": "volume", "data": { "volume": 30 } }
 ```
 
+### `overlay_theme`
+
+The look of the overlay changed (overlay and dashboard). Sent only when it
+actually changes. The overlay also learns its look from `settings.overlay.theme`
+in `hello`. `theme` is one of `obsidian`, `kertas`, `brutal`, `terminal`,
+`permen`, `pixel`, `komik`, `garis`, `struk`, `pesan`; the overlay ignores a name
+it has no look for. Adding `theme=name` to the overlay's address overrides it
+for that page.
+
+```json
+{ "type": "overlay_theme", "data": { "theme": "pixel" } }
+```
+
 ### `settings_updated`
 
 The moderation settings, the blacklist or the dashboard settings changed
@@ -254,6 +268,7 @@ The moderation settings, the blacklist or the dashboard settings changed
     },
     "blacklist": { "video_ids": [], "channels": [], "title_words": [] },
     "dashboard": { "chat_history": 20 },
+    "overlay": { "theme": "obsidian" },
     "command": { "prefix": "!", "commands": [{ "name": "v", "source": "youtube" }] },
     "chat": { "tiktok": { "username": "streamer" } }
 } }

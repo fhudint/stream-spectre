@@ -1029,6 +1029,37 @@
     var shown = core.overlayUrl(location.protocol, location.host, '').replace(/^https?:\/\//, '');
     $('overlay-address').textContent = shown;
     $('overlay-shown').textContent = shown;
+    var theme = core.overlayTheme(state.settings);
+    themeInputs.forEach(function (entry) {
+      entry.input.checked = entry.name === theme;
+    });
+  }
+
+  /* One choice per look of the overlay; the change is saved at once and the
+   * overlay in OBS follows without a reload. */
+  var themeInputs = [];
+  function buildThemes() {
+    core.OVERLAY_THEMES.forEach(function (name) {
+      var input = h('input', {
+        attrs: { type: 'radio', name: 'overlay-theme', value: name },
+        on: {
+          change: function () {
+            act('PATCH', '/api/overlay', { theme: name }, function (result) {
+              adopt(result.data);
+            });
+          },
+        },
+      });
+      themeInputs.push({ name: name, input: input });
+      $('themes').appendChild(
+        h('label', { className: 'theme', attrs: { 'data-theme': name } }, [
+          input,
+          h('span', { className: 'swatch', text: 'Aa', attrs: { 'aria-hidden': 'true' } }),
+          h('span', { className: 'theme-name', text: t('dashboard.overlay.theme.' + name) }),
+        ])
+      );
+    });
+    renderOverlay();
   }
 
   function render() {
@@ -1066,6 +1097,7 @@
   function buildForms() {
     if (built) return;
     built = true;
+    buildThemes();
 
     var settingsForm = $('settings-form');
     core.SETTINGS_FIELDS.forEach(function (spec) {

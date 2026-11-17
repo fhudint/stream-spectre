@@ -108,7 +108,14 @@ function load({ search = '', protocol = 'http:', host = '127.0.0.1:8787', fetchB
 
   const elements = {
     root: new FakeElement('root', ['hidden']),
-    requester: new FakeElement('requester'),
+    kicker: new FakeElement('kicker'),
+    left: new FakeElement('left'),
+    requested: new FakeElement('requested'),
+    name: new FakeElement('name'),
+    role: new FakeElement('role'),
+    channel: new FakeElement('channel'),
+    time: new FakeElement('time'),
+    avatar: new FakeElement('avatar'),
     title: new FakeElement('title'),
     stage: new FakeElement('stage'),
     tiktok: new FakeElement('tiktok'),
@@ -198,7 +205,7 @@ test('translated texts are fetched, with the token as a bearer header', async ()
   page.player().options.events.onReady();
   page.socket().open();
   page.socket().receive(envelope(1, 'play', { item: item(), volume: 40 }));
-  assert.equal(page.elements.requester.textContent, 'Diminta oleh Budi');
+  assert.equal(page.elements.requested.textContent, 'Diminta oleh Budi');
 });
 
 test('without a token no auth header is sent and the query is empty', () => {
@@ -214,7 +221,7 @@ test('a failed translation request does not break the overlay', async () => {
   page.player().options.events.onReady();
   page.socket().open();
   page.socket().receive(envelope(1, 'play', { item: item(), volume: 40 }));
-  assert.equal(page.elements.requester.textContent, 'Requested by Budi');
+  assert.equal(page.elements.requested.textContent, 'Requested by Budi');
 });
 
 test('it reconnects with a growing delay and starts over after a success', () => {
@@ -278,8 +285,9 @@ test('stop hides the overlay and stops the video', () => {
   page.socket().receive(envelope(2, 'stop', {}));
   assert.deepEqual(page.player().calls.at(-1), ['stopVideo']);
   assert.ok(page.elements.root.classList.contains('hidden'));
-  assert.equal(page.elements.requester.textContent, '');
-  assert.equal(page.elements.title.textContent, '');
+  for (const id of ['kicker', 'left', 'requested', 'name', 'role', 'title', 'channel', 'time', 'avatar']) {
+    assert.equal(page.elements[id].textContent, '', `#${id} is emptied`);
+  }
 });
 
 test('the end of the video is sent to the server', () => {
@@ -465,7 +473,7 @@ test('a TikTok video is shown in TikTok\'s own frame, and YouTube is stopped', (
   assert.ok(page.elements.stage.classes.has('tiktok'));
   assert.ok(!page.elements.root.classes.has('hidden'));
   assert.equal(page.elements.title.textContent, '@cherlynn052');
-  assert.equal(page.elements.requester.textContent, 'Requested by Budi');
+  assert.equal(page.elements.requested.textContent, 'Requested by Budi');
   // The YouTube video that was playing is stopped, and nothing new is loaded in it.
   const calls = page.player().calls.map((c) => c[0]);
   assert.equal(calls.filter((c) => c === 'loadVideoById').length, 1, 'only the first, YouTube, video');
@@ -871,3 +879,79 @@ test('a video that skipped by a moderator is not reported as ended afterwards', 
   assert.deepEqual(reports(page), []);
 });
 
+
+// --- the looks of the overlay ---
+
+const themeOf = (page) => page.elements.root.attrs['data-theme'];
+
+function playing(options, extra = {}) {
+  const page = load(options);
+  page.apiReady();
+  page.player().options.events.onReady();
+  page.socket().open();
+  page.socket().receive(envelope(1, 'play', { item: { ...item(), ...extra }, volume: 40 }));
+  return page;
+}
+
+test('the look comes from the server: in the hello and when it changes', () => {
+  const page = load();
+  page.socket().open();
+  page.socket().receive({ ...envelope(1, 'hello', { volume: 50, queue: { now_playing: null }, settings: { overlay: { theme: 'pixel' } } }) });
+  assert.equal(themeOf(page), 'pixel');
+  page.socket().receive(envelope(2, 'overlay_theme', { theme: 'komik' }));
+  assert.equal(themeOf(page), 'komik');
+  page.socket().receive(envelope(3, 'overlay_theme', { theme: 'neon<script>' }));
+  assert.equal(themeOf(page), 'komik', 'a name the page has no look for changes nothing');
+});
+
+test('?theme= in the address wins over the server, but only for a look that exists', () => {
+  const forced = load({ search: '?token=t&theme=struk' });
+  forced.socket().open();
+  forced.socket().receive(envelope(1, 'hello', { volume: 50, queue: { now_playing: null }, settings: { overlay: { theme: 'pixel' } } }));
+  assert.equal(themeOf(forced), 'struk');
+  forced.socket().receive(envelope(2, 'overlay_theme', { theme: 'garis' }));
+  assert.equal(themeOf(forced), 'struk');
+
+  const wrong = load({ search: '?theme=nope' });
+  wrong.socket().open();
+  wrong.socket().receive(envelope(1, 'overlay_theme', { theme: 'garis' }));
+  assert.equal(themeOf(wrong), 'garis');
+});
+
+test('the card gets the name, the role, the channel and a letter for the avatar, as plain text', () => {
+  const page = playing(
+    { fetchBody: { 'role.follower': 'Pengikut', 'overlay.label.from': 'Dari', 'overlay.kicker': 'Permintaan' } },
+    { channel: 'Chan <i>x</i>', requested_by: { name: '@budi', role: 'follower' } }
+  );
+  assert.equal(page.elements.name.textContent, '@budi');
+  assert.equal(page.elements.avatar.textContent, 'B');
+  assert.equal(page.elements.channel.textContent, 'Chan <i>x</i>');
+  assert.equal(page.elements.role.textContent, '', 'texts are not loaded yet in this test');
+  assert.equal(page.elements.kicker.textContent, 'Request from chat');
+  assert.equal(page.elements.name.attrs['data-label'], 'From');
+});
+
+test('the translated texts are used once they are loaded', async () => {
+  const page = load({ fetchBody: { 'role.follower': 'Pengikut', 'overlay.label.from': 'Dari', 'overlay.kicker': 'Permintaan' } });
+  await flush();
+  page.apiReady();
+  page.player().options.events.onReady();
+  page.socket().open();
+  page.socket().receive(envelope(1, 'play', { item: item(), volume: 40 }));
+  assert.equal(page.elements.role.textContent, 'Pengikut');
+  assert.equal(page.elements.kicker.textContent, 'Permintaan');
+  assert.equal(page.elements.name.attrs['data-label'], 'Dari');
+});
+
+test('the clock shows the time and what is left, and nothing while the length is not known', () => {
+  const page = playing();
+  const step = () => page.log.intervals.find((i) => i.delay === 250).fn();
+  page.log.position = 23;
+  page.log.duration = 45;
+  step();
+  assert.equal(page.elements.time.textContent, '0:23 / 0:45');
+  assert.equal(page.elements.left.textContent, '0:22 left');
+  page.log.duration = 0;
+  step();
+  assert.equal(page.elements.left.textContent, '');
+});

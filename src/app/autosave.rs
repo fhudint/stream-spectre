@@ -86,15 +86,15 @@ pub fn autosave<S: VideoSource + 'static>(
 /// The tables that differ from `config.toml` right now.
 fn changes<S: VideoSource>(pipeline: &Pipeline<S>, baseline: &Config) -> SavedSettings {
     let settings = pipeline.settings();
-    SavedSettings::changes(
-        baseline,
-        &settings.moderation,
-        &settings.blacklist,
-        &settings.dashboard,
-        &settings.command,
-        &settings.chat.tiktok,
-        &settings.chat.youtube,
-    )
+    let mut current = baseline.clone();
+    current.moderation = settings.moderation;
+    current.blacklist = settings.blacklist;
+    current.dashboard = settings.dashboard;
+    current.overlay = settings.overlay;
+    current.command = settings.command;
+    current.chat.tiktok = settings.chat.tiktok;
+    current.chat.youtube = settings.chat.youtube;
+    SavedSettings::changes(baseline, &current)
 }
 
 /// Waits for an event that may have changed the settings. Returns false when
@@ -339,15 +339,7 @@ mod tests {
         // The program started with this already applied from the saved file.
         let mut applied = baseline();
         applied.dashboard.chat_history = 5;
-        let first = SavedSettings::changes(
-            &baseline(),
-            &applied.moderation,
-            &applied.blacklist,
-            &applied.dashboard,
-            &applied.command,
-            &applied.chat.tiktok,
-            &applied.chat.youtube,
-        );
+        let first = SavedSettings::changes(&baseline(), &applied);
         write_saved(&path, &first).unwrap();
         let before = std::fs::metadata(&path).unwrap().modified().unwrap();
 

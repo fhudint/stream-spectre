@@ -97,7 +97,7 @@ test('hello with a video playing starts it with the caption and volume', () => {
   t.controller.handle(hello(7, item(3), 40));
   assert.deepEqual(t.calls, [
     ['play', ID_A, 40],
-    ['show', { requestedBy: 'Diminta oleh Viewer 3', title: 'Title 3' }],
+    ['show', { requestedBy: 'Diminta oleh Viewer 3', name: 'Viewer 3', role: '', title: 'Title 3', channel: '' }],
   ]);
   assert.equal(t.controller.state().lastSeq, 7);
   assert.equal(t.controller.state().current.id, 3);
@@ -224,7 +224,7 @@ test('the caption and title are handed over as plain strings', () => {
 test('missing or odd item fields fall back to empty text', () => {
   const t = setup();
   t.controller.handle(envelope(1, 'play', { item: { id: 1, video_id: ID_A, title: 5, requested_by: null }, volume: 50 }));
-  assert.deepEqual(t.calls.find((c) => c[0] === 'show')[1], { requestedBy: 'Requested by ', title: '' });
+  assert.deepEqual(t.calls.find((c) => c[0] === 'show')[1], { requestedBy: 'Requested by ', name: '', role: '', title: '', channel: '' });
 });
 
 test('an item with an invalid video id is reported, not played', () => {
@@ -740,3 +740,59 @@ test('begin forgets how far the last video had got', () => {
   assert.deepEqual(posts.slice(2).map((c) => c.type), ['mute', 'play']);
 });
 
+
+// --- the looks, and the clock ---
+
+test('only the looks the page has are accepted', () => {
+  for (const name of core.THEMES) assert.ok(core.isTheme(name), name);
+  assert.equal(core.THEMES.length, 10);
+  for (const bad of ['', 'neon', 'OBSIDIAN', 'pixel ', null, undefined, 3, {}, ['pixel'], '__proto__']) {
+    assert.equal(core.isTheme(bad), false, String(bad));
+  }
+});
+
+test('the look is set from the hello and from an event, never from junk', () => {
+  const themes = [];
+  const controller = core.createController({
+    player: { play() {}, stop() {}, setVolume() {} },
+    ui: { show() {}, hide() {}, setTheme: (name) => themes.push(name) },
+    send: () => true,
+    text: () => undefined,
+  });
+  controller.handle(envelope(1, 'hello', { volume: 50, settings: { overlay: { theme: 'terminal' } }, queue: { now_playing: null } }));
+  controller.handle(envelope(2, 'overlay_theme', { theme: 'komik' }));
+  controller.handle(envelope(2, 'overlay_theme', { theme: 'garis' })); // repeated sequence number
+  controller.handle(envelope(3, 'overlay_theme', { theme: 'neon' }));
+  controller.handle(envelope(4, 'overlay_theme', {}));
+  controller.handle(envelope(5, 'hello', { volume: 50, settings: null, queue: { now_playing: null } }));
+  assert.deepEqual(themes, ['terminal', 'komik']);
+});
+
+test('a role is shown by its translated name, and an odd one is left out', () => {
+  const t = setup({ texts: { 'role.follower': 'Follower' } });
+  t.controller.handle(envelope(1, 'play', { item: item(1, ID_A, { channel: 'Chan' }), volume: 50 }));
+  const shown = t.calls.find((c) => c[0] === 'show')[1];
+  assert.equal(shown.role, 'Follower');
+  assert.equal(shown.channel, 'Chan');
+  t.controller.handle(envelope(2, 'play', { item: item(2, ID_A, { requested_by: { name: 'x', role: '../x' } }), volume: 50 }));
+  assert.equal(t.calls.filter((c) => c[0] === 'show')[1][1].role, '');
+});
+
+test('seconds are written as m:ss, or h:mm:ss from an hour on', () => {
+  assert.equal(core.formatClock(0), '0:00');
+  assert.equal(core.formatClock(5.9), '0:05');
+  assert.equal(core.formatClock(65), '1:05');
+  assert.equal(core.formatClock(3599), '59:59');
+  assert.equal(core.formatClock(3600), '1:00:00');
+  assert.equal(core.formatClock(3725), '1:02:05');
+  for (const bad of [-1, NaN, Infinity, '5', null, undefined]) assert.equal(core.formatClock(bad), '', String(bad));
+});
+
+test('the clock says the time and what is left once the length is known', () => {
+  assert.deepEqual(core.clockTexts(23, 45), { time: '0:23 / 0:45', left: '0:22 left' });
+  assert.deepEqual(core.clockTexts(23, 45, 'sisa {time}'), { time: '0:23 / 0:45', left: 'sisa 0:22' });
+  assert.deepEqual(core.clockTexts(50, 45), { time: '0:50 / 0:45', left: '0:00 left' }, 'never negative');
+  assert.deepEqual(core.clockTexts(23, 0), { time: '0:23', left: '' });
+  assert.deepEqual(core.clockTexts(23, NaN), { time: '0:23', left: '' });
+  assert.deepEqual(core.clockTexts(NaN, 45), { time: '', left: '' });
+});

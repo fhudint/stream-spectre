@@ -16,7 +16,8 @@ pub use error::ConfigError;
 pub use model::{
     BlacklistConfig, ChatConfig, ChatSourceKind, CommandConfig, CommandEntry, CommandSource,
     Config, DashboardConfig, GeneralConfig, Language, MAX_CHAT_HISTORY, ModerationConfig,
-    ModerationMode, ServerConfig, TiktokConfig, YoutubeChatConfig, YoutubeConfig,
+    ModerationMode, OverlayConfig, OverlayTheme, ServerConfig, TiktokConfig, YoutubeChatConfig,
+    YoutubeConfig,
 };
 pub use paths::{CONFIG_FILE_NAME, ENV_CONFIG_PATH};
 /// A new empty folder under the system temp folder, for tests.

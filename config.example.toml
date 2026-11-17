@@ -106,3 +106,10 @@ title_words = []     # words that must not appear in a video title
 # How many recent chat messages the dashboard shows right after it is opened or
 # reloaded (0 to 200). Chat is only kept in memory, never written to disk.
 chat_history = 20
+
+[overlay]
+# The look of the overlay: obsidian, kertas, brutal, terminal, permen, pixel,
+# komik, garis, struk or pesan. Changeable in the dashboard (Overlay page),
+# also while streaming. Adding theme=name to the overlay's address in OBS
+# (after a ? or a &) gives that one source another look.
+theme = "obsidian"

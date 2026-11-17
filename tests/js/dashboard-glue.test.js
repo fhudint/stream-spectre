@@ -2429,3 +2429,43 @@ test('a command can be given the TikTok source on the rules page', async () => {
   assert.ok(page.elements['rules-chips'].children.some((chip) => chip.textContent === 'Commands !v !vt'));
 });
 
+
+// --- the look of the overlay ---
+
+const themeInputs = (page) => descendants(page.elements.themes).filter((n) => n.tag === 'input');
+
+test('the overlay page offers every look, marks the current one and saves a choice', async () => {
+  const withTheme = (theme) => {
+    const body = snapshot();
+    body.settings.overlay = { theme };
+    return body;
+  };
+  const page = await ready({ routes: { 'GET /api/state': () => ({ status: 200, body: withTheme('kertas') }) } });
+  const inputs = themeInputs(page);
+  assert.deepEqual(inputs.map((i) => i.attrs.value), core.OVERLAY_THEMES);
+  assert.deepEqual(inputs.filter((i) => i.checked).map((i) => i.attrs.value), ['kertas']);
+  const names = descendants(page.elements.themes).filter((n) => n.classes.has('theme-name')).map((n) => n.textContent);
+  assert.equal(names[0], 'Obsidian');
+  assert.equal(names[1], 'Paper');
+
+  page.table['PATCH /api/overlay'] = { status: 200, body: withTheme('pixel') };
+  inputs.find((i) => i.attrs.value === 'pixel').fire('change');
+  await settle();
+  const patch = page.log.requests.find((r) => r.path === '/api/overlay');
+  assert.equal(patch.method, 'PATCH');
+  assert.deepEqual(patch.body, { theme: 'pixel' });
+  assert.deepEqual(themeInputs(page).filter((i) => i.checked).map((i) => i.attrs.value), ['pixel']);
+});
+
+test('a server that sends no look shows the first one', async () => {
+  const page = await ready();
+  assert.deepEqual(themeInputs(page).filter((i) => i.checked).map((i) => i.attrs.value), ['obsidian']);
+});
+
+test('the server refusing a look is shown and the choice stays where it was', async () => {
+  const page = await ready();
+  page.table['PATCH /api/overlay'] = { status: 400, body: { error: 'unknown variant' } };
+  themeInputs(page).find((i) => i.attrs.value === 'komik').fire('change');
+  await settle();
+  assert.match(page.elements.error.textContent, /unknown variant/);
+});

@@ -21,6 +21,37 @@
   var TIKTOK_VIDEO_ID = /^[0-9]{15,20}$/;
   var DEFAULT_REQUESTED_BY = 'Requested by {name}';
   var DEFAULT_PAUSED = 'Paused';
+  var DEFAULT_LEFT = '{time} left';
+  /* The looks the overlay has; each is a block of styles in overlay.css and a
+   * name of OverlayTheme in the server. */
+  var THEMES = ['obsidian', 'kertas', 'brutal', 'terminal', 'permen', 'pixel', 'komik', 'garis', 'struk', 'pesan'];
+  var ROLE_NAME = /^[a-z_]{1,20}$/;
+
+  function isTheme(value) {
+    return typeof value === 'string' && THEMES.indexOf(value) >= 0;
+  }
+
+  /* Seconds as m:ss, or h:mm:ss from an hour on; '' when not a length. */
+  function formatClock(seconds) {
+    if (typeof seconds !== 'number' || !isFinite(seconds) || seconds < 0) return '';
+    var whole = Math.floor(seconds);
+    var s = whole % 60;
+    var m = Math.floor(whole / 60) % 60;
+    var h = Math.floor(whole / 3600);
+    var two = function (n) { return (n < 10 ? '0' : '') + n; };
+    return h > 0 ? h + ':' + two(m) + ':' + two(s) : m + ':' + two(s);
+  }
+
+  /* The texts of the clock: "0:23 / 0:45" and "0:22 left". Either is '' while
+   * what it needs is not known. `template` is the translated "{time} left". */
+  function clockTexts(position, duration, template) {
+    var known = typeof duration === 'number' && isFinite(duration) && duration > 0;
+    var at = formatClock(position);
+    return {
+      time: at && known ? at + ' / ' + formatClock(duration) : at,
+      left: known && at ? format(template || DEFAULT_LEFT, { time: formatClock(Math.max(0, duration - position)) }) : '',
+    };
+  }
 
   function isVideoId(value) {
     return typeof value === 'string' && VIDEO_ID.test(value);
@@ -222,8 +253,9 @@
    *   player: { play(videoId, volume, source), stop(), setVolume(volume),
    *             pause(), resume(),
    *             position() -> seconds into the video, or null when not playing }
-   *   ui:     { show({ requestedBy, title }), hide(),
-   *             setPaused(paused, label) (optional): the "Paused" notice }
+   *   ui:     { show({ requestedBy, name, role, title, channel }), hide(),
+   *             setPaused(paused, label) (optional): the "Paused" notice,
+   *             setTheme(name) (optional): the look of the overlay }
    *   send:   (message) => boolean, false when the socket is not open
    *   text:   (key) => string | undefined, for translated UI texts
    */
@@ -283,16 +315,25 @@
       var name = requester && typeof requester.name === 'string' ? requester.name : '';
       volume = clampVolume(requestedVolume, volume);
       player.play(item.video_id, volume, item.source === 'tiktok' ? 'tiktok' : 'youtube');
+      var role = requester && typeof requester.role === 'string' && ROLE_NAME.test(requester.role) ? requester.role : '';
       ui.show({
         requestedBy: format(text('overlay.requested_by') || DEFAULT_REQUESTED_BY, { name: name }),
+        name: name,
+        role: role && text('role.' + role) ? text('role.' + role) : '',
         title: typeof item.title === 'string' ? item.title : '',
+        channel: typeof item.channel === 'string' ? item.channel : '',
       });
       showPaused(); // a new video always plays: the notice goes away
+    }
+
+    function setTheme(name) {
+      if (isTheme(name) && typeof ui.setTheme === 'function') ui.setTheme(name);
     }
 
     function applyHello(message) {
       var data = message.data && typeof message.data === 'object' ? message.data : {};
       if (Number.isInteger(message.seq)) lastSeq = message.seq;
+      setTheme(data.settings && data.settings.overlay && data.settings.overlay.theme);
       volume = clampVolume(data.volume, volume);
       var playing = data.queue && data.queue.now_playing;
       var id = playing && Number.isInteger(playing.id) ? playing.id : null;
@@ -337,6 +378,9 @@
           break;
         case 'playback_paused':
           if (current && current.id === data.item_id) setPaused(data.paused === true);
+          break;
+        case 'overlay_theme':
+          setTheme(data.theme);
           break;
         default:
           break; // events this overlay does not use
@@ -392,6 +436,10 @@
     createTiktokSound: createTiktokSound,
     tiktokOutcome: tiktokOutcome,
     progressPercent: progressPercent,
+    THEMES: THEMES,
+    isTheme: isTheme,
+    formatClock: formatClock,
+    clockTexts: clockTexts,
     tiktokStarted: tiktokStarted,
     TIKTOK_START_MS: TIKTOK_START_MS,
     format: format,

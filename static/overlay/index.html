@@ -7,21 +7,29 @@
 <link rel="stylesheet" href="overlay.css">
 </head>
 <body>
-<main id="root" class="hidden">
-  <div id="frame">
-    <div id="stage">
-      <div id="player"></div>
-      <div id="tiktok"></div>
-      <div id="paused" role="status"><span id="paused-icon" aria-hidden="true"><i></i><i></i></span><span id="paused-label"></span></div>
+<main id="root" class="hidden" data-theme="obsidian">
+  <div id="card">
+    <div id="head"><span id="kicker"></span><span id="left"></span></div>
+    <div id="frame">
+      <div id="stage">
+        <div id="player"></div>
+        <div id="tiktok"></div>
+        <div id="paused" role="status"><span id="paused-icon" aria-hidden="true"><i></i><i></i></span><span id="paused-label"></span></div>
+      </div>
+      <div id="bar"><div id="bar-fill"></div></div>
     </div>
-    <div id="bar"><div id="bar-fill"></div></div>
-  </div>
-  <div id="caption">
-    <div id="caption-text">
-      <span id="requester"></span>
+    <div id="caption">
+      <div id="who">
+        <span id="avatar" aria-hidden="true"></span>
+        <span id="eq" aria-hidden="true"><i></i><i></i><i></i></span>
+        <span id="requested"></span>
+        <span id="name"></span>
+        <span id="role"></span>
+      </div>
       <span id="title"></span>
+      <span id="channel"></span>
+      <span id="time"></span>
     </div>
-    <span id="eq" aria-hidden="true"><i></i><i></i><i></i></span>
   </div>
 </main>
 <script src="overlay-core.js"></script>

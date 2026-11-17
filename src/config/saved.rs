@@ -19,8 +19,8 @@ use serde::{Deserialize, Serialize};
 
 use super::error::ConfigError;
 use super::model::{
-    BlacklistConfig, CommandConfig, Config, DashboardConfig, ModerationConfig, TiktokConfig,
-    YoutubeChatConfig,
+    BlacklistConfig, CommandConfig, Config, DashboardConfig, ModerationConfig, OverlayConfig,
+    TiktokConfig, YoutubeChatConfig,
 };
 
 /// Appended to the config file's name without its extension.
@@ -54,6 +54,8 @@ pub struct SavedSettings {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub dashboard: Option<DashboardConfig>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub overlay: Option<OverlayConfig>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub command: Option<CommandConfig>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub chat: Option<SavedChat>,
@@ -62,24 +64,20 @@ pub struct SavedSettings {
 impl SavedSettings {
     /// The tables that differ between `baseline` (what `config.toml` says)
     /// and the settings in effect now.
-    pub fn changes(
-        baseline: &Config,
-        moderation: &ModerationConfig,
-        blacklist: &BlacklistConfig,
-        dashboard: &DashboardConfig,
-        command: &CommandConfig,
-        tiktok: &TiktokConfig,
-        youtube: &YoutubeChatConfig,
-    ) -> Self {
+    pub fn changes(baseline: &Config, current: &Config) -> Self {
         let chat = SavedChat {
-            tiktok: (baseline.chat.tiktok != *tiktok).then(|| tiktok.clone()),
-            youtube: (baseline.chat.youtube != *youtube).then(|| youtube.clone()),
+            tiktok: (baseline.chat.tiktok != current.chat.tiktok)
+                .then(|| current.chat.tiktok.clone()),
+            youtube: (baseline.chat.youtube != current.chat.youtube)
+                .then(|| current.chat.youtube.clone()),
         };
         Self {
-            moderation: (baseline.moderation != *moderation).then(|| moderation.clone()),
-            blacklist: (baseline.blacklist != *blacklist).then(|| blacklist.clone()),
-            dashboard: (baseline.dashboard != *dashboard).then(|| dashboard.clone()),
-            command: (baseline.command != *command).then(|| command.clone()),
+            moderation: (baseline.moderation != current.moderation)
+                .then(|| current.moderation.clone()),
+            blacklist: (baseline.blacklist != current.blacklist).then(|| current.blacklist.clone()),
+            dashboard: (baseline.dashboard != current.dashboard).then(|| current.dashboard.clone()),
+            overlay: (baseline.overlay != current.overlay).then_some(current.overlay),
+            command: (baseline.command != current.command).then(|| current.command.clone()),
             chat: (chat != SavedChat::default()).then_some(chat),
         }
     }
@@ -90,6 +88,7 @@ impl SavedSettings {
             ("moderation", self.moderation.is_some()),
             ("blacklist", self.blacklist.is_some()),
             ("dashboard", self.dashboard.is_some()),
+            ("overlay", self.overlay.is_some()),
             ("command", self.command.is_some()),
             ("chat.tiktok", self.tiktok().is_some()),
             ("chat.youtube", self.youtube().is_some()),
@@ -110,6 +109,9 @@ impl SavedSettings {
         }
         if let Some(dashboard) = &self.dashboard {
             config.dashboard = dashboard.clone();
+        }
+        if let Some(overlay) = self.overlay {
+            config.overlay = overlay;
         }
         if let Some(command) = &self.command {
             config.command = command.clone();
@@ -210,7 +212,7 @@ pub(crate) mod tests {
 
     use super::*;
     use crate::chat::Role;
-    use crate::config::{CommandEntry, ModerationMode};
+    use crate::config::{CommandEntry, ModerationMode, OverlayTheme};
 
     /// A new empty folder under the system temp folder.
     pub(crate) fn temp_dir(label: &str) -> PathBuf {
@@ -273,27 +275,16 @@ pub(crate) mod tests {
     #[test]
     fn only_tables_that_differ_from_the_config_are_kept() {
         let base = Config::default();
-        let none = SavedSettings::changes(
-            &base,
-            &base.moderation,
-            &base.blacklist,
-            &base.dashboard,
-            &base.command,
-            &base.chat.tiktok,
-            &base.chat.youtube,
-        );
+        let none = SavedSettings::changes(&base, &base);
         assert_eq!(none, SavedSettings::default());
         assert!(none.tables().is_empty());
 
-        let some = SavedSettings::changes(
-            &base,
-            &changed_moderation(),
-            &base.blacklist,
-            &DashboardConfig { chat_history: 99 },
-            &base.command,
-            &base.chat.tiktok,
-            &base.chat.youtube,
-        );
+        let some = SavedSettings::changes(&base, &{
+            let mut config = base.clone();
+            config.moderation = changed_moderation();
+            config.dashboard = DashboardConfig { chat_history: 99 };
+            config
+        });
         assert_eq!(some.moderation, Some(changed_moderation()));
         assert_eq!(some.blacklist, None);
         assert_eq!(some.dashboard, Some(DashboardConfig { chat_history: 99 }));
@@ -303,15 +294,11 @@ pub(crate) mod tests {
     #[test]
     fn the_chat_commands_are_saved_as_one_table_and_replace_the_whole_table() {
         let base = Config::default();
-        let saved = SavedSettings::changes(
-            &base,
-            &base.moderation,
-            &base.blacklist,
-            &base.dashboard,
-            &changed_commands(),
-            &base.chat.tiktok,
-            &base.chat.youtube,
-        );
+        let saved = SavedSettings::changes(&base, &{
+            let mut config = base.clone();
+            config.command = changed_commands();
+            config
+        });
         assert_eq!(saved.tables(), vec!["command"]);
         let text = toml::to_string_pretty(&saved).unwrap();
         assert!(text.contains("[command]"), "{text}");
@@ -326,15 +313,7 @@ pub(crate) mod tests {
         assert_eq!(config.command, changed_commands());
 
         // Back to what config.toml says: nothing to keep.
-        let back = SavedSettings::changes(
-            &base,
-            &base.moderation,
-            &base.blacklist,
-            &base.dashboard,
-            &base.command,
-            &base.chat.tiktok,
-            &base.chat.youtube,
-        );
+        let back = SavedSettings::changes(&base, &base);
         assert_eq!(back, SavedSettings::default());
     }
 
@@ -346,28 +325,16 @@ pub(crate) mod tests {
             username: "from_dashboard".to_owned(),
             ..TiktokConfig::default()
         };
-        let saved = SavedSettings::changes(
-            &base,
-            &base.moderation,
-            &base.blacklist,
-            &base.dashboard,
-            &base.command,
-            &changed,
-            &base.chat.youtube,
-        );
+        let saved = SavedSettings::changes(&base, &{
+            let mut config = base.clone();
+            config.chat.tiktok = changed.clone();
+            config
+        });
         assert_eq!(saved.tables(), vec!["chat.tiktok"]);
         assert_eq!(saved.tiktok(), Some(&changed));
 
         // Changed back to what config.toml says: nothing to keep.
-        let back = SavedSettings::changes(
-            &base,
-            &base.moderation,
-            &base.blacklist,
-            &base.dashboard,
-            &base.command,
-            &base.chat.tiktok,
-            &base.chat.youtube,
-        );
+        let back = SavedSettings::changes(&base, &base);
         assert_eq!(back, SavedSettings::default());
 
         let mut config = base.clone();
@@ -393,15 +360,12 @@ pub(crate) mod tests {
             enabled: false,
             ..TiktokConfig::default()
         };
-        let saved = SavedSettings::changes(
-            &base,
-            &base.moderation,
-            &base.blacklist,
-            &base.dashboard,
-            &base.command,
-            &tiktok_off,
-            &youtube,
-        );
+        let saved = SavedSettings::changes(&base, &{
+            let mut config = base.clone();
+            config.chat.tiktok = tiktok_off.clone();
+            config.chat.youtube = youtube.clone();
+            config
+        });
         assert_eq!(saved.tables(), vec!["chat.tiktok", "chat.youtube"]);
         let mut config = base.clone();
         saved.apply_to(&mut config);
@@ -409,15 +373,11 @@ pub(crate) mod tests {
         assert_eq!(config.chat.youtube, youtube);
 
         // Only what differs is kept: here just the YouTube table.
-        let only_youtube = SavedSettings::changes(
-            &base,
-            &base.moderation,
-            &base.blacklist,
-            &base.dashboard,
-            &base.command,
-            &base.chat.tiktok,
-            &youtube,
-        );
+        let only_youtube = SavedSettings::changes(&base, &{
+            let mut config = base.clone();
+            config.chat.youtube = youtube.clone();
+            config
+        });
         assert_eq!(only_youtube.tables(), vec!["chat.youtube"]);
         let text = toml::to_string_pretty(&only_youtube).unwrap();
         assert!(
@@ -434,15 +394,11 @@ pub(crate) mod tests {
         let mut base = Config::default();
         base.chat.tiktok.username = "from_config".to_owned();
         let empty = TiktokConfig::default();
-        let saved = SavedSettings::changes(
-            &base,
-            &base.moderation,
-            &base.blacklist,
-            &base.dashboard,
-            &base.command,
-            &empty,
-            &base.chat.youtube,
-        );
+        let saved = SavedSettings::changes(&base, &{
+            let mut config = base.clone();
+            config.chat.tiktok = empty.clone();
+            config
+        });
         assert_eq!(saved.tiktok(), Some(&empty));
         let mut config = base;
         saved.apply_to(&mut config);
@@ -457,6 +413,7 @@ pub(crate) mod tests {
             moderation: Some(changed_moderation()),
             blacklist: Some(changed_blacklist()),
             dashboard: None,
+            overlay: None,
             command: None,
             chat: None,
         };
@@ -478,6 +435,9 @@ pub(crate) mod tests {
             moderation: Some(changed_moderation()),
             blacklist: Some(changed_blacklist()),
             dashboard: Some(DashboardConfig { chat_history: 0 }),
+            overlay: Some(OverlayConfig {
+                theme: OverlayTheme::Struk,
+            }),
             command: Some(changed_commands()),
             chat: Some(SavedChat {
                 tiktok: Some(TiktokConfig {

@@ -11,7 +11,7 @@ use super::history::HistoryEntry;
 use crate::chat::{ChatStatus, Role};
 use crate::config::{
     BlacklistConfig, ChatSourceKind, CommandConfig, CommandSource, DashboardConfig, Language,
-    ModerationConfig, TiktokConfig, YoutubeChatConfig,
+    ModerationConfig, OverlayConfig, OverlayTheme, TiktokConfig, YoutubeChatConfig,
 };
 use crate::queue::{Media, QueueItem, QueueSnapshot};
 
@@ -122,6 +122,7 @@ pub struct SettingsView {
     pub moderation: ModerationConfig,
     pub blacklist: BlacklistConfig,
     pub dashboard: DashboardConfig,
+    pub overlay: OverlayConfig,
     pub command: CommandConfig,
     pub chat: ChatSettingsView,
 }
@@ -276,6 +277,10 @@ pub enum Event {
         volume: u8,
     },
     SettingsUpdated(SettingsView),
+    /// The overlay theme changed (overlay and dashboard).
+    OverlayTheme {
+        theme: OverlayTheme,
+    },
     /// A message for the moderators, in the configured language.
     Notice {
         level: NoticeLevel,
@@ -513,6 +518,7 @@ mod tests {
             moderation: ModerationConfig::default(),
             blacklist: BlacklistConfig::default(),
             dashboard: DashboardConfig::default(),
+            overlay: OverlayConfig::default(),
             command: CommandConfig::default(),
             chat: ChatSettingsView::default(),
         });
@@ -596,6 +602,7 @@ mod tests {
                 moderation: ModerationConfig::default(),
                 blacklist: BlacklistConfig::default(),
                 dashboard: DashboardConfig::default(),
+                overlay: OverlayConfig::default(),
                 command: CommandConfig::default(),
                 chat: ChatSettingsView::default(),
             },
@@ -656,6 +663,7 @@ mod tests {
                     title_words: vec!["secretword".to_owned()],
                 },
                 dashboard: DashboardConfig::default(),
+                overlay: OverlayConfig::default(),
                 command: CommandConfig::default(),
                 chat: ChatSettingsView::default(),
             },

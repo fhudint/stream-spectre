@@ -17,6 +17,7 @@ pub struct Config {
     pub moderation: ModerationConfig,
     pub blacklist: BlacklistConfig,
     pub dashboard: DashboardConfig,
+    pub overlay: OverlayConfig,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, Serialize)]
@@ -314,4 +315,28 @@ impl Default for DashboardConfig {
     fn default() -> Self {
         Self { chat_history: 20 }
     }
+}
+
+/// How the overlay looks. Each theme is a set of styles in the overlay page
+/// (`static/overlay/overlay.css`); the names there must match these.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum OverlayTheme {
+    #[default]
+    Obsidian,
+    Kertas,
+    Brutal,
+    Terminal,
+    Permen,
+    Pixel,
+    Komik,
+    Garis,
+    Struk,
+    Pesan,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, Serialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct OverlayConfig {
+    pub theme: OverlayTheme,
 }

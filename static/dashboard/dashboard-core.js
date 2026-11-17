@@ -649,6 +649,15 @@
     return protocol + '//' + shown + '/overlay/' + (token ? '?token=' + encodeURIComponent(token) : '');
   }
 
+  /* The looks of the overlay, as the server names them. */
+  var OVERLAY_THEMES = ['obsidian', 'kertas', 'brutal', 'terminal', 'permen', 'pixel', 'komik', 'garis', 'struk', 'pesan'];
+
+  /* The look the settings say the overlay has; the first when they say none. */
+  function overlayTheme(settings) {
+    var name = settings && settings.overlay && settings.overlay.theme;
+    return OVERLAY_THEMES.indexOf(name) >= 0 ? name : OVERLAY_THEMES[0];
+  }
+
   /* The fields of `desired` that differ from `current`. */
   function diffSettings(current, desired) {
     var changes = {};
@@ -801,6 +810,8 @@
     selectAfter: selectAfter,
     keyCommand: keyCommand,
     overlayUrl: overlayUrl,
+    OVERLAY_THEMES: OVERLAY_THEMES,
+    overlayTheme: overlayTheme,
     initialState: initialState,
     reduce: reduce,
     diffSettings: diffSettings,

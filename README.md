@@ -170,10 +170,12 @@ page (see below): a live has a new link each time.
 4. Tick **Control audio via OBS** if you want the video's sound in the audio
    mixer. The volume is set from the dashboard.
 5. Move and resize the source in your scene. The overlay fills the source: the
-   video in a rounded frame with a progress line under it (in `#41A0E3`), and a
-   card under that with who asked for it and the title (for a TikTok video, its
-   account). While a moderator has a YouTube video paused, the overlay says
-   "Paused" over it.
+   video with a progress line, and who asked for it and the title (for a TikTok
+   video, its account). While a moderator has a video paused, the overlay says
+   "Paused" over it. Pick one of ten looks (Obsidian, Paper, Brutal, Terminal,
+   Candy, Pixel, Comic, Outline, Receipt, Messages) on the dashboard's Overlay
+   page; it changes at once in OBS. To give one source another look, add
+   `theme=pixel` (any look's name) to its address, after a `?` or a `&`.
    A tall source (for example 9:16) suits TikTok videos; the video takes
    whatever room the card leaves.
 
@@ -191,7 +193,7 @@ chat, and counters for this session), **Requests** (every request viewers sent,
 newest first, with what became of it: waiting, in the play queue, playing,
 played, skipped, rejected, could not play, or refused by the rules with the
 reason), **Blacklist**, **Rules** (the moderation settings), **Overlay** (the
-address to copy into OBS, and the volume) and **Settings** (how much chat the
+address to copy into OBS, its look, and the volume) and **Settings** (how much chat the
 dashboard remembers). Each page has its own address (`#queue`, `#requests`,
 `#blacklist`, `#rules`, `#overlay`, `#settings`). On a phone the menu is at the
 bottom and the queue page shows the waiting requests, the chat and the notices
@@ -416,4 +418,7 @@ you must offer its source to the people who use it.
 
 The dashboard includes the fonts Inter and Fira Code (latin subsets), under the
 SIL Open Font License 1.1. Their license texts are in
-[`static/dashboard/fonts/`](static/dashboard/fonts/).
+[`static/dashboard/fonts/`](static/dashboard/fonts/). The overlay's looks include
+Space Mono, Archivo Black, IBM Plex Mono, Fredoka, Press Start 2P, Bangers, Comic
+Neue, Courier Prime and Instrument Serif (latin subsets), under the same license;
+the texts are in [`static/overlay/fonts/OFL.txt`](static/overlay/fonts/OFL.txt).

@@ -20,22 +20,44 @@
   var root = document.getElementById('root');
   var stage = document.getElementById('stage');
   var tiktokHost = document.getElementById('tiktok');
-  var requester = document.getElementById('requester');
-  var title = document.getElementById('title');
   var barFill = document.getElementById('bar-fill');
   var pausedLabel = document.getElementById('paused-label');
+  // The texts of the card; some themes draw a label before a few of them.
+  var fields = {};
+  ['kicker', 'left', 'requested', 'name', 'role', 'title', 'channel', 'time', 'avatar'].forEach(function (id) {
+    fields[id] = document.getElementById(id);
+  });
+  // ?theme=name shows that look whatever the dashboard chose, for one source.
+  var forcedTheme = core.isTheme(params.get('theme')) ? params.get('theme') : '';
+
+  function put(id, value) {
+    fields[id].textContent = value;
+  }
 
   var ui = {
     show: function (info) {
-      requester.textContent = info.requestedBy;
-      title.textContent = info.title;
+      put('kicker', texts['overlay.kicker'] || 'Request from chat');
+      fields.name.setAttribute('data-label', texts['overlay.label.from'] || 'From');
+      fields.role.setAttribute('data-label', texts['overlay.label.role'] || 'Status');
+      fields.time.setAttribute('data-label', texts['overlay.label.time'] || 'Played');
+      put('requested', info.requestedBy);
+      put('name', info.name);
+      put('role', info.role);
+      put('title', info.title);
+      put('channel', info.channel);
+      put('avatar', info.name.replace(/^@/, '').slice(0, 1).toUpperCase());
       root.classList.remove('hidden');
     },
     hide: function () {
-      requester.textContent = '';
-      title.textContent = '';
+      Object.keys(fields).forEach(function (id) {
+        put(id, '');
+      });
       this.setPaused(false, '');
       root.classList.add('hidden');
+    },
+    /* The look of the overlay: a name the styles know (see overlay.css). */
+    setTheme: function (name) {
+      root.setAttribute('data-theme', forcedTheme || name);
     },
     /* The "Paused" notice over the video, and the level meter standing still. */
     setPaused: function (paused, label) {
@@ -253,14 +275,15 @@
         hideTiktok();
         if (ready) yt.stopVideo();
       },
-      /* How much of the video is done, 0 to 100 (0 when not known), for the
-       * line under it. Unlike `position` it also tells while paused. */
-      percent: function () {
-        if (tiktokOn) {
-          return tiktokClock ? core.progressPercent(tiktokClock.position, tiktokClock.duration) : 0;
+      /* How far the video is, as { position, duration } in seconds (a number
+       * is NaN when not known), for the line under it and the clock. Unlike
+       * `position` it also tells while paused. */
+      clock: function () {
+        if (tiktokOn) return tiktokClock || { position: NaN, duration: NaN };
+        if (!ready || typeof yt.getCurrentTime !== 'function' || typeof yt.getDuration !== 'function') {
+          return { position: NaN, duration: NaN };
         }
-        if (!ready || typeof yt.getCurrentTime !== 'function' || typeof yt.getDuration !== 'function') return 0;
-        return core.progressPercent(yt.getCurrentTime(), yt.getDuration());
+        return { position: yt.getCurrentTime(), duration: yt.getDuration() };
       },
       /* Seconds into the video while it plays, otherwise null. For TikTok it
        * is what its player last said. */
@@ -342,6 +365,11 @@
   setInterval(controller.tick, 1000);
   // The line under the video moves smoothly between these steps (see the CSS).
   setInterval(function () {
-    barFill.style.transform = 'scaleX(' + (player.percent() / 100).toFixed(4) + ')';
+    var clock = player.clock();
+    barFill.style.transform =
+      'scaleX(' + (core.progressPercent(clock.position, clock.duration) / 100).toFixed(4) + ')';
+    var shown = core.clockTexts(clock.position, clock.duration, texts['overlay.left']);
+    put('time', shown.time);
+    put('left', shown.left);
   }, 250);
 })();

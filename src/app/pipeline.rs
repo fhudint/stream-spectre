@@ -15,7 +15,7 @@ use crate::chat::{ChatEvent, ChatMessage, ChatSource, ChatStatus, Sender};
 use crate::command::{CommandParser, InvalidReason, Parsed};
 use crate::config::{
     BlacklistConfig, ChatSourceKind, CommandConfig, CommandSource, Config, ConfigError,
-    DashboardConfig, ModerationConfig, Secret, TiktokConfig, YoutubeChatConfig,
+    DashboardConfig, ModerationConfig, OverlayConfig, Secret, TiktokConfig, YoutubeChatConfig,
 };
 use crate::i18n::I18n;
 use crate::queue::{
@@ -99,6 +99,7 @@ struct Inner {
     gatekeeper: Gatekeeper,
     blacklist: BlacklistConfig,
     dashboard: DashboardConfig,
+    overlay: OverlayConfig,
     /// The chat words, and the parser built from them.
     command: CommandConfig,
     parser: Arc<CommandParser>,
@@ -183,6 +184,7 @@ impl<S: VideoSource> Pipeline<S> {
                 gatekeeper: Gatekeeper::new(config.moderation.clone(), blacklist),
                 blacklist: config.blacklist.clone(),
                 dashboard: config.dashboard.clone(),
+                overlay: config.overlay,
                 command: config.command.clone(),
                 parser: Arc::new(CommandParser::new(&config.command)),
                 chats: PerSource::default(),
@@ -626,6 +628,19 @@ impl<S: VideoSource> Pipeline<S> {
         Ok(())
     }
 
+    /// Changes how the overlay looks. Every theme is valid. Only a change is
+    /// announced, to the overlay and to the dashboards.
+    pub fn update_overlay(&self, new: OverlayConfig) {
+        let mut inner = self.lock();
+        if inner.overlay == new {
+            return;
+        }
+        inner.overlay = new;
+        self.bus
+            .publish(Event::SettingsUpdated(Self::settings_view(&inner)));
+        self.bus.publish(Event::OverlayTheme { theme: new.theme });
+    }
+
     /// Replaces the chat commands (the prefix and the words). Invalid ones
     /// are refused and nothing changes; messages already read are not looked
     /// at again.
@@ -905,6 +920,7 @@ impl<S: VideoSource> Pipeline<S> {
             moderation: inner.gatekeeper.settings().clone(),
             blacklist: inner.blacklist.clone(),
             dashboard: inner.dashboard.clone(),
+            overlay: inner.overlay,
             command: inner.command.clone(),
             chat: ChatSettingsView {
                 tiktok: inner.tiktok.clone(),
@@ -1340,6 +1356,27 @@ mod tests {
         p.update_dashboard(DashboardConfig { chat_history: 50 })
             .unwrap();
         assert_eq!(p.hello().chat_log.len(), 3);
+    }
+
+    #[tokio::test]
+    async fn the_overlay_theme_is_announced_once_and_only_when_it_changes() {
+        use crate::config::OverlayTheme;
+        let p = default_pipeline();
+        assert_eq!(p.hello().settings.overlay.theme, OverlayTheme::Obsidian);
+        let mut rx = p.subscribe();
+
+        p.update_overlay(OverlayConfig {
+            theme: OverlayTheme::Pixel,
+        });
+        let events = drain(&mut rx);
+        assert_eq!(kinds(&events), vec!["settings_updated", "overlay_theme"]);
+        assert_eq!(data(&events[1])["theme"], "pixel");
+        assert_eq!(p.hello().settings.overlay.theme, OverlayTheme::Pixel);
+
+        p.update_overlay(OverlayConfig {
+            theme: OverlayTheme::Pixel,
+        });
+        assert!(drain(&mut rx).is_empty());
     }
 
     #[tokio::test]

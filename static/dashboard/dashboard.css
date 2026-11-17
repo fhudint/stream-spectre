@@ -623,6 +623,33 @@ input[type='text'].short { max-width: 120px; }
 .command-row button:disabled { opacity: 0.4; cursor: default; }
 .address { padding: 10px 12px; border-radius: 12px; background: var(--button); overflow-wrap: anywhere; }
 
+/* The overlay's looks: a sample of each in its own colours. */
+.themes-field { border: 0; padding: 0; margin: 0; min-width: 0; }
+.themes-field legend { padding: 0; margin-bottom: 6px; }
+.themes { display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 10px; }
+.theme { position: relative; display: flex; flex-direction: column; gap: 6px; cursor: pointer; }
+.theme input { position: absolute; opacity: 0; inset: 0; margin: 0; cursor: pointer; }
+.theme .swatch {
+  display: flex; align-items: center; justify-content: center;
+  height: 56px; border-radius: 12px; border: 2px solid transparent;
+  background: var(--sw-bg); color: var(--sw-ink); font-size: 20px; font-weight: 600;
+  box-shadow: inset 0 -6px 0 var(--sw-accent);
+}
+.theme input:checked + .swatch { border-color: var(--text); }
+.theme input:focus-visible + .swatch { outline: 2px solid var(--text); outline-offset: 2px; }
+.theme .theme-name { font-size: 13px; color: var(--muted); }
+.theme input:checked ~ .theme-name { color: var(--text); font-weight: 500; }
+.theme[data-theme='obsidian'] { --sw-bg: #15171a; --sw-ink: #fff; --sw-accent: #41a0e3; }
+.theme[data-theme='kertas'] { --sw-bg: #f4f1ea; --sw-ink: #141414; --sw-accent: #b3361b; }
+.theme[data-theme='brutal'] { --sw-bg: #ffd60a; --sw-ink: #000; --sw-accent: #000; }
+.theme[data-theme='terminal'] { --sw-bg: #0b100d; --sw-ink: #d4f5dd; --sw-accent: #7ee2a0; }
+.theme[data-theme='permen'] { --sw-bg: #fff0f5; --sw-ink: #5b2a3c; --sw-accent: #ff6f9c; }
+.theme[data-theme='pixel'] { --sw-bg: #0f0f10; --sw-ink: #f2f2f2; --sw-accent: #ffe14d; }
+.theme[data-theme='komik'] { --sw-bg: #fff; --sw-ink: #000; --sw-accent: #e63946; }
+.theme[data-theme='garis'] { --sw-bg: #5a5f68; --sw-ink: #fff; --sw-accent: #fff; }
+.theme[data-theme='struk'] { --sw-bg: #fffdf6; --sw-ink: #1d1d1b; --sw-accent: #1d1d1b; }
+.theme[data-theme='pesan'] { --sw-bg: #0f1112; --sw-ink: #fff; --sw-accent: #3ddc84; }
+
 /* --- phones and narrow windows --- */
 
 .bottom-nav { display: none; }

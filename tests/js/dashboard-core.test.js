@@ -715,3 +715,11 @@ test('a TikTok video has a position once the overlay has told its length, the se
   assert.equal(core.playbackDuration({ queue: { now_playing: null }, playback: null }), 0);
 });
 
+
+test('the look of the overlay is read from the settings, the first when there is none', () => {
+  assert.equal(core.OVERLAY_THEMES.length, 10);
+  assert.equal(core.overlayTheme({ overlay: { theme: 'pixel' } }), 'pixel');
+  for (const bad of [undefined, null, {}, { overlay: null }, { overlay: {} }, { overlay: { theme: 'neon' } }, { overlay: { theme: 3 } }]) {
+    assert.equal(core.overlayTheme(bad), 'obsidian', JSON.stringify(bad));
+  }
+});

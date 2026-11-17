@@ -49,6 +49,7 @@ impl Kind {
                     | Event::Skip { .. }
                     | Event::Stop {}
                     | Event::Volume { .. }
+                    | Event::OverlayTheme { .. }
                     | Event::PlaybackPaused { .. }
             ),
         }
@@ -266,6 +267,9 @@ mod tests {
             },
             Event::Stop {},
             Event::Volume { volume: 5 },
+            Event::OverlayTheme {
+                theme: crate::config::OverlayTheme::Komik,
+            },
         ];
         for event in &screen {
             assert!(Kind::Overlay.wants(event), "{event:?}");

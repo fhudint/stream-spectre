@@ -100,6 +100,7 @@ pub fn router<S: VideoSource + 'static>(state: ServerState<S>, guard: Arc<Guard>
         .route("/api/settings", patch(api::settings::<S>))
         .route("/api/blacklist", patch(api::blacklist::<S>))
         .route("/api/dashboard", patch(api::dashboard::<S>))
+        .route("/api/overlay", patch(api::overlay::<S>))
         .route("/api/commands", patch(api::commands::<S>))
         .route("/api/chat/tiktok", patch(api::tiktok::<S>))
         .route("/api/chat/youtube", patch(api::youtube_chat::<S>))
@@ -1223,6 +1224,46 @@ mod tests {
         // The username is in the settings of every hello; that is the one
         // thing the overlay's hello has in common with the dashboard's.
         assert!(hello["data"]["settings"]["chat"].is_object());
+    }
+
+    #[tokio::test]
+    async fn the_overlay_theme_is_patched_and_checked() {
+        let server = start(None).await;
+        let patch = |body: Value| {
+            server
+                .http
+                .patch(server.url("/api/overlay"))
+                .json(&body)
+                .send()
+        };
+
+        let updated: Value = patch(json!({"theme": "kertas"}))
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        assert_eq!(updated["settings"]["overlay"]["theme"], "kertas");
+
+        for bad in [
+            json!({"theme": "neon"}),
+            json!({"theme": 3}),
+            json!({"color": "red"}),
+            json!(["pixel"]),
+        ] {
+            let refused = patch(bad.clone()).await.unwrap();
+            assert_eq!(refused.status(), 400, "{bad}");
+        }
+        let state: Value = server
+            .http
+            .get(server.url("/api/state"))
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        assert_eq!(state["settings"]["overlay"]["theme"], "kertas");
     }
 
     #[tokio::test]
