@@ -102,6 +102,7 @@ pub fn router<S: VideoSource + 'static>(state: ServerState<S>, guard: Arc<Guard>
         .route("/api/dashboard", patch(api::dashboard::<S>))
         .route("/api/commands", patch(api::commands::<S>))
         .route("/api/chat/tiktok", patch(api::tiktok::<S>))
+        .route("/api/chat/youtube", patch(api::youtube_chat::<S>))
         .route("/api/chat/connection", put(api::chat_connection::<S>))
         .route("/api/account", get(api::account::<S>))
         .route(
@@ -1100,6 +1101,68 @@ mod tests {
             .unwrap();
         let stop = next_json(&mut overlay).await;
         assert_eq!(stop["type"], "stop");
+    }
+
+    #[tokio::test]
+    async fn the_youtube_chat_and_the_switches_are_patched_and_checked() {
+        let server = start(None).await;
+        let patch = |path: &'static str, body: Value| {
+            server.http.patch(server.url(path)).json(&body).send()
+        };
+
+        let updated: Value = patch(
+            "/api/chat/youtube",
+            json!({"video": "https://youtu.be/HFSuEKR1b0w"}),
+        )
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+        assert_eq!(
+            updated["settings"]["chat"]["youtube"],
+            json!({"video": "HFSuEKR1b0w", "enabled": true})
+        );
+
+        // A switch alone changes only the switch.
+        let off: Value = patch("/api/chat/tiktok", json!({"enabled": false}))
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        assert_eq!(off["settings"]["chat"]["tiktok"]["enabled"], false);
+        assert_eq!(off["settings"]["chat"]["tiktok"]["username"], "streamer");
+        let off: Value = patch("/api/chat/youtube", json!({"enabled": false}))
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        assert_eq!(off["settings"]["chat"]["youtube"]["video"], "HFSuEKR1b0w");
+        assert_eq!(off["settings"]["chat"]["youtube"]["enabled"], false);
+
+        for bad in [
+            json!({"video": "nope"}),
+            json!({"video": "https://evil.example/watch?v=HFSuEKR1b0w"}),
+            json!({"video": 5}),
+            json!({"vidoe": "HFSuEKR1b0w"}),
+            json!({"enabled": "yes"}),
+            json!([]),
+        ] {
+            let response = patch("/api/chat/youtube", bad.clone()).await.unwrap();
+            assert_eq!(response.status(), 400, "{bad}");
+        }
+        let state: Value = server
+            .http
+            .get(server.url("/api/state"))
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        assert_eq!(state["settings"]["chat"]["youtube"]["video"], "HFSuEKR1b0w");
     }
 
     #[tokio::test]

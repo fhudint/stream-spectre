@@ -16,7 +16,7 @@ pub use error::ConfigError;
 pub use model::{
     BlacklistConfig, ChatConfig, ChatSourceKind, CommandConfig, CommandEntry, CommandSource,
     Config, DashboardConfig, GeneralConfig, Language, MAX_CHAT_HISTORY, ModerationConfig,
-    ModerationMode, ServerConfig, TiktokConfig, YoutubeConfig,
+    ModerationMode, ServerConfig, TiktokConfig, YoutubeChatConfig, YoutubeConfig,
 };
 pub use paths::{CONFIG_FILE_NAME, ENV_CONFIG_PATH};
 /// A new empty folder under the system temp folder, for tests.
@@ -190,6 +190,19 @@ mod tests {
 
     fn parse_str(text: &str) -> Result<Config, ConfigError> {
         parse(text, Path::new("config.toml"))
+    }
+
+    #[test]
+    fn both_chats_are_on_by_default_and_the_old_source_setting_still_loads() {
+        let config = parse_str(&format!(
+            "[chat]\nsource = \"tiktok\"\n{USER}\n[chat.youtube]\nvideo = \"HFSuEKR1b0w\"\n"
+        ))
+        .unwrap();
+        assert!(config.chat.tiktok.enabled && config.chat.youtube.enabled);
+        assert_eq!(config.chat.youtube.video, "HFSuEKR1b0w");
+        let off = parse_str("[chat.tiktok]\nenabled = false\n").unwrap();
+        assert!(!off.chat.tiktok.enabled && off.chat.youtube.enabled);
+        assert!(parse_str("[chat.youtube]\nvideo = \"x\"\nnope = 1\n").is_err());
     }
 
     /// The one setting a config must have to be valid.

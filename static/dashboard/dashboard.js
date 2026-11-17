@@ -26,6 +26,7 @@
   /* Where the keyboard focus goes when #account/<part> is opened. */
   var SECTION_FOCUS = {
     tiktok: 'tiktok-username',
+    'youtube-chat': 'youtube-chat-video',
     youtube: 'youtube-key',
     token: 'token-heading',
   };
@@ -402,18 +403,24 @@
     var connection = $('connection');
     connection.textContent = t('dashboard.connection.' + link);
     connection.className = 'pill ' + (link === 'connected' ? 'state-ok' : 'state-bad');
-    var chat = $('chat-status');
-    if (state.chat && typeof state.chat.text === 'string') {
-      chat.textContent = state.chat.text;
-      chat.className = 'pill ' + (state.chat.state === 'connected' ? 'state-ok' : 'state-bad');
-    } else {
-      chat.textContent = '';
-      chat.className = 'pill';
-    }
-    // Without a username nothing is read: say so, with a way to fix it.
-    var unset = state.chat !== null && state.chat.state === 'not_configured';
+    // One pill for each chat. A chat with nothing to read (nothing set, or
+    // switched off on purpose) has none: the hint below says it once.
+    core.CHAT_SOURCES.forEach(function (source) {
+      var status = state.chats[source];
+      var pill = $(CHAT_PILLS[source]);
+      if (status && typeof status.text === 'string' && !isIdle(status)) {
+        pill.textContent = status.text;
+        pill.className = 'pill ' + (status.state === 'connected' ? 'state-ok' : 'state-bad');
+      } else {
+        pill.textContent = '';
+        pill.className = 'pill';
+      }
+    });
+    // With nothing to read anywhere, say so, with a way to fix it.
+    var known = reported();
+    var unset = known.length > 0 && known.every(isIdle);
     $('setup-hint').classList[unset ? 'remove' : 'add']('hidden');
-    $('setup-hint-text').textContent = unset && typeof state.chat.text === 'string' ? state.chat.text : '';
+    $('setup-hint-text').textContent = unset ? t('dashboard.setup.hint') : '';
     // The avatar is always there: it opens the account menu. Without a
     // channel it says "Account".
     var channel = state.chat && typeof state.chat.channel === 'string' ? state.chat.channel : '';
@@ -424,12 +431,52 @@
     $('menu-channel').classList[channel ? 'remove' : 'add']('hidden');
     $('account-button').setAttribute('aria-label', t('dashboard.account.menu_label') + ': ' + shownName);
     // Disconnect or connect the chat: only when there is a chat to switch.
-    var chatState = state.chat && typeof state.chat.state === 'string' ? state.chat.state : '';
-    var switchable = chatState !== '' && chatState !== 'not_configured';
+    var switchable = known.some(function (status) {
+      return !isIdle(status);
+    });
     $('menu-disconnect').classList[switchable ? 'remove' : 'add']('hidden');
     $('menu-disconnect').textContent = t(
-      chatState === 'paused' ? 'dashboard.account.menu.connect' : 'dashboard.account.menu.disconnect'
+      isPaused() ? 'dashboard.account.menu.connect' : 'dashboard.account.menu.disconnect'
     );
+  }
+
+  /* The pill of each chat, by source. */
+  var CHAT_PILLS = { tiktok: 'chat-status', youtube: 'chat-status-youtube' };
+
+  /* The chats that have reported a status. */
+  function reported() {
+    return core.CHAT_SOURCES.map(function (source) {
+      return state.chats[source];
+    }).filter(Boolean);
+  }
+
+  /* Nothing to read: nothing set, or switched off on purpose. */
+  function isIdle(status) {
+    return status.state === 'not_configured' || status.state === 'disabled';
+  }
+
+  /* The chat was disconnected from the account menu. */
+  function isPaused() {
+    return reported().some(function (status) {
+      return status.state === 'paused';
+    });
+  }
+
+  /* The Account page's chat cards: each source's switch and status line, and
+   * the YouTube live. Anything being typed is left alone. */
+  function renderChatAccount() {
+    var chat = (state.settings && state.settings.chat) || {};
+    [
+      ['tiktok', 'tiktok-enabled', 'tiktok-status'],
+      ['youtube', 'youtube-chat-enabled', 'youtube-chat-status'],
+    ].forEach(function (row) {
+      var box = $(row[1]);
+      if (chat[row[0]] && box !== document.activeElement) box.checked = chat[row[0]].enabled !== false;
+      var status = state.chats[row[0]];
+      $(row[2]).textContent = status && typeof status.text === 'string' ? status.text : '';
+    });
+    var video = $('youtube-chat-video');
+    if (chat.youtube && video !== document.activeElement) video.value = String(chat.youtube.video);
   }
 
   function renderSummary() {
@@ -997,6 +1044,7 @@
     renderChat(false);
     renderNotices();
     renderSettings();
+    renderChatAccount();
     renderOverlay();
   }
 
@@ -1129,6 +1177,31 @@
     });
   });
 
+  /* Switches the chat of `source` ('tiktok' or 'youtube') on or off. */
+  function setChatEnabled(source, enabled) {
+    act('PATCH', '/api/chat/' + source, { enabled: enabled }, function (result) {
+      adopt(result.data);
+      flash(t(enabled ? 'dashboard.chat.switched_on' : 'dashboard.chat.switched_off'));
+    });
+  }
+
+  $('tiktok-enabled').addEventListener('change', function () {
+    setChatEnabled('tiktok', $('tiktok-enabled').checked);
+  });
+  $('youtube-chat-enabled').addEventListener('change', function () {
+    setChatEnabled('youtube', $('youtube-chat-enabled').checked);
+  });
+
+  /* The live is sent as typed (a link or an ID); the server checks it and
+   * keeps the ID. */
+  $('youtube-chat-form').addEventListener('submit', function (event) {
+    event.preventDefault();
+    act('PATCH', '/api/chat/youtube', { video: $('youtube-chat-video').value.trim() }, function (result) {
+      adopt(result.data);
+      flash(t('dashboard.youtube_chat.saved'));
+    });
+  });
+
   $('chat-form').addEventListener('submit', function (event) {
     event.preventDefault();
     var size = core.readChatHistory($('chat-history').value);
@@ -1189,7 +1262,7 @@
   /* Disconnects the chat, or connects it again, for as long as the program
    * runs. It is only for this run: after a restart the chat connects by itself. */
   $('menu-disconnect').addEventListener('click', function () {
-    var wasPaused = state.chat !== null && state.chat.state === 'paused';
+    var wasPaused = isPaused();
     act('PUT', '/api/chat/connection', { connected: wasPaused }, function (result) {
       adopt(result.data);
       flash(t(wasPaused ? 'dashboard.chat.connecting' : 'dashboard.chat.disconnected'));

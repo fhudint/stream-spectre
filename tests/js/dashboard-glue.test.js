@@ -1510,9 +1510,8 @@ test('without a username the queue page says so and points to the settings', asy
 
   page.socket().receive(envelope(6, 'chat_status', { state: 'not_configured', channel: '', text: 'No TikTok username yet. Enter it on the Account page to read the chat.' }));
   assert.ok(!page.elements['setup-hint'].hidden);
-  assert.equal(page.elements['setup-hint-text'].textContent, 'No TikTok username yet. Enter it on the Account page to read the chat.');
-  assert.equal(page.elements['chat-status'].textContent, 'No TikTok username yet. Enter it on the Account page to read the chat.');
-  assert.ok(page.elements['chat-status'].classes.has('state-bad'));
+  assert.equal(page.elements['setup-hint-text'].textContent, 'No chat to read yet. Enter a TikTok username or a YouTube live on the Account page.');
+  assert.equal(page.elements['chat-status'].textContent, '', 'a chat with nothing set has no pill: the hint says it');
   // The avatar stays, since it opens the account menu; it just says "Account".
   assert.equal(page.elements['channel-name'].textContent, 'Account');
   assert.equal(page.elements['channel-initial'].textContent, 'A');
@@ -1528,6 +1527,107 @@ test('a page that starts without a username shows the hint at once', async () =>
   const page = await ready({ routes: { 'GET /api/state': () => ({ status: 200, body }) } });
   assert.ok(!page.elements['setup-hint'].hidden);
   assert.equal(page.elements['tiktok-username'].value, '');
+});
+
+// --- two chats ---
+
+const chatView = (source, state, text, channel = '') => ({ source, state, channel, text });
+const twoChats = (extra = {}) =>
+  snapshot({
+    chats: [chatView('tiktok', 'connected', 'TikTok is connected', 'streamer'), chatView('youtube', 'waiting_for_live', 'YouTube waits', 'HFSuEKR1b0w')],
+    ...extra,
+  });
+const withChats = (body) => ({ routes: { 'GET /api/state': () => ({ status: 200, body }) } });
+
+test('each chat has its own pill, and an event only changes the pill of its source', async () => {
+  const page = await ready(withChats(twoChats()));
+  assert.equal(page.elements['chat-status'].textContent, 'TikTok is connected');
+  assert.ok(page.elements['chat-status'].classes.has('state-ok'));
+  assert.equal(page.elements['chat-status-youtube'].textContent, 'YouTube waits');
+  assert.ok(page.elements['chat-status-youtube'].classes.has('state-bad'));
+
+  page.socket().receive(envelope(6, 'chat_status', chatView('youtube', 'connected', 'YouTube is connected', 'HFSuEKR1b0w')));
+  assert.equal(page.elements['chat-status-youtube'].textContent, 'YouTube is connected');
+  assert.ok(page.elements['chat-status-youtube'].classes.has('state-ok'));
+  assert.equal(page.elements['chat-status'].textContent, 'TikTok is connected');
+});
+
+test('a chat with nothing to read, or switched off, has no pill, and the hint comes only when no chat has anything', async () => {
+  const body = twoChats({ chats: [chatView('tiktok', 'not_configured', 'x'), chatView('youtube', 'connected', 'YouTube is connected', 'v')] });
+  const page = await ready(withChats(body));
+  assert.equal(page.elements['chat-status'].textContent, '');
+  assert.ok(page.elements['setup-hint'].hidden, 'the other chat is working');
+  assert.ok(!page.elements['menu-disconnect'].hidden);
+
+  page.socket().receive(envelope(6, 'chat_status', chatView('youtube', 'disabled', 'off')));
+  assert.equal(page.elements['chat-status-youtube'].textContent, '', 'off on purpose: no pill');
+  assert.ok(!page.elements['setup-hint'].hidden, 'nothing is being read now');
+  assert.ok(page.elements['menu-disconnect'].hidden, 'nothing to disconnect');
+});
+
+test('the menu connects the chats again when either was disconnected from it', async () => {
+  const page = await ready(withChats(twoChats({ chats: [chatView('tiktok', 'paused', 'p'), chatView('youtube', 'paused', 'p')] })));
+  assert.equal(page.elements['menu-disconnect'].textContent, 'Connect chat');
+  page.table['PUT /api/chat/connection'] = { status: 200, body: twoChats() };
+  page.elements['menu-disconnect'].fire('click');
+  await settle();
+  assert.deepEqual(page.log.requests.find((r) => r.path === '/api/chat/connection').body, { connected: true });
+
+  // With only YouTube in use, TikTok has nothing set and says so, not "paused".
+  const youtubeOnly = await ready(withChats(twoChats({ chats: [chatView('tiktok', 'not_configured', 'n'), chatView('youtube', 'paused', 'p')] })));
+  assert.equal(youtubeOnly.elements['menu-disconnect'].textContent, 'Connect chat');
+});
+
+test('the account page has a switch and a status line for each chat, and the YouTube live', async () => {
+  const body = twoChats();
+  body.settings.chat.youtube = { video: 'HFSuEKR1b0w', enabled: false };
+  body.settings.chat.tiktok = { username: 'streamer', enabled: true };
+  const page = await ready(withChats(body));
+  assert.equal(page.elements['tiktok-enabled'].checked, true);
+  assert.equal(page.elements['youtube-chat-enabled'].checked, false);
+  assert.equal(page.elements['youtube-chat-video'].value, 'HFSuEKR1b0w');
+  assert.equal(page.elements['tiktok-status'].textContent, 'TikTok is connected');
+  assert.equal(page.elements['youtube-chat-status'].textContent, 'YouTube waits');
+  page.socket().receive(envelope(6, 'chat_status', chatView('youtube', 'connected', 'Now connected', 'v')));
+  assert.equal(page.elements['youtube-chat-status'].textContent, 'Now connected');
+});
+
+test('switching a chat on or off sends only the switch, and the answer is adopted', async () => {
+  const page = await ready(withChats(twoChats()));
+  const answer = twoChats();
+  answer.settings.chat.youtube = { video: '', enabled: false };
+  page.table['PATCH /api/chat/youtube'] = { status: 200, body: answer };
+  page.elements['youtube-chat-enabled'].checked = false;
+  page.elements['youtube-chat-enabled'].fire('change');
+  await settle();
+  assert.deepEqual(page.log.requests.find((r) => r.path === '/api/chat/youtube').body, { enabled: false });
+  assert.equal(page.elements.flash.textContent, 'Chat switched off');
+
+  page.table['PATCH /api/chat/tiktok'] = { status: 200, body: twoChats() };
+  page.elements['tiktok-enabled'].checked = true;
+  page.elements['tiktok-enabled'].fire('change');
+  await settle();
+  assert.deepEqual(page.log.requests.find((r) => r.path === '/api/chat/tiktok').body, { enabled: true });
+  assert.equal(page.elements.flash.textContent, 'Chat switched on');
+});
+
+test('the YouTube live is sent as typed and shown as the server keeps it; a refusal is shown', async () => {
+  const page = await ready(withChats(twoChats()));
+  const answer = twoChats();
+  answer.settings.chat.youtube = { video: 'HFSuEKR1b0w', enabled: true };
+  page.table['PATCH /api/chat/youtube'] = { status: 200, body: answer };
+  page.elements['youtube-chat-video'].value = '  https://www.youtube.com/live/HFSuEKR1b0w  ';
+  page.elements['youtube-chat-form'].fire('submit');
+  await settle();
+  assert.deepEqual(page.log.requests.find((r) => r.path === '/api/chat/youtube').body, { video: 'https://www.youtube.com/live/HFSuEKR1b0w' });
+  assert.equal(page.elements['youtube-chat-video'].value, 'HFSuEKR1b0w');
+  assert.equal(page.elements.flash.textContent, 'YouTube live saved');
+
+  page.table['PATCH /api/chat/youtube'] = { status: 400, body: { error: 'chat.youtube.video: must be a video' } };
+  page.elements['youtube-chat-video'].value = 'nope';
+  page.elements['youtube-chat-form'].fire('submit');
+  await settle();
+  assert.match(page.elements.error.textContent, /chat\.youtube\.video/);
 });
 
 // --- the icon ---

@@ -19,9 +19,9 @@
 # Every key is optional. The values below are what the program uses when a key
 # is left out, except for three that this example sets differently, as a
 # starting point: `general.language` ("en"), the chat commands (`!yt` for
-# YouTube and `!vt` for TikTok) and `chat.tiktok.username`, which has no useful
-# default: leave it out and the program starts anyway, waits, and you enter the
-# username on the dashboard's Account page.
+# YouTube and `!vt` for TikTok) and the chat settings, which have no useful
+# default: leave them out and the program starts anyway, waits, and you enter
+# the TikTok username or the YouTube live on the dashboard's Account page.
 
 [general]
 # Language of the dashboard and overlay: "id" or "en".
@@ -33,15 +33,25 @@ language = "en"
 bind = "127.0.0.1"
 port = 8787
 
-[chat]
-# Only "tiktok" is supported for now.
-source = "tiktok"
+# Chat is read from TikTok and from YouTube at the same time, each one only
+# when it has something to read and is not switched off. (An old `source = ...`
+# line under [chat] is still accepted and ignored.)
 
 [chat.tiktok]
 # Username of the streamer whose LIVE chat is read, with or without "@".
 # Can be left empty and set from the dashboard (Account page) instead; a
 # change there takes effect at once, without a restart.
 # username = "your_tiktok_username"
+# Set to false to stop reading TikTok chat without losing the username.
+# enabled = true
+
+[chat.youtube]
+# The YouTube live whose chat is read: its link or its 11-character video ID.
+# Only a public live works. A live gets a new video each time, so this is
+# meant to be set from the dashboard (Account page) for each stream. The chat is read without an API
+# key, from the page YouTube shows to everyone.
+# video = "https://www.youtube.com/watch?v=VIDEO_ID"
+# enabled = true
 
 [command]
 # Viewers send: <prefix><name> <video ID or link>, for example "!yt dQw4w9WgXcQ"

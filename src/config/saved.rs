@@ -20,6 +20,7 @@ use serde::{Deserialize, Serialize};
 use super::error::ConfigError;
 use super::model::{
     BlacklistConfig, CommandConfig, Config, DashboardConfig, ModerationConfig, TiktokConfig,
+    YoutubeChatConfig,
 };
 
 /// Appended to the config file's name without its extension.
@@ -38,6 +39,8 @@ const HEADER: &str = "\
 pub struct SavedChat {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tiktok: Option<TiktokConfig>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub youtube: Option<YoutubeChatConfig>,
 }
 
 /// The tables that were changed in the dashboard.
@@ -66,15 +69,18 @@ impl SavedSettings {
         dashboard: &DashboardConfig,
         command: &CommandConfig,
         tiktok: &TiktokConfig,
+        youtube: &YoutubeChatConfig,
     ) -> Self {
+        let chat = SavedChat {
+            tiktok: (baseline.chat.tiktok != *tiktok).then(|| tiktok.clone()),
+            youtube: (baseline.chat.youtube != *youtube).then(|| youtube.clone()),
+        };
         Self {
             moderation: (baseline.moderation != *moderation).then(|| moderation.clone()),
             blacklist: (baseline.blacklist != *blacklist).then(|| blacklist.clone()),
             dashboard: (baseline.dashboard != *dashboard).then(|| dashboard.clone()),
             command: (baseline.command != *command).then(|| command.clone()),
-            chat: (baseline.chat.tiktok != *tiktok).then(|| SavedChat {
-                tiktok: Some(tiktok.clone()),
-            }),
+            chat: (chat != SavedChat::default()).then_some(chat),
         }
     }
 
@@ -86,6 +92,7 @@ impl SavedSettings {
             ("dashboard", self.dashboard.is_some()),
             ("command", self.command.is_some()),
             ("chat.tiktok", self.tiktok().is_some()),
+            ("chat.youtube", self.youtube().is_some()),
         ]
         .into_iter()
         .filter_map(|(name, present)| present.then_some(name))
@@ -110,11 +117,19 @@ impl SavedSettings {
         if let Some(tiktok) = self.tiktok() {
             config.chat.tiktok = tiktok.clone();
         }
+        if let Some(youtube) = self.youtube() {
+            config.chat.youtube = youtube.clone();
+        }
     }
 
     /// The saved `[chat.tiktok]` table, if there is one.
     pub fn tiktok(&self) -> Option<&TiktokConfig> {
         self.chat.as_ref().and_then(|chat| chat.tiktok.as_ref())
+    }
+
+    /// The saved `[chat.youtube]` table, if there is one.
+    pub fn youtube(&self) -> Option<&YoutubeChatConfig> {
+        self.chat.as_ref().and_then(|chat| chat.youtube.as_ref())
     }
 }
 
@@ -265,6 +280,7 @@ pub(crate) mod tests {
             &base.dashboard,
             &base.command,
             &base.chat.tiktok,
+            &base.chat.youtube,
         );
         assert_eq!(none, SavedSettings::default());
         assert!(none.tables().is_empty());
@@ -276,6 +292,7 @@ pub(crate) mod tests {
             &DashboardConfig { chat_history: 99 },
             &base.command,
             &base.chat.tiktok,
+            &base.chat.youtube,
         );
         assert_eq!(some.moderation, Some(changed_moderation()));
         assert_eq!(some.blacklist, None);
@@ -293,6 +310,7 @@ pub(crate) mod tests {
             &base.dashboard,
             &changed_commands(),
             &base.chat.tiktok,
+            &base.chat.youtube,
         );
         assert_eq!(saved.tables(), vec!["command"]);
         let text = toml::to_string_pretty(&saved).unwrap();
@@ -315,6 +333,7 @@ pub(crate) mod tests {
             &base.dashboard,
             &base.command,
             &base.chat.tiktok,
+            &base.chat.youtube,
         );
         assert_eq!(back, SavedSettings::default());
     }
@@ -325,6 +344,7 @@ pub(crate) mod tests {
         base.chat.tiktok.username = "from_config".to_owned();
         let changed = TiktokConfig {
             username: "from_dashboard".to_owned(),
+            ..TiktokConfig::default()
         };
         let saved = SavedSettings::changes(
             &base,
@@ -333,6 +353,7 @@ pub(crate) mod tests {
             &base.dashboard,
             &base.command,
             &changed,
+            &base.chat.youtube,
         );
         assert_eq!(saved.tables(), vec!["chat.tiktok"]);
         assert_eq!(saved.tiktok(), Some(&changed));
@@ -345,6 +366,7 @@ pub(crate) mod tests {
             &base.dashboard,
             &base.command,
             &base.chat.tiktok,
+            &base.chat.youtube,
         );
         assert_eq!(back, SavedSettings::default());
 
@@ -352,12 +374,59 @@ pub(crate) mod tests {
         saved.apply_to(&mut config);
         assert_eq!(config.chat.tiktok, changed);
         // The rest of [chat] is not touched.
-        assert_eq!(config.chat.source, base.chat.source);
+        assert_eq!(config.chat.youtube, base.chat.youtube);
 
         let text = toml::to_string_pretty(&saved).unwrap();
         assert!(text.contains("[chat.tiktok]"), "{text}");
         assert!(text.contains("username = \"from_dashboard\""), "{text}");
         assert!(!text.contains("[moderation]"), "{text}");
+    }
+
+    #[test]
+    fn the_youtube_live_and_the_switches_are_saved_as_chat_tables() {
+        let base = Config::default();
+        let youtube = YoutubeChatConfig {
+            video: "HFSuEKR1b0w".to_owned(),
+            enabled: true,
+        };
+        let tiktok_off = TiktokConfig {
+            enabled: false,
+            ..TiktokConfig::default()
+        };
+        let saved = SavedSettings::changes(
+            &base,
+            &base.moderation,
+            &base.blacklist,
+            &base.dashboard,
+            &base.command,
+            &tiktok_off,
+            &youtube,
+        );
+        assert_eq!(saved.tables(), vec!["chat.tiktok", "chat.youtube"]);
+        let mut config = base.clone();
+        saved.apply_to(&mut config);
+        assert_eq!(config.chat.tiktok, tiktok_off);
+        assert_eq!(config.chat.youtube, youtube);
+
+        // Only what differs is kept: here just the YouTube table.
+        let only_youtube = SavedSettings::changes(
+            &base,
+            &base.moderation,
+            &base.blacklist,
+            &base.dashboard,
+            &base.command,
+            &base.chat.tiktok,
+            &youtube,
+        );
+        assert_eq!(only_youtube.tables(), vec!["chat.youtube"]);
+        let text = toml::to_string_pretty(&only_youtube).unwrap();
+        assert!(
+            text.contains("[chat.youtube]") && !text.contains("[chat.tiktok]"),
+            "{text}"
+        );
+        // What an older version saved (no `enabled`) still reads, as switched on.
+        let old: SavedSettings = toml::from_str("[chat.tiktok]\nusername = \"x\"\n").unwrap();
+        assert!(old.tiktok().unwrap().enabled);
     }
 
     #[test]
@@ -372,6 +441,7 @@ pub(crate) mod tests {
             &base.dashboard,
             &base.command,
             &empty,
+            &base.chat.youtube,
         );
         assert_eq!(saved.tiktok(), Some(&empty));
         let mut config = base;
@@ -412,6 +482,11 @@ pub(crate) mod tests {
             chat: Some(SavedChat {
                 tiktok: Some(TiktokConfig {
                     username: "someone".to_owned(),
+                    enabled: false,
+                }),
+                youtube: Some(YoutubeChatConfig {
+                    video: "HFSuEKR1b0w".to_owned(),
+                    enabled: true,
                 }),
             }),
         };

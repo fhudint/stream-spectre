@@ -1,7 +1,7 @@
 use super::error::ConfigError;
 use super::model::{
-    ChatSourceKind, CommandConfig, Config, DashboardConfig, MAX_CHAT_HISTORY, ModerationConfig,
-    TiktokConfig,
+    CommandConfig, Config, DashboardConfig, MAX_CHAT_HISTORY, ModerationConfig, TiktokConfig,
+    YoutubeChatConfig,
 };
 use super::secrets::Secrets;
 use crate::tiktok::TiktokVideoId;
@@ -23,9 +23,8 @@ impl Config {
             ));
         }
 
-        match self.chat.source {
-            ChatSourceKind::Tiktok => self.chat.tiktok.validate()?,
-        }
+        self.chat.tiktok.validate()?;
+        self.chat.youtube.validate()?;
 
         self.command.validate()?;
 
@@ -168,6 +167,20 @@ impl TiktokConfig {
     }
 }
 
+impl YoutubeChatConfig {
+    /// Empty is fine: no chat is read yet. Anything else must be a YouTube
+    /// link or video ID, which also keeps it safe to put in a URL.
+    pub fn validate(&self) -> Result<(), ConfigError> {
+        if self.video.trim().is_empty() || self.video_id().is_some() {
+            return Ok(());
+        }
+        Err(ConfigError::invalid(
+            "chat.youtube.video",
+            "must be the link or the 11-character ID of a YouTube video",
+        ))
+    }
+}
+
 impl CommandConfig {
     /// The prefix is short and has no whitespace; there are 1 to
     /// `MAX_COMMANDS` commands with valid names, no two the same when case is
@@ -237,6 +250,45 @@ mod tests {
         let mut c = Config::default();
         c.chat.tiktok.username = "someone".to_owned();
         c
+    }
+
+    #[test]
+    fn the_youtube_live_may_be_empty_a_link_or_an_id_and_nothing_else() {
+        let check = |video: &str| {
+            YoutubeChatConfig {
+                video: video.to_owned(),
+                ..YoutubeChatConfig::default()
+            }
+            .validate()
+        };
+        for good in [
+            "",
+            "   ",
+            "HFSuEKR1b0w",
+            " https://www.youtube.com/watch?v=HFSuEKR1b0w ",
+            "https://youtu.be/HFSuEKR1b0w",
+            "https://www.youtube.com/live/HFSuEKR1b0w",
+        ] {
+            assert!(check(good).is_ok(), "{good:?}");
+        }
+        for bad in [
+            "nope",
+            "HFSuEKR1b0",
+            "https://evil.example/watch?v=HFSuEKR1b0w",
+            "@streamer",
+        ] {
+            assert_eq!(
+                field_of(check(bad).unwrap_err()),
+                "chat.youtube.video",
+                "{bad:?}"
+            );
+        }
+        let mut config = valid();
+        config.chat.youtube.video = "nope".to_owned();
+        assert_eq!(
+            field_of(config.validate().unwrap_err()),
+            "chat.youtube.video"
+        );
     }
 
     fn field_of(err: ConfigError) -> String {

@@ -15,7 +15,7 @@ const LONG_HOSTS: [&str; 3] = ["youtube.com", "www.youtube.com", "m.youtube.com"
 /// - a bare 11-character ID
 /// - `youtu.be/ID`
 /// - `youtube.com/watch?v=ID` (also `www.` and `m.`)
-/// - `youtube.com/shorts/ID` (also `www.` and `m.`)
+/// - `youtube.com/shorts/ID` and `youtube.com/live/ID` (also `www.` and `m.`)
 ///
 /// The scheme is optional (`http://` and `https://` only). Anything else
 /// yields `None`: other hosts, other schemes, ports, credentials in the URL,
@@ -55,7 +55,7 @@ pub fn extract_video_id(token: &str) -> Option<VideoId> {
                 .query_pairs()
                 .find(|(key, _)| key == "v")
                 .and_then(|(_, value)| VideoId::parse(&value).ok()),
-            ["shorts", id] => VideoId::parse(id).ok(),
+            ["shorts" | "live", id] => VideoId::parse(id).ok(),
             _ => None,
         };
     }
@@ -131,6 +131,8 @@ mod tests {
         accepted("https://youtube.com/watch?v=dQw4w9WgXcQ");
         accepted("https://www.youtube.com/shorts/dQw4w9WgXcQ");
         accepted("https://youtube.com/shorts/dQw4w9WgXcQ");
+        accepted("https://www.youtube.com/live/dQw4w9WgXcQ");
+        accepted("https://m.youtube.com/live/dQw4w9WgXcQ?feature=share");
     }
 
     #[test]
@@ -224,6 +226,8 @@ mod tests {
         rejected("https://www.youtube.com/watch/extra?v=dQw4w9WgXcQ");
         rejected("https://www.youtube.com/");
         rejected("https://www.youtube.com/shorts/");
+        rejected("https://www.youtube.com/live/");
+        rejected("https://www.youtube.com/live/dQw4w9WgXcQ/extra");
         rejected("https://www.youtube.com/shorts/dQw4w9WgXcQ/extra");
         rejected("https://www.youtube.com/embed/dQw4w9WgXcQ");
         rejected("https://www.youtube.com/playlist?list=PLabc");

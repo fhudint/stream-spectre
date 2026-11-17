@@ -10,8 +10,8 @@ use serde::{Deserialize, Serialize};
 use super::history::HistoryEntry;
 use crate::chat::{ChatStatus, Role};
 use crate::config::{
-    BlacklistConfig, CommandConfig, CommandSource, DashboardConfig, Language, ModerationConfig,
-    TiktokConfig,
+    BlacklistConfig, ChatSourceKind, CommandConfig, CommandSource, DashboardConfig, Language,
+    ModerationConfig, TiktokConfig, YoutubeChatConfig,
 };
 use crate::queue::{Media, QueueItem, QueueSnapshot};
 
@@ -130,6 +130,7 @@ pub struct SettingsView {
 #[derive(Debug, Clone, Default, PartialEq, Serialize)]
 pub struct ChatSettingsView {
     pub tiktok: TiktokConfig,
+    pub youtube: YoutubeChatConfig,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -139,8 +140,10 @@ pub enum ChatState {
     WaitingForLive,
     Reconnecting,
     Disconnected,
-    /// No username is set, so nothing is being read.
+    /// No username or video is set, so nothing is being read.
     NotConfigured,
+    /// This source is switched off on the Account page.
+    Disabled,
     /// A moderator disconnected the chat; it stays so until they connect it
     /// again (or the program restarts).
     Paused,
@@ -153,14 +156,18 @@ impl From<&ChatStatus> for ChatState {
             ChatStatus::WaitingForLive { .. } => Self::WaitingForLive,
             ChatStatus::Reconnecting { .. } => Self::Reconnecting,
             ChatStatus::Disconnected => Self::Disconnected,
-            ChatStatus::NoUsername => Self::NotConfigured,
+            ChatStatus::NotSet => Self::NotConfigured,
             ChatStatus::Paused => Self::Paused,
+            ChatStatus::Disabled => Self::Disabled,
         }
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ChatStatusView {
+    /// Which chat this is about. Older versions had only TikTok and sent no
+    /// source; a client that finds none means TikTok.
+    pub source: ChatSourceKind,
     pub state: ChatState,
     pub channel: String,
     /// Ready-to-show message in the configured language.
@@ -195,7 +202,12 @@ pub struct Hello {
     pub settings: SettingsView,
     pub volume: u8,
     pub queue: QueueView,
+    /// The status of the TikTok chat, as before there were two. New clients
+    /// read `chats`.
     pub chat: Option<ChatStatusView>,
+    /// The status of each chat that has reported one: TikTok first, then
+    /// YouTube.
+    pub chats: Vec<ChatStatusView>,
     /// The most recent chat messages, oldest first, at most
     /// `settings.dashboard.chat_history` of them.
     pub chat_log: Vec<ChatLineView>,
@@ -215,6 +227,7 @@ impl Hello {
         self.queue.approved.clear();
         self.settings.blacklist = BlacklistConfig::default();
         self.chat = None;
+        self.chats.clear();
         self.chat_log.clear();
         self.history.clear();
         self.stats = StatsView::default();
@@ -471,16 +484,18 @@ mod tests {
     #[test]
     fn chat_status_and_settings_events_have_the_documented_shape() {
         let status = Event::ChatStatus(ChatStatusView {
+            source: ChatSourceKind::Tiktok,
             state: ChatState::WaitingForLive,
             channel: "streamer".to_owned(),
-            text: "Waiting for @streamer to go live".to_owned(),
+            text: "Waiting for @streamer to go live on TikTok".to_owned(),
         });
         assert_eq!(
             to_json(&status),
             json!({"type": "chat_status", "data": {
+                "source": "tiktok",
                 "state": "waiting_for_live",
                 "channel": "streamer",
-                "text": "Waiting for @streamer to go live"
+                "text": "Waiting for @streamer to go live on TikTok"
             }})
         );
 
@@ -498,20 +513,27 @@ mod tests {
         assert_eq!(value["data"]["moderation"]["volume"], 50);
         assert_eq!(value["data"]["blacklist"]["video_ids"], json!([]));
         assert_eq!(value["data"]["dashboard"]["chat_history"], 20);
-        assert_eq!(value["data"]["chat"], json!({"tiktok": {"username": ""}}));
+        assert_eq!(
+            value["data"]["chat"],
+            json!({
+                "tiktok": {"username": "", "enabled": true},
+                "youtube": {"video": "", "enabled": true},
+            })
+        );
     }
 
     #[test]
     fn a_chat_that_is_not_configured_has_its_own_state() {
         let view = ChatStatusView {
-            state: ChatState::from(&ChatStatus::NoUsername),
+            source: ChatSourceKind::Youtube,
+            state: ChatState::from(&ChatStatus::NotSet),
             channel: String::new(),
             text: "x".to_owned(),
         };
         assert_eq!(
             to_json(&Event::ChatStatus(view)),
             json!({"type": "chat_status", "data": {
-                "state": "not_configured", "channel": "", "text": "x"
+                "source": "youtube", "state": "not_configured", "channel": "", "text": "x"
             }})
         );
     }
@@ -574,6 +596,7 @@ mod tests {
                 now_playing: Some(ItemView::from(&item(7))),
             },
             chat: None,
+            chats: vec![],
             chat_log: vec![ChatLineView {
                 name: "Sari".to_owned(),
                 role: Role::Everyone,
@@ -633,10 +656,17 @@ mod tests {
                 now_playing: Some(ItemView::from(&item(3))),
             },
             chat: Some(ChatStatusView {
+                source: ChatSourceKind::Tiktok,
                 state: ChatState::Connected,
                 channel: "streamer".to_owned(),
                 text: "x".to_owned(),
             }),
+            chats: vec![ChatStatusView {
+                source: ChatSourceKind::Youtube,
+                state: ChatState::Connected,
+                channel: "video".to_owned(),
+                text: "y".to_owned(),
+            }],
             chat_log: vec![ChatLineView {
                 name: "Secret Viewer".to_owned(),
                 role: Role::Follower,
@@ -666,7 +696,7 @@ mod tests {
         assert_eq!(overlay.queue.now_playing.as_ref().map(|i| i.id), Some(3));
         assert!(overlay.queue.pending.is_empty() && overlay.queue.approved.is_empty());
         assert_eq!(overlay.settings.blacklist, BlacklistConfig::default());
-        assert!(overlay.chat.is_none());
+        assert!(overlay.chat.is_none() && overlay.chats.is_empty());
         assert!(overlay.history.is_empty());
         assert!(overlay.chat_log.is_empty());
         assert_eq!(overlay.stats, StatsView::default());

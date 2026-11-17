@@ -93,6 +93,7 @@ fn changes<S: VideoSource>(pipeline: &Pipeline<S>, baseline: &Config) -> SavedSe
         &settings.dashboard,
         &settings.command,
         &settings.chat.tiktok,
+        &settings.chat.youtube,
     )
 }
 
@@ -297,6 +298,7 @@ mod tests {
         run.pipeline
             .update_tiktok(crate::config::TiktokConfig {
                 username: "@someone_new".to_owned(),
+                ..Default::default()
             })
             .unwrap();
 
@@ -344,6 +346,7 @@ mod tests {
             &applied.dashboard,
             &applied.command,
             &applied.chat.tiktok,
+            &applied.chat.youtube,
         );
         write_saved(&path, &first).unwrap();
         let before = std::fs::metadata(&path).unwrap().modified().unwrap();

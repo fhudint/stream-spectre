@@ -7,9 +7,9 @@ use anyhow::Context;
 use stream_spectre::app::{
     Credentials, Pipeline, SETTLE, autosave, autosave_history, history_path, load_history,
 };
-use stream_spectre::chat::tiktok_source;
+use stream_spectre::chat::{tiktok_source, youtube_source};
 use stream_spectre::cli::{self, Command};
-use stream_spectre::config::{self, KeySource, LoadOptions, Loaded};
+use stream_spectre::config::{self, ChatSourceKind, KeySource, LoadOptions, Loaded};
 use stream_spectre::i18n::I18n;
 use stream_spectre::youtube::YoutubeClient;
 use stream_spectre::{platform, server};
@@ -69,8 +69,10 @@ async fn serve(loaded: Loaded) -> anyhow::Result<()> {
         env_api_key,
         ..
     } = loaded;
-    if config.chat.tiktok.username().is_empty() {
-        tracing::info!("no TikTok username yet: set it on the dashboard's Account page");
+    if config.chat.tiktok.username().is_empty() && config.chat.youtube.video.trim().is_empty() {
+        tracing::info!(
+            "no chat to read yet: set a TikTok username or a YouTube live on the dashboard's Account page"
+        );
     }
     if saved_tables.is_empty() {
         tracing::info!(path = %saved_path.display(), "settings changed in the dashboard are saved here");
@@ -130,12 +132,24 @@ async fn serve(loaded: Loaded) -> anyhow::Result<()> {
 
     let (stop, stopped) = watch::channel(false);
 
-    let chat = {
+    // One reading loop for each chat source; each waits by itself until it
+    // has something to read.
+    let tiktok_chat = {
         let pipeline = Arc::clone(&pipeline);
         let mut stopped = stopped.clone();
         tokio::spawn(async move {
             tokio::select! {
-                () = pipeline.run_chat_sources(tiktok_source) => {}
+                () = pipeline.run_chat_sources(ChatSourceKind::Tiktok, tiktok_source) => {}
+                () = async { let _ = stopped.wait_for(|stop| *stop).await; } => {}
+            }
+        })
+    };
+    let youtube_chat = {
+        let pipeline = Arc::clone(&pipeline);
+        let mut stopped = stopped.clone();
+        tokio::spawn(async move {
+            tokio::select! {
+                () = pipeline.run_chat_sources(ChatSourceKind::Youtube, youtube_source) => {}
                 () = async { let _ = stopped.wait_for(|stop| *stop).await; } => {}
             }
         })
@@ -170,7 +184,8 @@ async fn serve(loaded: Loaded) -> anyhow::Result<()> {
         stopped,
     )
     .await?;
-    let _ = chat.await;
+    let _ = tiktok_chat.await;
+    let _ = youtube_chat.await;
     // Writes any change that was still waiting to be saved.
     let _ = saver.await;
     let _ = history_saver.await;

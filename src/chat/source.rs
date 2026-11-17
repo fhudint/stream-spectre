@@ -2,6 +2,7 @@ use std::future::Future;
 use std::time::Duration;
 
 use super::sender::Sender;
+use crate::config::ChatSourceKind;
 use crate::i18n::I18n;
 
 /// An ordinary chat message from a viewer.
@@ -27,27 +28,35 @@ pub enum ChatStatus {
         retry_in: Duration,
     },
     Disconnected,
-    /// No TikTok username is set, so no chat is being read.
-    NoUsername,
+    /// Nothing to read yet: no TikTok username or no YouTube video is set.
+    NotSet,
     /// A moderator disconnected the chat from the account menu.
     Paused,
+    /// This source is switched off on the Account page.
+    Disabled,
 }
 
 impl ChatStatus {
-    /// Message for moderators, in the language of `i18n`.
-    pub fn message(&self, i18n: &I18n) -> String {
-        match self {
-            Self::Connected { channel } => {
-                i18n.t_with("status.chat.connected", &[("username", channel)])
-            }
-            Self::WaitingForLive { channel } => {
-                i18n.t_with("status.chat.waiting_for_live", &[("username", channel)])
-            }
-            Self::Reconnecting { .. } => i18n.t("status.chat.reconnecting").to_owned(),
-            Self::Disconnected => i18n.t("status.chat.disconnected").to_owned(),
-            Self::NoUsername => i18n.t("status.chat.no_username").to_owned(),
-            Self::Paused => i18n.t("status.chat.paused").to_owned(),
-        }
+    /// Message for moderators, in the language of `i18n`, about the chat of
+    /// `source`.
+    pub fn message(&self, i18n: &I18n, source: ChatSourceKind) -> String {
+        let (state, channel) = match self {
+            Self::Connected { channel } => ("connected", channel.as_str()),
+            Self::WaitingForLive { channel } => ("waiting_for_live", channel.as_str()),
+            Self::Reconnecting { .. } => ("reconnecting", ""),
+            Self::Disconnected => ("disconnected", ""),
+            Self::NotSet => ("not_set", ""),
+            Self::Paused => ("paused", ""),
+            Self::Disabled => ("disabled", ""),
+        };
+        let name = match source {
+            ChatSourceKind::Tiktok => "tiktok",
+            ChatSourceKind::Youtube => "youtube",
+        };
+        i18n.t_with(
+            &format!("status.chat.{name}.{state}"),
+            &[("channel", channel)],
+        )
     }
 }
 
@@ -85,36 +94,47 @@ mod tests {
                 retry_in: Duration::from_secs(4),
             },
             ChatStatus::Disconnected,
-            ChatStatus::NoUsername,
+            ChatStatus::NotSet,
             ChatStatus::Paused,
+            ChatStatus::Disabled,
         ];
         for language in [Language::Id, Language::En] {
             let i18n = I18n::load(language).unwrap();
-            for status in &statuses {
-                let text = status.message(&i18n);
-                assert!(!text.is_empty());
-                assert!(!text.contains('{'), "unfilled placeholder: {text}");
-                assert!(!text.contains("status.chat."), "missing key: {text}");
+            for source in [ChatSourceKind::Tiktok, ChatSourceKind::Youtube] {
+                for status in &statuses {
+                    let text = status.message(&i18n, source);
+                    assert!(!text.is_empty());
+                    assert!(!text.contains('{'), "unfilled placeholder: {text}");
+                    assert!(!text.contains("status.chat."), "missing key: {text}");
+                }
             }
         }
     }
 
     #[test]
-    fn messages_name_the_channel() {
+    fn messages_name_the_channel_and_the_source() {
         let en = I18n::load(Language::En).unwrap();
+        let waiting = ChatStatus::WaitingForLive {
+            channel: "streamer".to_owned(),
+        };
         assert_eq!(
-            ChatStatus::WaitingForLive {
-                channel: "streamer".to_owned()
-            }
-            .message(&en),
-            "Waiting for @streamer to go live"
+            waiting.message(&en, ChatSourceKind::Tiktok),
+            "Waiting for @streamer to go live on TikTok"
         );
         assert_eq!(
-            ChatStatus::Connected {
-                channel: "streamer".to_owned()
-            }
-            .message(&en),
+            waiting.message(&en, ChatSourceKind::Youtube),
+            "Waiting for the YouTube video streamer to go live"
+        );
+        let connected = ChatStatus::Connected {
+            channel: "streamer".to_owned(),
+        };
+        assert_eq!(
+            connected.message(&en, ChatSourceKind::Tiktok),
             "Connected to TikTok chat @streamer"
+        );
+        assert_eq!(
+            ChatStatus::Disabled.message(&en, ChatSourceKind::Youtube),
+            "YouTube chat is switched off. Switch it on in the Account page to read it."
         );
     }
 }

@@ -82,6 +82,7 @@
       <div id="status" class="statusbar" aria-live="polite">
         <span id="connection" class="pill"></span>
         <span id="chat-status" class="pill"></span>
+        <span id="chat-status-youtube" class="pill"></span>
       </div>
       <div class="account-wrap">
         <button id="account-button" type="button" class="channel" aria-expanded="false" aria-controls="account-menu">
@@ -307,6 +308,30 @@
               <button type="submit" class="primary" data-i18n="dashboard.tiktok.save"></button>
             </div>
           </form>
+          <label class="toggle">
+            <input id="tiktok-enabled" type="checkbox">
+            <span data-i18n="dashboard.tiktok.enabled"></span>
+          </label>
+          <p id="tiktok-status" class="muted small"></p>
+        </div>
+
+        <div id="account-youtube-chat" class="card page-card">
+          <form id="youtube-chat-form" class="form">
+            <h2 data-i18n="dashboard.youtube_chat.title"></h2>
+            <div class="field">
+              <label for="youtube-chat-video" data-i18n="dashboard.youtube_chat.video"></label>
+              <input id="youtube-chat-video" type="text" autocomplete="off" spellcheck="false" maxlength="200">
+              <p class="muted small" data-i18n="dashboard.youtube_chat.hint"></p>
+            </div>
+            <div class="actions">
+              <button type="submit" class="primary" data-i18n="dashboard.youtube_chat.save"></button>
+            </div>
+          </form>
+          <label class="toggle">
+            <input id="youtube-chat-enabled" type="checkbox">
+            <span data-i18n="dashboard.youtube_chat.enabled"></span>
+          </label>
+          <p id="youtube-chat-status" class="muted small"></p>
         </div>
 
         <div id="account-youtube" class="card page-card">

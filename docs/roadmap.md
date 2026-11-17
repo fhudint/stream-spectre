@@ -330,25 +330,36 @@ is never sent to the browser again afterwards.
 ## 9. Several chat sessions at once (for example YouTube Live chat)
 
 **Goal.** Read the chat of more than one platform in the same run, for example
-TikTok Live and YouTube Live, with each one connected or disconnected on its
-own.
+TikTok Live and YouTube Live, with each one switched on or off on its own.
 
-**Today.** One chat source runs at a time, chosen by `chat.source` (only
-`tiktok` exists). The `ChatSource` trait and the reconnecting supervisor are
-platform-independent, so another source is an implementation of the trait. The
-account menu's "Disconnect chat" switches that one source off and on; the
-username is the TikTok one.
+**Built.** TikTok and a YouTube live are read at the same time, each by its own
+loop (`Pipeline::run_chat_sources(kind, ...)`) with its own settings table
+(`[chat.tiktok]`, `[chat.youtube]`, each with `enabled`), status
+(`chat_status` has a `source`; `hello.chats` lists them) and switch on the
+Account page. "Disconnect chat" in the menu pauses both. A viewer's ID starts with
+the platform for YouTube (`youtube:<channel>`), so cooldowns never mix two
+platforms. Old config files with `chat.source` still load; it is ignored.
 
-**What it needs**
-- A decision on how sources are chosen: a list in the config instead of a single
-  `chat.source`, each with its own settings table.
-- The pipeline to run one supervisor per source, and the chat status
-  (`chat_status`, `hello.chat`) to say which source it is about, which is a
-  change to the protocol.
-- "Disconnect chat" to become one switch per source, in the menu or on the
-  account page.
-- The command parser, the sender gate (role and levels) and the cooldowns to
-  work across sources: a viewer's identity on one platform is not the same
-  identity on another.
-- YouTube Live chat has its own rules and quota (the chat API costs quota units),
-  which must be checked before it is built; none of that has been looked at.
+YouTube chat is read **without the official API**: the watch page of a live
+video holds a token for its chat, and the endpoint the page itself polls
+(`get_live_chat`) gives the messages. The official API was not chosen because
+`liveChatMessages.list` and `streamList` each cost 5 units a call, against a
+10,000 unit day that video checks share (a stream a few hours long would use it
+all when polling), and the documentation does not say whether an API key is
+enough or OAuth is needed. The unofficial way costs no quota and needs no login
+but can break when YouTube changes its page. Checked by hand against a live
+stream: the page layout, the chat response, the moderator and member badges,
+standard emoji, the 10 second poll interval, and the app connecting and
+receiving messages. Not seen: the streamer's badge (assumed `OWNER`), custom
+emoji, Super Chats (not read) and the page of a stream that has ended or has
+chat turned off.
+
+**Still open**
+- Chat lines on the dashboard do not say which platform they came from.
+- A new live needs its link pasted for every stream. Reading the channel's
+  current live from a channel name (`/@handle/live`) was not built.
+- The official API remains a way out if the unofficial one breaks: it would need
+  its authorization settled first (one request with an API key would show it).
+- The same viewer on both platforms counts as two people for cooldowns.
+- Twitch would be a third source; the shape is there but the setting tables, the
+  status texts and the Account page would each need a third entry.

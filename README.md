@@ -53,8 +53,9 @@ for what plays on your stream.
   and nothing loaded from the internet by the dashboard except video pictures
   from YouTube.
 - Dashboard and overlay in English or Indonesian.
-- Chat sources sit behind a trait, so Twitch or YouTube Live chat can be added
-  later. TikTok Live is the only one for now.
+- Chat is read from **TikTok Live** and from a **YouTube live**, at the same
+  time or one of them, each switched on or off on the dashboard's Account page.
+  Both sit behind a trait, so another source (Twitch, for example) can be added.
 
 ## Install
 
@@ -154,7 +155,9 @@ The config file is looked up in this order: `--config <path>`, then
 ```
 
 The program waits for your TikTok live to start and connects by itself, and
-reconnects if the connection drops. The dashboard shows the chat status.
+reconnects if the connection drops. The dashboard shows the status of each chat.
+For YouTube chat, paste the link of your live on the dashboard's **Account**
+page (see below): a live has a new link each time.
 
 ### 4. Add the overlay to OBS
 
@@ -208,13 +211,14 @@ viewers who ask too often fills the list with refused requests.
 
 The avatar at the top right opens a small menu with two items:
 
-- **Account settings** leads to the **Account** page (`#account`), with three
-  parts: your **TikTok username**, the **YouTube API key** and the **dashboard
-  token**.
-- **Disconnect chat** stops reading the live chat of the running session, so no
-  new video requests arrive; the username stays. The item then reads **Connect
-  chat** to read it again. This only lasts for the current run: after a restart
-  the chat connects by itself. It is not shown while no username is set.
+- **Account settings** leads to the **Account** page (`#account`), with four
+  parts: your **TikTok username**, your **YouTube live** (for its chat), the
+  **YouTube API key** and the **dashboard token**.
+- **Disconnect chat** stops reading the chat of **both** sources in the running
+  session, so no new video requests arrive; what is set stays. The item then
+  reads **Connect chat** to read them again. This only lasts for the current
+  run: after a restart the chat connects by itself. It is not shown while
+  nothing is set to be read.
 
 - The username can be set, changed or emptied there, and the program follows it
   **without a restart**: it drops the old chat connection and connects to the
@@ -313,6 +317,21 @@ trust, not across the internet.
   match every kind of viewer. Please report what you find.
 - **TikTok has no official chat API.** The connection uses an unofficial client
   (`piratetok-live-rs`) and can break whenever TikTok changes something.
+- **YouTube chat is read without the official API.** The official chat API costs
+  quota (5 units a call, of 10,000 a day that video checks share) and its login
+  requirements were not settled, so the program reads the chat the way
+  YouTube's own page does: no API key, no login, no quota. That is not
+  documented or promised, so it can stop working whenever YouTube changes the
+  page. It works only for a **public** live that is on now (not an unlisted or
+  private one, and not a finished stream); you paste its link on the Account
+  page for each stream. YouTube answers about
+  every 10 seconds, so a command can take up to that long to be read. Messages
+  already in the chat when the program connects are skipped, so old commands do
+  not run again, and Super Chats are not read. A channel's members count as
+  **subscribers**, the streamer and the moderators as **moderators**, and
+  everyone else as **followers** (YouTube shows no followers), so the default
+  minimum role lets every YouTube viewer in. The `!yt` command also accepts
+  `youtube.com/live/ID` links.
 - **Some videos still fail to play.** The YouTube API saying a video is
   embeddable does not guarantee it plays (the owner may restrict playback). The
   overlay reports the failure, the video is skipped, and the moderators get a

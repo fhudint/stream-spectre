@@ -16,6 +16,7 @@ use super::ServerState;
 use crate::app::{AccountView, CredentialsError, Hello, PauseOutcome};
 use crate::config::{
     BlacklistConfig, CommandConfig, DashboardConfig, ModerationConfig, TiktokConfig,
+    YoutubeChatConfig,
 };
 use crate::i18n::catalog_json;
 use crate::queue::{ItemId, QueueError};
@@ -315,8 +316,9 @@ pub async fn remove_youtube_key<S: VideoSource + 'static>(
     Ok(Json(account_body(&view, peer)))
 }
 
-/// `PATCH /api/chat/tiktok`: changes the TikTok username (`username`; empty
-/// stops reading chat). The chat follows the new name without a restart.
+/// `PATCH /api/chat/tiktok`: changes the TikTok chat settings: the username
+/// (`username`; empty stops reading chat) and `enabled`. The chat follows the
+/// change without a restart.
 pub async fn tiktok<S: VideoSource + 'static>(
     State(state): State<ServerState<S>>,
     Json(patch): Json<Value>,
@@ -326,6 +328,22 @@ pub async fn tiktok<S: VideoSource + 'static>(
     state
         .pipeline
         .update_tiktok(updated)
+        .map_err(|error| ApiError::new(StatusCode::BAD_REQUEST, error.to_string()))?;
+    Ok(Json(state.pipeline.hello()))
+}
+
+/// `PATCH /api/chat/youtube`: changes the YouTube chat settings: the live
+/// video (`video`: its link or ID; empty stops reading chat) and `enabled`.
+/// The chat follows the change without a restart.
+pub async fn youtube_chat<S: VideoSource + 'static>(
+    State(state): State<ServerState<S>>,
+    Json(patch): Json<Value>,
+) -> ApiResult<Json<Hello>> {
+    let current = state.pipeline.hello().settings.chat.youtube;
+    let updated: YoutubeChatConfig = merge_patch(&current, patch)?;
+    state
+        .pipeline
+        .update_youtube_chat(updated)
         .map_err(|error| ApiError::new(StatusCode::BAD_REQUEST, error.to_string()))?;
     Ok(Json(state.pipeline.hello()))
 }

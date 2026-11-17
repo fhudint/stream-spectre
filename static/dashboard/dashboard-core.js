@@ -39,7 +39,9 @@
    * the avatar instead. */
   var MENU_VIEWS = ['queue', 'requests', 'blacklist', 'rules', 'overlay', 'settings'];
   /* The parts of the account page: #account/tiktok and so on. */
-  var ACCOUNT_SECTIONS = ['tiktok', 'youtube', 'token'];
+  var ACCOUNT_SECTIONS = ['tiktok', 'youtube-chat', 'youtube', 'token'];
+  /* The chats that are read, in the order they are shown. */
+  var CHAT_SOURCES = ['tiktok', 'youtube'];
   /* The longest YouTube API key the server accepts. */
   var MAX_KEY_LEN = 200;
   /* The server's limits for the chat commands. */
@@ -251,6 +253,17 @@
     };
   }
 
+  /* The statuses a hello carries, by source. A server from before there were
+   * two chats sends only `chat`, which is TikTok's. */
+  function cleanChats(data) {
+    var chats = { tiktok: null, youtube: null };
+    if (isObject(data.chat)) chats.tiktok = data.chat;
+    (Array.isArray(data.chats) ? data.chats : []).forEach(function (status) {
+      if (isObject(status) && CHAT_SOURCES.indexOf(status.source) >= 0) chats[status.source] = status;
+    });
+    return chats;
+  }
+
   function clampVolume(value, fallback) {
     if (typeof value !== 'number' || !isFinite(value)) return fallback;
     return Math.min(100, Math.max(0, Math.round(value)));
@@ -263,7 +276,10 @@
       settings: null,
       volume: 50,
       queue: { pending: [], approved: [], now_playing: null },
+      /* The status of each chat, or null before it has reported. `chat` is
+       * the TikTok one, as it was before there were two. */
       chat: null,
+      chats: { tiktok: null, youtube: null },
       messages: [],
       /* Every request, oldest first. */
       history: [],
@@ -290,7 +306,8 @@
         settings: isObject(data.settings) ? data.settings : state.settings,
         volume: clampVolume(data.volume, state.volume),
         queue: cleanQueue(data.queue),
-        chat: isObject(data.chat) ? data.chat : null,
+        chat: cleanChats(data).tiktok,
+        chats: cleanChats(data),
         messages: cleanLines(data.chat_log),
         history: cleanHistory(data.history),
         stats: cleanStats(data.stats),
@@ -312,7 +329,13 @@
         next.volume = clampVolume(data.volume, state.volume);
         break;
       case 'chat_status':
-        next.chat = isObject(data) ? data : state.chat;
+        if (typeof data.state === 'string') {
+          // An event without a source is from a server that only read TikTok.
+          var source = data.source === 'youtube' ? 'youtube' : 'tiktok';
+          next.chats = Object.assign({}, state.chats);
+          next.chats[source] = data;
+          if (source === 'tiktok') next.chat = data;
+        }
         break;
       case 'chat_message':
         var line = cleanLine(data);
@@ -736,6 +759,7 @@
     VIEWS: VIEWS,
     MENU_VIEWS: MENU_VIEWS,
     ACCOUNT_SECTIONS: ACCOUNT_SECTIONS,
+    CHAT_SOURCES: CHAT_SOURCES,
     TINTS: TINTS,
     SETTINGS_FIELDS: SETTINGS_FIELDS,
     BLACKLIST_FIELDS: BLACKLIST_FIELDS,

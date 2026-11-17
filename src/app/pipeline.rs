@@ -14,8 +14,8 @@ use super::history::{History, HistoryEntry, RequestStatus, Subject};
 use crate::chat::{ChatEvent, ChatMessage, ChatSource, ChatStatus, Sender};
 use crate::command::{CommandParser, InvalidReason, Parsed};
 use crate::config::{
-    BlacklistConfig, CommandConfig, CommandSource, Config, ConfigError, DashboardConfig,
-    ModerationConfig, Secret, TiktokConfig,
+    BlacklistConfig, ChatSourceKind, CommandConfig, CommandSource, Config, ConfigError,
+    DashboardConfig, ModerationConfig, Secret, TiktokConfig, YoutubeChatConfig,
 };
 use crate::i18n::I18n;
 use crate::queue::{
@@ -65,6 +65,32 @@ impl ChatRate {
     }
 }
 
+/// One value for each chat source.
+#[derive(Debug, Default)]
+struct PerSource<T> {
+    tiktok: T,
+    youtube: T,
+}
+
+impl<T> PerSource<T> {
+    fn get(&self, source: ChatSourceKind) -> &T {
+        match source {
+            ChatSourceKind::Tiktok => &self.tiktok,
+            ChatSourceKind::Youtube => &self.youtube,
+        }
+    }
+
+    fn get_mut(&mut self, source: ChatSourceKind) -> &mut T {
+        match source {
+            ChatSourceKind::Tiktok => &mut self.tiktok,
+            ChatSourceKind::Youtube => &mut self.youtube,
+        }
+    }
+}
+
+/// Both chat sources, TikTok first.
+const CHAT_SOURCES: [ChatSourceKind; 2] = [ChatSourceKind::Tiktok, ChatSourceKind::Youtube];
+
 struct Inner {
     queue: PlayQueue,
     gatekeeper: Gatekeeper,
@@ -73,12 +99,14 @@ struct Inner {
     /// The chat words, and the parser built from them.
     command: CommandConfig,
     parser: Arc<CommandParser>,
-    chat: Option<ChatStatusView>,
+    /// What each chat last reported.
+    chats: PerSource<Option<ChatStatusView>>,
     chat_log: VecDeque<ChatLineView>,
     /// Every request and what became of it.
     history: History,
     chat_rate: ChatRate,
     tiktok: TiktokConfig,
+    youtube_chat: YoutubeChatConfig,
     /// The chat was disconnected from the account menu. Only for this run: it
     /// is neither saved nor part of the settings.
     chat_paused: bool,
@@ -112,11 +140,12 @@ pub struct Pipeline<S> {
     short_links: ShortLinkResolver,
     i18n: I18n,
     bus: EventBus,
-    /// What the chat connection should be doing: the TikTok username to read
-    /// (normalized; empty for none) and whether the moderators switched it
-    /// off. Changed together with `Inner::tiktok` and `Inner::chat_paused`,
-    /// under their lock.
-    chat_target: watch::Sender<ChatTarget>,
+    /// What each chat connection should be doing: what to read (the TikTok
+    /// username or the YouTube video ID, normalized; empty for nothing),
+    /// whether it is switched off, and whether the moderators disconnected
+    /// the chat. Changed together with `Inner::tiktok`, `Inner::youtube_chat`
+    /// and `Inner::chat_paused`, under their lock.
+    chat_targets: PerSource<watch::Sender<ChatTarget>>,
     inner: Mutex<Inner>,
 }
 
@@ -126,7 +155,9 @@ impl<S: VideoSource> Pipeline<S> {
         config.dashboard.validate()?;
         config.command.validate()?;
         config.chat.tiktok.validate()?;
+        config.chat.youtube.validate()?;
         let tiktok = normalized(&config.chat.tiktok);
+        let youtube_chat = normalized_youtube(&config.chat.youtube);
         let blacklist = Blacklist::from_config(&config.blacklist)?;
         let lookup = VideoLookup::new(
             video_source,
@@ -140,11 +171,10 @@ impl<S: VideoSource> Pipeline<S> {
             short_links,
             i18n,
             bus: EventBus::new(BUS_CAPACITY),
-            chat_target: watch::channel(ChatTarget {
-                username: tiktok.username.clone(),
-                paused: false,
-            })
-            .0,
+            chat_targets: PerSource {
+                tiktok: watch::channel(ChatTarget::tiktok(&tiktok, false)).0,
+                youtube: watch::channel(ChatTarget::youtube(&youtube_chat, false)).0,
+            },
             inner: Mutex::new(Inner {
                 queue: PlayQueue::new(),
                 gatekeeper: Gatekeeper::new(config.moderation.clone(), blacklist),
@@ -152,11 +182,12 @@ impl<S: VideoSource> Pipeline<S> {
                 dashboard: config.dashboard.clone(),
                 command: config.command.clone(),
                 parser: Arc::new(CommandParser::new(&config.command)),
-                chat: None,
+                chats: PerSource::default(),
                 chat_log: VecDeque::new(),
                 history: History::default(),
                 chat_rate: ChatRate::default(),
                 tiktok,
+                youtube_chat,
                 chat_paused: false,
                 playback_paused: false,
                 stats: StatsView {
@@ -176,12 +207,14 @@ impl<S: VideoSource> Pipeline<S> {
         self
     }
 
-    /// Reads chat until the source ends. Drop the future to stop earlier.
+    /// Reads the chat of `source` until it ends. Drop the future to stop
+    /// earlier.
     ///
     /// Messages are handled one at a time, so a slow YouTube lookup delays the
     /// ones behind it (by at most the request timeout) but never reorders them.
-    pub async fn run_chat<C: ChatSource>(&self, source: C) {
-        self.run_chat_until(source, std::future::pending()).await;
+    pub async fn run_chat<C: ChatSource>(&self, source_kind: ChatSourceKind, source: C) {
+        self.run_chat_until(source_kind, source, std::future::pending())
+            .await;
     }
 
     /// `run_chat` that also stops, between two messages, when `stop` is ready.
@@ -189,6 +222,7 @@ impl<S: VideoSource> Pipeline<S> {
     /// true when it stopped because of `stop`, false when the source ended.
     async fn run_chat_until<C: ChatSource>(
         &self,
+        source_kind: ChatSourceKind,
         mut source: C,
         stop: impl std::future::Future<Output = ()>,
     ) -> bool {
@@ -201,32 +235,34 @@ impl<S: VideoSource> Pipeline<S> {
             };
             match event {
                 Some(ChatEvent::Message(message)) => self.handle_chat(message).await,
-                Some(ChatEvent::Status(status)) => self.chat_status(&status),
+                Some(ChatEvent::Status(status)) => self.chat_status(source_kind, &status),
                 None => return false,
             }
         }
     }
 
-    /// Reads the chat of whichever TikTok username is set, and follows it when
-    /// it changes: the old connection is dropped (after the message in hand)
-    /// and a new source is made with `make_source`. While no username is set,
-    /// nothing is read and the dashboard is told so. Never returns, except
-    /// when the pipeline itself is dropped; drop the future to stop.
-    pub async fn run_chat_sources<C, F>(&self, make_source: F)
+    /// Reads the chat of `source_kind` from whatever is set for it (the TikTok
+    /// username, the YouTube video), and follows it when it changes: the old
+    /// connection is dropped (after the message in hand) and a new source is
+    /// made with `make_source`. While nothing is set, or the source is
+    /// switched off, nothing is read and the dashboard is told so. Never
+    /// returns, except when the pipeline itself is dropped; drop the future to
+    /// stop. Each source has a loop of its own, so run one for each.
+    pub async fn run_chat_sources<C, F>(&self, source_kind: ChatSourceKind, make_source: F)
     where
         C: ChatSource,
         F: Fn(&str) -> C,
     {
-        let mut targets = self.chat_target.subscribe();
+        let mut targets = self.chat_targets.get(source_kind).subscribe();
         loop {
             let target = targets.borrow_and_update().clone();
-            self.chat_status(&target.waiting_status());
+            self.chat_status(source_kind, &target.waiting_status());
             if target.should_read() {
                 let changed = async {
                     let _ = targets.changed().await;
                 };
                 if self
-                    .run_chat_until(make_source(&target.username), changed)
+                    .run_chat_until(source_kind, make_source(&target.what), changed)
                     .await
                 {
                     continue;
@@ -469,15 +505,20 @@ impl<S: VideoSource> Pipeline<S> {
         self.bus.publish(Event::ChatMessage(line));
     }
 
-    /// Records and publishes a change in the chat connection.
-    pub fn chat_status(&self, status: &ChatStatus) {
+    /// Records and publishes a change in the chat connection of `source`.
+    pub fn chat_status(&self, source: ChatSourceKind, status: &ChatStatus) {
         let mut inner = self.lock();
-        let view = ChatStatusView {
-            state: ChatState::from(status),
-            channel: inner.tiktok.username.clone(),
-            text: status.message(&self.i18n),
+        let channel = match source {
+            ChatSourceKind::Tiktok => inner.tiktok.username.clone(),
+            ChatSourceKind::Youtube => inner.youtube_chat.video.clone(),
         };
-        inner.chat = Some(view.clone());
+        let view = ChatStatusView {
+            source,
+            state: ChatState::from(status),
+            channel,
+            text: status.message(&self.i18n, source),
+        };
+        *inner.chats.get_mut(source) = Some(view.clone());
         self.bus.publish(Event::ChatStatus(view));
     }
 
@@ -597,9 +638,10 @@ impl<S: VideoSource> Pipeline<S> {
         Ok(())
     }
 
-    /// Changes the TikTok username whose chat is read; empty stops reading.
-    /// An invalid name is refused and nothing changes. Saying the same name
-    /// again changes nothing either.
+    /// Changes the TikTok chat settings: the username whose chat is read
+    /// (empty stops reading) and whether it is read at all. An invalid name is
+    /// refused and nothing changes. Saying the same again changes nothing
+    /// either.
     pub fn update_tiktok(&self, new: TiktokConfig) -> Result<(), ConfigError> {
         new.validate()?;
         let new = normalized(&new);
@@ -609,10 +651,30 @@ impl<S: VideoSource> Pipeline<S> {
         }
         inner.tiktok = new.clone();
         let paused = inner.chat_paused;
-        self.chat_target.send_replace(ChatTarget {
-            username: new.username,
-            paused,
-        });
+        self.chat_targets
+            .tiktok
+            .send_replace(ChatTarget::tiktok(&new, paused));
+        self.bus
+            .publish(Event::SettingsUpdated(Self::settings_view(&inner)));
+        Ok(())
+    }
+
+    /// Changes the YouTube chat settings: the live video whose chat is read
+    /// (a link or an ID; empty stops reading) and whether it is read at all.
+    /// Something that is not a video is refused and nothing changes. Saying
+    /// the same again changes nothing either.
+    pub fn update_youtube_chat(&self, new: YoutubeChatConfig) -> Result<(), ConfigError> {
+        new.validate()?;
+        let new = normalized_youtube(&new);
+        let mut inner = self.lock();
+        if inner.youtube_chat == new {
+            return Ok(());
+        }
+        inner.youtube_chat = new.clone();
+        let paused = inner.chat_paused;
+        self.chat_targets
+            .youtube
+            .send_replace(ChatTarget::youtube(&new, paused));
         self.bus
             .publish(Event::SettingsUpdated(Self::settings_view(&inner)));
         Ok(())
@@ -639,23 +701,31 @@ impl<S: VideoSource> Pipeline<S> {
         PauseOutcome::Done
     }
 
-    /// Disconnects the chat (`paused`) or connects it again. Only for this
-    /// run: after a restart the chat connects by itself. Saying what is
-    /// already so changes nothing. The chat status is published at once, so
-    /// whoever asked sees the result in the answer.
+    /// Disconnects the chat of both sources (`paused`) or connects it again.
+    /// Only for this run: after a restart the chat connects by itself. Saying
+    /// what is already so changes nothing. The chat statuses are published at
+    /// once, so whoever asked sees the result in the answer.
     pub fn set_chat_paused(&self, paused: bool) {
         let mut inner = self.lock();
         if inner.chat_paused == paused {
             return;
         }
         inner.chat_paused = paused;
-        let target = ChatTarget {
-            username: inner.tiktok.username.clone(),
-            paused,
-        };
+        let targets = [
+            (
+                ChatSourceKind::Tiktok,
+                ChatTarget::tiktok(&inner.tiktok, paused),
+            ),
+            (
+                ChatSourceKind::Youtube,
+                ChatTarget::youtube(&inner.youtube_chat, paused),
+            ),
+        ];
         drop(inner);
-        self.chat_status(&target.waiting_status());
-        self.chat_target.send_replace(target);
+        for (source, target) in targets {
+            self.chat_status(source, &target.waiting_status());
+            self.chat_targets.get(source).send_replace(target);
+        }
     }
 
     // --- reports from the overlay ---
@@ -792,7 +862,11 @@ impl<S: VideoSource> Pipeline<S> {
             settings: Self::settings_view(&inner),
             volume: inner.gatekeeper.settings().volume,
             queue: QueueView::from(&inner.queue.snapshot()),
-            chat: inner.chat.clone(),
+            chat: inner.chats.tiktok.clone(),
+            chats: CHAT_SOURCES
+                .iter()
+                .filter_map(|source| inner.chats.get(*source).clone())
+                .collect(),
             chat_log: inner.chat_log.iter().cloned().collect(),
             history: inner.history.entries(),
             stats: inner.stats,
@@ -814,6 +888,7 @@ impl<S: VideoSource> Pipeline<S> {
             command: inner.command.clone(),
             chat: ChatSettingsView {
                 tiktok: inner.tiktok.clone(),
+                youtube: inner.youtube_chat.clone(),
             },
         }
     }
@@ -893,22 +968,45 @@ impl<S: VideoSource> Pipeline<S> {
     }
 }
 
-/// What the chat connection should be doing.
+/// What one chat connection should be doing.
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct ChatTarget {
-    username: String,
+    /// What to read: the TikTok username or the YouTube video ID; empty for
+    /// nothing.
+    what: String,
+    /// Switched on, on the Account page.
+    enabled: bool,
+    /// The moderators disconnected the chat from the account menu.
     paused: bool,
 }
 
 impl ChatTarget {
+    fn tiktok(config: &TiktokConfig, paused: bool) -> Self {
+        Self {
+            what: config.username().to_owned(),
+            enabled: config.enabled,
+            paused,
+        }
+    }
+
+    fn youtube(config: &YoutubeChatConfig, paused: bool) -> Self {
+        Self {
+            what: config.video.clone(),
+            enabled: config.enabled,
+            paused,
+        }
+    }
+
     fn should_read(&self) -> bool {
-        !self.username.is_empty() && !self.paused
+        !self.what.is_empty() && self.enabled && !self.paused
     }
 
     /// What to tell the moderators until a connection reports for itself.
     fn waiting_status(&self) -> ChatStatus {
-        if self.username.is_empty() {
-            ChatStatus::NoUsername
+        if self.what.is_empty() {
+            ChatStatus::NotSet
+        } else if !self.enabled {
+            ChatStatus::Disabled
         } else if self.paused {
             ChatStatus::Paused
         } else {
@@ -923,6 +1021,20 @@ impl ChatTarget {
 fn normalized(config: &TiktokConfig) -> TiktokConfig {
     TiktokConfig {
         username: config.username().to_owned(),
+        enabled: config.enabled,
+    }
+}
+
+/// The YouTube chat settings with the video as its ID, whether it was typed
+/// as a link or as an ID. Settings that passed `validate` have an ID or
+/// nothing.
+fn normalized_youtube(config: &YoutubeChatConfig) -> YoutubeChatConfig {
+    YoutubeChatConfig {
+        video: config
+            .video_id()
+            .map(|id| id.to_string())
+            .unwrap_or_default(),
+        enabled: config.enabled,
     }
 }
 
@@ -1987,16 +2099,24 @@ mod tests {
         assert!(p.hello().chat.is_none());
         let mut rx = p.subscribe();
 
-        p.chat_status(&ChatStatus::WaitingForLive {
-            channel: "streamer".to_owned(),
-        });
+        p.chat_status(
+            ChatSourceKind::Tiktok,
+            &ChatStatus::WaitingForLive {
+                channel: "streamer".to_owned(),
+            },
+        );
         let events = drain(&mut rx);
         assert_eq!(kinds(&events), vec!["chat_status"]);
         assert_eq!(data(&events[0])["state"], "waiting_for_live");
-        assert_eq!(data(&events[0])["text"], "Waiting for @streamer to go live");
+        assert_eq!(data(&events[0])["source"], "tiktok");
+        assert_eq!(
+            data(&events[0])["text"],
+            "Waiting for @streamer to go live on TikTok"
+        );
 
-        let chat = p.hello().chat.unwrap();
-        assert_eq!(chat.channel, "streamer");
+        let hello = p.hello();
+        assert_eq!(hello.chat.unwrap().channel, "streamer");
+        assert_eq!(hello.chats.len(), 1, "only the chats that reported");
     }
 
     #[tokio::test]
@@ -2053,7 +2173,7 @@ mod tests {
             ]
             .into(),
         );
-        p.run_chat(source).await;
+        p.run_chat(ChatSourceKind::Tiktok, source).await;
         assert_eq!(
             kinds(&drain(&mut rx)),
             vec!["chat_status", "queue_updated", "chat_status"]
@@ -2383,6 +2503,7 @@ mod tests {
     fn tiktok(name: &str) -> TiktokConfig {
         TiktokConfig {
             username: name.to_owned(),
+            ..TiktokConfig::default()
         }
     }
 
@@ -2401,8 +2522,8 @@ mod tests {
         let events = drain_all(&mut rx);
         assert_eq!(kinds(&events), vec!["settings_updated"]);
         assert_eq!(
-            data(&events[0])["chat"],
-            serde_json::json!({"tiktok": {"username": "Some.One_1"}})
+            data(&events[0])["chat"]["tiktok"],
+            serde_json::json!({"username": "Some.One_1", "enabled": true})
         );
 
         // The same name again says nothing.
@@ -2443,11 +2564,14 @@ mod tests {
     fn chat_status_names_the_current_channel() {
         let p = default_pipeline();
         let mut rx = p.subscribe();
-        p.chat_status(&ChatStatus::Connected {
-            channel: "ignored".to_owned(),
-        });
+        p.chat_status(
+            ChatSourceKind::Tiktok,
+            &ChatStatus::Connected {
+                channel: "ignored".to_owned(),
+            },
+        );
         p.update_tiktok(tiktok("second")).unwrap();
-        p.chat_status(&ChatStatus::Disconnected);
+        p.chat_status(ChatSourceKind::Tiktok, &ChatStatus::Disconnected);
         let views: Vec<_> = drain_all(&mut rx)
             .into_iter()
             .filter_map(|e| match &e.event {
@@ -2548,6 +2672,176 @@ mod tests {
             .collect()
     }
 
+    // --- two chat sources ---
+
+    fn youtube_chat(video: &str) -> YoutubeChatConfig {
+        YoutubeChatConfig {
+            video: video.to_owned(),
+            ..YoutubeChatConfig::default()
+        }
+    }
+
+    fn chat_states(p: &Pipeline<FakeSource>) -> Vec<(ChatSourceKind, ChatState)> {
+        p.hello()
+            .chats
+            .iter()
+            .map(|c| (c.source, c.state))
+            .collect()
+    }
+
+    #[test]
+    fn the_youtube_live_is_set_as_a_link_or_an_id_and_kept_as_the_id() {
+        let p = default_pipeline();
+        let mut rx = p.subscribe();
+        let video = |p: &Pipeline<FakeSource>| p.hello().settings.chat.youtube.video;
+        assert_eq!(video(&p), "");
+
+        p.update_youtube_chat(youtube_chat(
+            " https://www.youtube.com/watch?v=HFSuEKR1b0w ",
+        ))
+        .unwrap();
+        assert_eq!(video(&p), "HFSuEKR1b0w");
+        let events = drain_all(&mut rx);
+        assert_eq!(kinds(&events), vec!["settings_updated"]);
+        assert_eq!(
+            data(&events[0])["chat"]["youtube"],
+            serde_json::json!({"video": "HFSuEKR1b0w", "enabled": true})
+        );
+
+        // The same live again, as an ID, says nothing; something else is refused.
+        p.update_youtube_chat(youtube_chat("HFSuEKR1b0w")).unwrap();
+        assert!(drain_all(&mut rx).is_empty());
+        for bad in [
+            "nope",
+            "https://evil.example/watch?v=HFSuEKR1b0w",
+            "HFSuEKR1b0",
+        ] {
+            assert!(p.update_youtube_chat(youtube_chat(bad)).is_err(), "{bad}");
+        }
+        assert_eq!(video(&p), "HFSuEKR1b0w");
+
+        p.update_youtube_chat(youtube_chat("")).unwrap();
+        assert_eq!(video(&p), "");
+    }
+
+    /// The factory for the YouTube loop: a source that sends one request.
+    fn youtube_factory() -> impl Fn(&str) -> QuietSource {
+        |_video: &str| QuietSource {
+            events: vec![ChatEvent::Message(chat(
+                Sender::new("youtube:UCaaa", "Yuri", Role::Follower),
+                &format!("!v {ID_C}"),
+            ))]
+            .into(),
+            dropped: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        }
+    }
+
+    #[tokio::test]
+    async fn both_chats_are_read_at_the_same_time_and_each_reports_its_own_status() {
+        let mut cfg = config(|_| {});
+        cfg.chat.tiktok.username = "first".to_owned();
+        cfg.chat.youtube.video = "HFSuEKR1b0w".to_owned();
+        let p = Arc::new(pipeline(&cfg));
+        let sources = Sources::default();
+        let tiktok = tokio::spawn({
+            let p = Arc::clone(&p);
+            let make = sources.factory();
+            async move { p.run_chat_sources(ChatSourceKind::Tiktok, make).await }
+        });
+        let youtube = tokio::spawn({
+            let p = Arc::clone(&p);
+            let make = youtube_factory();
+            async move { p.run_chat_sources(ChatSourceKind::Youtube, make).await }
+        });
+
+        eventually(|| waiting_videos(&p).len() == 2).await;
+        let mut videos = waiting_videos(&p);
+        videos.sort();
+        assert_eq!(videos, vec![ID_A.to_owned(), ID_C.to_owned()]);
+        assert_eq!(
+            chat_states(&p),
+            [
+                (ChatSourceKind::Tiktok, ChatState::Reconnecting),
+                (ChatSourceKind::Youtube, ChatState::Reconnecting)
+            ]
+        );
+        let youtube_status = p.hello().chats.pop().unwrap();
+        assert_eq!(youtube_status.channel, "HFSuEKR1b0w");
+        assert_eq!(youtube_status.text, "Reconnecting to YouTube chat…");
+        tiktok.abort();
+        youtube.abort();
+    }
+
+    #[tokio::test]
+    async fn a_chat_that_is_switched_off_is_not_read_until_it_is_switched_on() {
+        let mut cfg = config(|_| {});
+        cfg.chat.youtube.video = "HFSuEKR1b0w".to_owned();
+        cfg.chat.youtube.enabled = false;
+        let p = Arc::new(pipeline(&cfg));
+        let task = tokio::spawn({
+            let p = Arc::clone(&p);
+            let make = youtube_factory();
+            async move { p.run_chat_sources(ChatSourceKind::Youtube, make).await }
+        });
+
+        eventually(|| !p.hello().chats.is_empty()).await;
+        assert_eq!(
+            chat_states(&p),
+            [(ChatSourceKind::Youtube, ChatState::Disabled)]
+        );
+        assert!(waiting_videos(&p).is_empty());
+
+        p.update_youtube_chat(YoutubeChatConfig {
+            enabled: true,
+            ..youtube_chat("HFSuEKR1b0w")
+        })
+        .unwrap();
+        eventually(|| waiting_videos(&p) == vec![ID_C.to_owned()]).await;
+
+        // Switching one off leaves the other alone.
+        p.update_tiktok(TiktokConfig {
+            enabled: false,
+            ..tiktok("first")
+        })
+        .unwrap();
+        assert!(p.hello().settings.chat.youtube.enabled);
+        task.abort();
+    }
+
+    #[test]
+    fn disconnecting_the_chat_from_the_menu_reaches_both_sources() {
+        let mut cfg = config(|_| {});
+        cfg.chat.youtube.video = "HFSuEKR1b0w".to_owned();
+        let p = pipeline(&cfg);
+        let mut rx = p.subscribe();
+        p.set_chat_paused(true);
+        let published: Vec<_> = drain_all(&mut rx)
+            .iter()
+            .filter_map(|e| match &e.event {
+                Event::ChatStatus(view) => Some((view.source, view.state)),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            published,
+            [
+                (ChatSourceKind::Tiktok, ChatState::Paused),
+                (ChatSourceKind::Youtube, ChatState::Paused)
+            ]
+        );
+        assert!(p.chat_targets.tiktok.borrow().paused && p.chat_targets.youtube.borrow().paused);
+        // A source with nothing set says so, whatever the menu says.
+        let p = default_pipeline();
+        p.set_chat_paused(true);
+        assert_eq!(
+            chat_states(&p),
+            [
+                (ChatSourceKind::Tiktok, ChatState::Paused),
+                (ChatSourceKind::Youtube, ChatState::NotConfigured)
+            ]
+        );
+    }
+
     #[tokio::test]
     async fn the_chat_follows_the_username_when_it_changes() {
         let mut cfg = config(|_| {});
@@ -2557,7 +2851,7 @@ mod tests {
         let task = tokio::spawn({
             let p = Arc::clone(&p);
             let make = sources.factory();
-            async move { p.run_chat_sources(make).await }
+            async move { p.run_chat_sources(ChatSourceKind::Tiktok, make).await }
         });
 
         eventually(|| waiting_videos(&p) == vec![ID_A.to_owned()]).await;
@@ -2596,7 +2890,7 @@ mod tests {
         let task = tokio::spawn({
             let p = Arc::clone(&p);
             let make = sources.factory();
-            async move { p.run_chat_sources(make).await }
+            async move { p.run_chat_sources(ChatSourceKind::Tiktok, make).await }
         });
 
         eventually(|| p.hello().chat.is_some()).await;
@@ -2621,7 +2915,7 @@ mod tests {
         let task = tokio::spawn({
             let p = Arc::clone(&p);
             let make = sources.factory();
-            async move { p.run_chat_sources(make).await }
+            async move { p.run_chat_sources(ChatSourceKind::Tiktok, make).await }
         });
         eventually(|| waiting_videos(&p).len() == 1).await;
 
@@ -2654,7 +2948,7 @@ mod tests {
         let task = tokio::spawn({
             let p = Arc::clone(&p);
             let make = sources.factory();
-            async move { p.run_chat_sources(make).await }
+            async move { p.run_chat_sources(ChatSourceKind::Tiktok, make).await }
         });
         eventually(|| waiting_videos(&p).len() == 1).await;
 
@@ -2697,7 +2991,7 @@ mod tests {
         let task = tokio::spawn({
             let p = Arc::clone(&p);
             let make = sources.factory();
-            async move { p.run_chat_sources(make).await }
+            async move { p.run_chat_sources(ChatSourceKind::Tiktok, make).await }
         });
         eventually(|| sources.names().len() == 1).await;
 
@@ -2726,7 +3020,7 @@ mod tests {
         let task = tokio::spawn({
             let p = Arc::clone(&p);
             let make = sources.factory();
-            async move { p.run_chat_sources(make).await }
+            async move { p.run_chat_sources(ChatSourceKind::Tiktok, make).await }
         });
         eventually(|| chat_state(&p) == Some(ChatState::NotConfigured)).await;
         p.set_chat_paused(true);
@@ -2745,8 +3039,8 @@ mod tests {
     fn a_new_run_starts_connected() {
         let p = default_pipeline();
         assert!(!p.lock().chat_paused);
-        assert!(!p.chat_target.borrow().paused);
-        assert_eq!(p.chat_target.borrow().username, "streamer");
+        assert!(!p.chat_targets.tiktok.borrow().paused);
+        assert_eq!(p.chat_targets.tiktok.borrow().what, "streamer");
     }
 
     #[tokio::test]
@@ -2757,7 +3051,7 @@ mod tests {
             let p = Arc::clone(&p);
             let made = Arc::clone(&made);
             async move {
-                p.run_chat_sources(move |name: &str| {
+                p.run_chat_sources(ChatSourceKind::Tiktok, move |name: &str| {
                     made.lock().unwrap().push(name.to_owned());
                     ScriptedSource(VecDeque::new()) // ends at once
                 })
@@ -2793,7 +3087,7 @@ mod tests {
         let task = tokio::spawn({
             let p = Arc::clone(&p);
             async move {
-                p.run_chat_until(source, async {
+                p.run_chat_until(ChatSourceKind::Tiktok, source, async {
                     let _ = stopped.await;
                 })
                 .await
@@ -2805,7 +3099,11 @@ mod tests {
         assert!(task.await.unwrap(), "stopped because it was asked to");
 
         let ended = p
-            .run_chat_until(ScriptedSource(VecDeque::new()), std::future::pending())
+            .run_chat_until(
+                ChatSourceKind::Tiktok,
+                ScriptedSource(VecDeque::new()),
+                std::future::pending(),
+            )
             .await;
         assert!(!ended, "a source that ends is not a stop request");
     }

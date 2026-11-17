@@ -340,6 +340,33 @@ const request = (id, extra = {}) => ({
   ...extra,
 });
 
+test('each chat has its own status: from hello, or from events that name their source', () => {
+  const tiktok = { source: 'tiktok', state: 'connected', channel: 'a', text: 'T' };
+  const youtube = { source: 'youtube', state: 'waiting_for_live', channel: 'v', text: 'Y' };
+  let state = core.reduce(core.initialState(), hello(1, { chat: tiktok, chats: [tiktok, youtube] }));
+  assert.deepEqual(state.chats, { tiktok, youtube });
+  assert.equal(state.chat, tiktok, 'the TikTok one, as before');
+
+  // A server that only knew TikTok sent just `chat`.
+  state = core.reduce(core.initialState(), hello(1, { chat: { state: 'connected', text: 'old' } }));
+  assert.equal(state.chats.tiktok.text, 'old');
+  assert.equal(state.chats.youtube, null);
+
+  state = core.reduce(state, envelope(2, 'chat_status', { ...youtube, state: 'connected', text: 'Y2' }));
+  assert.equal(state.chats.youtube.text, 'Y2');
+  assert.equal(state.chats.tiktok.text, 'old', 'the other chat is left alone');
+  assert.equal(state.chat.text, 'old');
+  state = core.reduce(state, envelope(3, 'chat_status', { state: 'reconnecting', text: 'no source' }));
+  assert.equal(state.chats.tiktok.text, 'no source', 'no source means TikTok');
+  assert.equal(state.chat.text, 'no source');
+  const before = state.chats;
+  state = core.reduce(state, envelope(4, 'chat_status', 'nonsense'));
+  assert.equal(state.chats, before);
+  // A source that is not one of ours is nobody's status.
+  state = core.reduce(core.initialState(), hello(1, { chat: null, chats: [{ source: 'twitch', text: 'x' }, null, 5] }));
+  assert.deepEqual(state.chats, { tiktok: null, youtube: null });
+});
+
 test('the history comes with hello, and history_entry adds a request or updates it', () => {
   let state = core.reduce(core.initialState(), hello(1));
   assert.deepEqual(state.history, []);
@@ -581,7 +608,7 @@ test('the username is read like the server reads it', () => {
 
 test('the part of the account page is read from the address, and only for the account page', () => {
   for (const part of core.ACCOUNT_SECTIONS) assert.equal(core.parseSection('#account/' + part), part);
-  assert.deepEqual(core.ACCOUNT_SECTIONS, ['tiktok', 'youtube', 'token']);
+  assert.deepEqual(core.ACCOUNT_SECTIONS, ['tiktok', 'youtube-chat', 'youtube', 'token']);
   for (const other of ['#account', '#account/', '#account/nope', '#account/youtube/x', '#queue/youtube', '#youtube', '', undefined, null, '#account/__proto__']) {
     assert.equal(core.parseSection(other), '', String(other));
   }

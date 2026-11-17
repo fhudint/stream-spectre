@@ -6,7 +6,7 @@ two web pages (the OBS overlay and the moderator dashboard) from the same
 process.
 
 ```
- TikTok Live chat
+ TikTok Live chat / YouTube live chat
         │  ChatMessage { sender, text }
         ▼
 ┌─────────────────────────── app::Pipeline ───────────────────────────┐
@@ -45,7 +45,7 @@ process.
 | `command` | Turns chat text into `Parsed::{NotACommand, Invalid, Video}`. Accepts an 11-character ID and `youtu.be`, `youtube.com/watch`, `youtube.com/shorts` links. |
 | `youtube` | Video IDs and links, the Data API client, response parsing, a cached and quota-aware lookup service, and the rules a video must pass. |
 | `queue` | Plain rules and data with no I/O: the play queue, cooldowns, blacklist, and the `Gatekeeper` that combines them. Time is passed in, so tests are deterministic. |
-| `chat` | The `ChatSource` trait, a platform-independent reconnecting supervisor, and the TikTok adapter. |
+| `chat` | The `ChatSource` trait, a platform-independent reconnecting supervisor, and the TikTok and YouTube adapters. |
 | `app` | `Pipeline` (the logic above), the event types, and the event bus. The server is a thin layer on top of it. |
 | `server` | axum router, the request `guard`, REST handlers, WebSocket handlers, and the embedded static pages. |
 | `platform` | OS-specific code behind `#[cfg(target_os = ...)]`: config directory lookup and the shutdown signal. |
@@ -74,14 +74,18 @@ after a quota error the service stops calling the API for a while. The cooldown
 is spent before the lookup and given back when the lookup fails for a reason
 that is not the viewer's fault.
 
-**The TikTok username can change while the program runs.** `Pipeline` holds
-the username (`update_tiktok`, from `PATCH /api/chat/tiktok`) and publishes it
-in a `watch` channel. `run_chat_sources` reads the chat of the current name,
-and when the name changes it drops the old source between two messages (a
-message being handled is finished first) and makes a new one with the factory it
-was given; with no name it reads nothing and reports `not_configured`. A moderator
-can also disconnect the chat (`set_chat_paused`): the source is dropped the same
-way and the state is `paused` until it is connected again. That switch lives only
+**Two chats are read at once, and what they read can change while the program
+runs.** `Pipeline` holds the TikTok username and the YouTube live
+(`update_tiktok`, `update_youtube_chat`, from `PATCH /api/chat/tiktok` and
+`/youtube`) with a switch each, and publishes what each chat should be doing in
+a `watch` channel of its own. `run_chat_sources(kind, factory)` reads the chat
+of one source (`main` runs one for each), and when what it reads changes it
+drops the old source between two messages (a message being handled is finished
+first) and makes a new one with the factory it was given; with nothing set it
+reads nothing and reports `not_configured`, and switched off it reports
+`disabled`. Statuses are kept and published per source. A moderator can also
+disconnect the chat (`set_chat_paused`, both sources): the sources are dropped
+the same way and the state is `paused` until it is connected again. That switch lives only
 in memory, so a restart connects by itself. The
 username is also one of the tables saved beside `config.toml`.
 
@@ -210,9 +214,12 @@ are sent to YouTube in the `x-goog-api-key` header rather than the URL.
 
 ## Adding things
 
-- **A new chat source:** implement `ChatSource` in `src/chat/`, choose it with
-  `chat.source` in the config, and map the platform's user data to `Sender`
-  (`id`, display name, `Role`, gifter and fan club levels).
+- **A new chat source:** implement `ChatSource` in `src/chat/` (see `tiktok.rs`
+  and `youtube.rs`), give it a `ChatSourceKind`, a settings table, a status
+  texts family in the locales and a reading loop in `main`, and map the
+  platform's user data to `Sender` (`id`, display name, `Role`, gifter and fan
+  club levels). Sender IDs start with the platform (`youtube:...`) so that
+  limits per viewer never mix two platforms.
 - **A new event:** add a variant in `src/app/events.rs`, publish it from
   `Pipeline`, document it in `websocket-events.md`, and handle it in the page
   cores. Clients ignore unknown event types, so adding one is not a breaking

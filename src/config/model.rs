@@ -3,6 +3,7 @@ use std::net::{IpAddr, Ipv4Addr};
 use serde::{Deserialize, Serialize};
 
 use crate::chat::Role;
+use crate::youtube::{VideoId, extract_video_id};
 
 /// Contents of `config.toml`. Secrets are not part of it; see `Secrets`.
 #[derive(Debug, Clone, PartialEq, Default, Deserialize)]
@@ -50,33 +51,77 @@ impl Default for ServerConfig {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
+/// The places chat is read from. Both can be read at the same time.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ChatSourceKind {
-    #[default]
     Tiktok,
+    Youtube,
 }
 
 #[derive(Debug, Clone, PartialEq, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct ChatConfig {
-    pub source: ChatSourceKind,
+    /// Not used any more: both sources are read, each unless it is switched
+    /// off or has nothing to read. Still accepted so that config files that
+    /// have it keep loading.
+    pub source: Option<ChatSourceKind>,
     pub tiktok: TiktokConfig,
+    pub youtube: YoutubeChatConfig,
 }
 
-#[derive(Debug, Clone, PartialEq, Default, Deserialize, Serialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct TiktokConfig {
     /// Username of the streamer whose LIVE chat is read, with or without `@`.
     /// Empty means no chat is read yet; the program starts anyway and waits
     /// for a username to be set from the dashboard.
     pub username: String,
+    /// Switched off, the chat is not read even with a username set.
+    pub enabled: bool,
+}
+
+impl Default for TiktokConfig {
+    fn default() -> Self {
+        Self {
+            username: String::new(),
+            enabled: true,
+        }
+    }
 }
 
 impl TiktokConfig {
     /// Username with surrounding whitespace and a leading `@` removed.
     pub fn username(&self) -> &str {
         self.username.trim().trim_start_matches('@')
+    }
+}
+
+/// The YouTube live whose chat is read.
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct YoutubeChatConfig {
+    /// The live video: its link or its 11-character ID. Empty means no chat
+    /// is read; a live gets a new video each time, so this is meant to be set
+    /// from the dashboard.
+    pub video: String,
+    /// Switched off, the chat is not read even with a video set.
+    pub enabled: bool,
+}
+
+impl Default for YoutubeChatConfig {
+    fn default() -> Self {
+        Self {
+            video: String::new(),
+            enabled: true,
+        }
+    }
+}
+
+impl YoutubeChatConfig {
+    /// The video ID, when `video` is a link or ID that holds one.
+    pub fn video_id(&self) -> Option<VideoId> {
+        extract_video_id(self.video.trim())
     }
 }
 

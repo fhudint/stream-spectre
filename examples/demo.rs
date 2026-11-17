@@ -43,7 +43,7 @@ use std::time::Duration;
 use anyhow::Context;
 use stream_spectre::app::{Credentials, Pipeline};
 use stream_spectre::chat::{ChatMessage, ChatStatus, Role, Sender};
-use stream_spectre::config::{self, CommandConfig, CommandSource, Secret};
+use stream_spectre::config::{self, ChatSourceKind, CommandConfig, CommandSource, Secret};
 use stream_spectre::i18n::I18n;
 use stream_spectre::tiktok::extract_tiktok_ref;
 use stream_spectre::youtube::{
@@ -324,9 +324,12 @@ async fn main() -> anyhow::Result<()> {
     println!("dashboard: http://{host}/dashboard/");
     println!("overlay:   http://{host}/overlay/");
 
-    pipeline.chat_status(&ChatStatus::Connected {
-        channel: config.chat.tiktok.username().to_owned(),
-    });
+    pipeline.chat_status(
+        ChatSourceKind::Tiktok,
+        &ChatStatus::Connected {
+            channel: config.chat.tiktok.username().to_owned(),
+        },
+    );
 
     let (stop, stopped) = watch::channel(false);
     let feeder = tokio::spawn(feed_chat(Arc::clone(&pipeline), plan, stopped.clone()));

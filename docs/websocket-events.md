@@ -20,7 +20,8 @@ of truth; this page describes them for people writing clients.
 | `PATCH /api/blacklist` | Replace some blacklist lists (`video_ids`, `channels`, `title_words`), keep the rest |
 | `PATCH /api/dashboard` | Change dashboard settings (`chat_history`), keep the rest |
 | `PATCH /api/commands` | Change the chat commands: `{"prefix": "!", "commands": [{"name": "v", "source": "youtube"}, {"name": "vt", "source": "tiktok"}]}`. `source` is `youtube` or `tiktok`. Either field may be left out; `commands` is always the whole list. Takes effect for the next chat message. `400` for an empty list, more than 8, a name used twice (capitals do not count), a name with anything but ASCII letters, digits and `_`, an unknown source, or a prefix that is empty, longer than 4 or has spaces. Answers the new state. |
-| `PATCH /api/chat/tiktok` | Body `{"username": "name"}`: set the TikTok username (an empty string stops reading chat); the chat follows it without a restart. Letters, digits, `_` and `.`, at most 64; a leading `@` and spaces are dropped. Answers the new state. |
+| `PATCH /api/chat/tiktok` | Body `{"username": "name", "enabled": true}`, either or both: set the TikTok username (an empty string stops reading chat) and switch the chat on or off; the chat follows without a restart. Letters, digits, `_` and `.`, at most 64; a leading `@` and spaces are dropped. Answers the new state. |
+| `PATCH /api/chat/youtube` | Body `{"video": "link or ID", "enabled": true}`, either or both: set the YouTube live whose chat is read (a link or an 11-character ID, kept as the ID; an empty string stops reading chat) and switch the chat on or off. Something that is not a video is refused. Answers the new state. |
 | `PUT /api/playback/pause` | Body `{"paused": true or false}`: pauses or resumes the video that is playing. Answers the new state. `409` with `"code": "nothing_playing"` when no video is playing, or `"code": "pause_unsupported"` when asked to pause a TikTok video (its player cannot be paused from outside; resuming is always accepted). |
 | `PUT /api/chat/connection` | Body `{"connected": true or false}`: disconnects the chat (`false`) or connects it again (`true`), for as long as the program runs; not saved. Answers the new state. |
 | `GET /api/account` | What is set, never the secrets: `{"youtube_key": {"set", "source": "none"/"environment"/"saved", "last4"}, "dashboard_token": {"set"}, "editable"}`. `last4` is the key's last four characters, or `null` (no key, or one too short to show any part of). `editable` is false for a connection that does not come from the computer the program runs on. |
@@ -258,8 +259,9 @@ The moderation settings, the blacklist or the dashboard settings changed
 `moderation.volume` is always the current volume. `command` is the `[command]`
 table: one shared prefix and the list of chat words, each with its `source`
 (`"youtube"` or `"tiktok"`). A command only accepts links and IDs of its own
-source. `chat.tiktok.username` is
-empty while no username is set. The overlay's `hello` carries the same
+source. `chat.tiktok` is `{"username", "enabled"}` (the username is empty while
+none is set) and `chat.youtube` is `{"video", "enabled"}`, the YouTube live's
+video ID (empty while none is set). The overlay's `hello` carries the same
 `settings.chat`; only the dashboard receives `settings_updated`.
 
 ### `notice`
@@ -419,22 +421,31 @@ position from the next event; `hello` does not carry it.
 
 ### `chat_status`
 
-The connection to the chat changed (dashboard).
+The connection to one of the chats changed (dashboard). There are two chats,
+TikTok and YouTube, each with its own status.
 
 ```json
 { "type": "chat_status", "data": {
+    "source": "tiktok",
     "state": "waiting_for_live",
     "channel": "streamer",
     "text": "Waiting for @streamer to go live"
 } }
 ```
 
-`state` is `connected`, `waiting_for_live`, `reconnecting`, `disconnected`,
-`not_configured` (no TikTok username is set, so nothing is being read; `channel`
-is then empty) or `paused` (a moderator disconnected the chat with
-`PUT /api/chat/connection`; `channel` is still the username). Repeated identical states are not sent. When the username is
-changed, `channel` is the new name from then on and the state goes to
+`source` is `"tiktok"` or `"youtube"`; an event without one comes from a server
+that only read TikTok, and means TikTok. `channel` is the TikTok username, or
+the YouTube video ID. `state` is `connected`, `waiting_for_live`,
+`reconnecting`, `disconnected`, `not_configured` (no username or video is set,
+so nothing is being read; `channel` is then empty), `disabled` (switched off
+with `enabled: false`) or `paused` (a moderator disconnected the chat with
+`PUT /api/chat/connection`, which does both sources; `channel` is still what was
+set). Repeated identical states are not sent. When the username or video is
+changed, `channel` is the new one from then on and the state goes to
 `reconnecting` until the new connection reports.
+
+`hello.chats` lists the statuses of the chats that have reported, TikTok first.
+`hello.chat` is still the TikTok one, for older clients.
 
 ## Messages from the overlay
 
