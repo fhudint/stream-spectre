@@ -16,14 +16,16 @@
 # entered on the dashboard is saved in `config.secrets.toml` next to this file
 # (private to your user, git-ignored) and wins over YOUTUBE_API_KEY.
 #
-# Every key is optional; the values below are the defaults, except that
-# `chat.tiktok.username` has no useful default: leave it empty and the program
-# starts anyway, waits, and you enter the username on the dashboard's Settings
-# page.
+# Every key is optional. The values below are what the program uses when a key
+# is left out, except for three that this example sets differently, as a
+# starting point: `general.language` ("en"), the chat commands (`!yt` for
+# YouTube and `!vt` for TikTok) and `chat.tiktok.username`, which has no useful
+# default: leave it out and the program starts anyway, waits, and you enter the
+# username on the dashboard's Account page.
 
 [general]
 # Language of the dashboard and overlay: "id" or "en".
-language = "id"
+language = "en"
 
 [server]
 # Address for the dashboard and the OBS overlay. Keep 127.0.0.1 unless you need
@@ -39,19 +41,24 @@ source = "tiktok"
 # Username of the streamer whose LIVE chat is read, with or without "@".
 # Can be left empty and set from the dashboard (Account page) instead; a
 # change there takes effect at once, without a restart.
-username = "your_tiktok_username"
+# username = "your_tiktok_username"
 
 [command]
-# Viewers send: <prefix><name> <YouTube ID or link>, for example "!v dQw4w9WgXcQ".
+# Viewers send: <prefix><name> <video ID or link>, for example "!yt dQw4w9WgXcQ"
+# for YouTube or "!vt 7700124541145599252" for TikTok (a TikTok video ID, the
+# code of a short link such as ZSpGELffb, or a link).
 # One prefix (1 to 4 characters, no spaces) is shared by every command. Each
 # command is a name (letters, digits and _, at most 32; capitals do not count)
 # and the source its links come from: "youtube" or "tiktok". A command takes
-# only links and IDs of its own source. For example:
-# commands = [{ name = "v", source = "youtube" }, { name = "vt", source = "tiktok" }]
-# Up to 8 commands, no name twice. Several names for one source work like
-# several words for the same thing. Also editable on the dashboard's Rules page.
+# only links and IDs of its own source. TikTok videos always wait for a
+# moderator, even in automatic mode. Up to 8 commands, no name twice. Several
+# names for one source work like several words for the same thing. Also
+# editable on the dashboard's Rules page.
 prefix = "!"
-commands = [{ name = "v", source = "youtube" }]
+commands = [
+  { name = "yt", source = "youtube" },
+  { name = "vt", source = "tiktok" },
+]
 # An older file with `name = "v"` instead of `commands` still works.
 
 [youtube]
