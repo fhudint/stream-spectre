@@ -19,9 +19,9 @@ of truth; this page describes them for people writing clients.
 | `PATCH /api/settings` | Change some moderation settings, keep the rest; answers the new state |
 | `PATCH /api/blacklist` | Replace some blacklist lists (`video_ids`, `channels`, `title_words`), keep the rest |
 | `PATCH /api/dashboard` | Change dashboard settings (`chat_history`), keep the rest |
-| `PATCH /api/commands` | Change the chat commands: `{"prefix": "!", "commands": [{"name": "v", "source": "youtube"}]}`. Either field may be left out; `commands` is always the whole list. Takes effect for the next chat message. `400` for an empty list, more than 8, a name used twice (capitals do not count), a name with anything but ASCII letters, digits and `_`, an unknown source, or a prefix that is empty, longer than 4 or has spaces. Answers the new state. |
+| `PATCH /api/commands` | Change the chat commands: `{"prefix": "!", "commands": [{"name": "v", "source": "youtube"}, {"name": "vt", "source": "tiktok"}]}`. `source` is `youtube` or `tiktok`. Either field may be left out; `commands` is always the whole list. Takes effect for the next chat message. `400` for an empty list, more than 8, a name used twice (capitals do not count), a name with anything but ASCII letters, digits and `_`, an unknown source, or a prefix that is empty, longer than 4 or has spaces. Answers the new state. |
 | `PATCH /api/chat/tiktok` | Body `{"username": "name"}`: set the TikTok username (an empty string stops reading chat); the chat follows it without a restart. Letters, digits, `_` and `.`, at most 64; a leading `@` and spaces are dropped. Answers the new state. |
-| `PUT /api/playback/pause` | Body `{"paused": true or false}`: pauses or resumes the video that is playing. Answers the new state. `409` with `"code": "nothing_playing"` when no video is playing. |
+| `PUT /api/playback/pause` | Body `{"paused": true or false}`: pauses or resumes the video that is playing. Answers the new state. `409` with `"code": "nothing_playing"` when no video is playing, or `"code": "pause_unsupported"` when asked to pause a TikTok video (its player cannot be paused from outside; resuming is always accepted). |
 | `PUT /api/chat/connection` | Body `{"connected": true or false}`: disconnects the chat (`false`) or connects it again (`true`), for as long as the program runs; not saved. Answers the new state. |
 | `GET /api/account` | What is set, never the secrets: `{"youtube_key": {"set", "source": "none"/"environment"/"saved", "last4"}, "dashboard_token": {"set"}, "editable"}`. `last4` is the key's last four characters, or `null` (no key, or one too short to show any part of). `editable` is false for a connection that does not come from the computer the program runs on. |
 | `PUT /api/account/youtube-key` | Body `{"key": "..."}`. Checks the key with one YouTube request (1 quota unit), saves it in the secrets file and starts using it at once. Answers like `GET /api/account` plus `"checked": "valid"` or `"quota_exhausted"` (the key is real but today's quota is used up). Errors carry a `code`: `key_empty`, `key_bad_format` (400), `key_rejected` (400, YouTube refused it), `cannot_check` (502, could not reach YouTube), `not_saved` (500), `loopback_only` (403). The key is never sent back. |
@@ -154,6 +154,7 @@ The queue changed. `data` is the whole queue:
 ```json
 {
   "id": 7,
+  "source": "youtube",
   "video_id": "dQw4w9WgXcQ",
   "title": "Song",
   "channel": "Channel name",
@@ -164,8 +165,21 @@ The queue changed. `data` is the whole queue:
 }
 ```
 
-`id` is unique while the server runs. `video_id` is always exactly 11
-characters from `A-Z a-z 0-9 _ -`, so it is safe to use in a URL.
+`id` is unique while the server runs. `source` is `"youtube"` or `"tiktok"`
+(an item from a server that predates TikTok has no `source`, which means
+YouTube). `video_id` is in the source's own form and always safe to use in a
+URL: exactly 11 characters from `A-Z a-z 0-9 _ -` for YouTube, 15 to 20 digits
+for TikTok.
+
+A **TikTok** item carries little, because TikTok gives nothing more without a
+developer account: `title` is the account (`"@name"`) when the link told it,
+otherwise the ID; `channel` is `"TikTok"`; `duration_secs` is `0`, meaning not
+known; `thumbnail_url` is an empty string. Such an item always waits for a
+moderator, even when automatic approval is on, because nothing about it
+(length, age, whether it can be embedded) has been checked. The overlay shows
+it in TikTok's own embedded player; nothing in that player reports back, so it
+ends only when a moderator skips it (`ended` is never sent for it, and it has
+no `progress`, no pause, and its volume is not set by the dashboard).
 `title`, `channel` and `requested_by.name` are text written by other people:
 show them as plain text (`textContent`), never as HTML.
 `role` is one of `everyone`, `follower`, `subscriber`, `moderator`.
@@ -233,7 +247,8 @@ The moderation settings, the blacklist or the dashboard settings changed
 
 `moderation.volume` is always the current volume. `command` is the `[command]`
 table: one shared prefix and the list of chat words, each with its `source`
-(`"youtube"` is the only one so far). `chat.tiktok.username` is
+(`"youtube"` or `"tiktok"`). A command only accepts links and IDs of its own
+source. `chat.tiktok.username` is
 empty while no username is set. The overlay's `hello` carries the same
 `settings.chat`; only the dashboard receives `settings_updated`.
 

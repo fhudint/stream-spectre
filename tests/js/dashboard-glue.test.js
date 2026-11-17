@@ -2067,3 +2067,109 @@ test('a page whose server sends no command settings still works', async () => {
   assert.equal(page.elements['commands-rows'].children.length, 0);
   assert.ok(!page.elements['rules-chips'].children.some((chip) => /^Commands/.test(chip.textContent)));
 });
+
+// --- TikTok videos in the queue ---
+
+const TT = '7700124541145599252';
+const ttItem = (id, extra = {}) => ({
+  id,
+  source: 'tiktok',
+  video_id: TT,
+  title: '@cherlynn052',
+  channel: 'TikTok',
+  duration_secs: 0,
+  thumbnail_url: '',
+  requested_by: { name: `Viewer ${id}`, role: 'follower' },
+  ...extra,
+});
+const withTiktok = (queue) => snapshot({ queue: { pending: [], approved: [], now_playing: null, ...queue } });
+
+test('a TikTok request in a list shows its account, ID and source instead of a length', async () => {
+  const body = withTiktok({ pending: [ttItem(7)] });
+  const page = await ready({ routes: { 'GET /api/state': () => ({ status: 200, body }) } });
+  const row = page.elements.pending.children[0];
+  const text = row.textContent;
+  assert.match(text, /@cherlynn052/);
+  assert.match(text, new RegExp(TT));
+  assert.match(text, /TikTok/);
+  assert.ok(!descendants(row).some((n) => n.tag === 'img'), 'no picture to show');
+  const badge = descendants(row).find((n) => n.classes.has('duration'));
+  assert.equal(badge && badge.textContent, 'TikTok', 'the source takes the place of the length');
+  assert.ok(!/\d:\d\d/.test(text.replace(TT, '')), 'no length');
+  // It can be approved and rejected like any other.
+  assert.equal(buttons(row, 'approve').length, 1);
+  assert.equal(buttons(row, 'reject').length, 1);
+});
+
+test('the playing card of a TikTok video has no progress and no pause button, and says to skip it', async () => {
+  const body = withTiktok({ now_playing: ttItem(3), approved: [item(9)] });
+  const page = await ready({ routes: { 'GET /api/state': () => ({ status: 200, body }) } });
+  const card = page.elements.now;
+  assert.ok(!descendants(card).some((n) => n.tag === 'progress'));
+  assert.match(card.textContent, /TikTok does not say when a video ends\. Skip it when it is over\./);
+  assert.match(card.textContent, /@cherlynn052/);
+  assert.ok(!/0:00 of/.test(card.textContent), 'no elapsed time');
+  assert.ok(pauseButton(page).hidden, 'the pause button is not offered');
+  assert.equal(buttons(card, 'skip').length, 1, 'skipping is how it ends');
+  assert.match(card.textContent, /Next: Title 9/);
+
+  // A progress report cannot make a bar appear.
+  page.socket().receive(envelope(6, 'playback', { item_id: 3, position_secs: 40 }));
+  assert.ok(!descendants(page.elements.now).some((n) => n.tag === 'progress'));
+});
+
+test('the pause key does nothing while a TikTok video plays', async () => {
+  const body = withTiktok({ now_playing: ttItem(3) });
+  const page = await ready({ routes: { 'GET /api/state': () => ({ status: 200, body }) } });
+  page.press('p');
+  await settle();
+  assert.equal(pauseCalls(page).length, 0);
+  // Skip still works from the keyboard.
+  page.table['POST /api/skip'] = { status: 200, body: { skipped: true } };
+  page.press('s');
+  await settle();
+  assert.equal(page.log.requests.filter((r) => r.path === '/api/skip').length, 1);
+});
+
+test('going from a TikTok video to a YouTube one brings the progress and the pause button back', async () => {
+  const body = withTiktok({ now_playing: ttItem(3) });
+  const page = await ready({ routes: { 'GET /api/state': () => ({ status: 200, body }) } });
+  page.socket().receive(envelope(6, 'play', { item: item(4), volume: 50 }));
+  page.socket().receive(envelope(7, 'queue_updated', { pending: [], approved: [], now_playing: item(4) }));
+  assert.ok(descendants(page.elements.now).some((n) => n.tag === 'progress'));
+  assert.ok(!pauseButton(page).hidden);
+});
+
+test('an item without a source, from an older server, is a YouTube one', () => {
+  const clean = core.initialState();
+  const state = core.reduce(clean, {
+    v: 1, seq: 1, type: 'hello',
+    data: { settings: {}, queue: { pending: [{ id: 1, video_id: ITEM_ID, requested_by: { name: 'A', role: 'follower' } }], approved: [], now_playing: null } },
+  });
+  assert.equal(state.queue.pending[0].source, 'youtube');
+  const odd = core.reduce(clean, {
+    v: 1, seq: 1, type: 'hello',
+    data: { settings: {}, queue: { pending: [{ id: 1, source: 'vimeo', video_id: ITEM_ID }], approved: [], now_playing: null } },
+  });
+  assert.equal(odd.queue.pending[0].source, 'youtube');
+  assert.equal(core.hasUnknownLength({ source: 'tiktok' }), true);
+  assert.equal(core.hasUnknownLength({ source: 'youtube' }), false);
+  assert.equal(core.hasUnknownLength(null), false);
+});
+
+test('a command can be given the TikTok source on the rules page', async () => {
+  const page = await ready();
+  page.click(page.elements['commands-add']);
+  const [first, second] = commandRows(page);
+  assert.deepEqual(first.source.children.map((o) => [o.attrs.value, o.textContent]), [['youtube', 'YouTube'], ['tiktok', 'TikTok']]);
+  second.name.value = '!vt';
+  second.source.value = 'tiktok';
+  const saved = withCommands({ prefix: '!', commands: [{ name: 'v', source: 'youtube' }, { name: 'vt', source: 'tiktok' }] });
+  page.table['PATCH /api/commands'] = { status: 200, body: saved };
+  page.elements['commands-form'].fire('submit');
+  await settle();
+  assert.deepEqual(commandPatches(page)[0].body.commands, [{ name: 'v', source: 'youtube' }, { name: 'vt', source: 'tiktok' }]);
+  assert.deepEqual(typedCommands(page), [['v', 'youtube'], ['vt', 'tiktok']]);
+  assert.ok(page.elements['rules-chips'].children.some((chip) => chip.textContent === 'Commands !v !vt'));
+});
+

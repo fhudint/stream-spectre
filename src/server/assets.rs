@@ -14,10 +14,11 @@ use rust_embed::RustEmbed;
 struct Assets;
 
 /// What the pages may load. Both talk only to this server; the overlay also
-/// needs the YouTube player. Tightened or loosened as the pages require.
+/// needs the YouTube player and TikTok's embedded player (a frame, nothing
+/// more). Tightened or loosened as the pages require.
 const OVERLAY_CSP: &str = "default-src 'self'; \
     script-src 'self' https://www.youtube.com https://s.ytimg.com; \
-    frame-src https://www.youtube.com https://www.youtube-nocookie.com; \
+    frame-src https://www.youtube.com https://www.youtube-nocookie.com https://www.tiktok.com; \
     img-src 'self' https://i.ytimg.com data:; \
     connect-src 'self' ws: wss:; \
     frame-ancestors 'none'; base-uri 'none'; form-action 'none'";
@@ -176,6 +177,7 @@ mod tests {
         let csp = headers[header::CONTENT_SECURITY_POLICY].to_str().unwrap();
         assert!(csp.contains("default-src 'self'") && csp.contains("frame-ancestors 'none'"));
         assert!(!csp.contains("youtube"), "the dashboard needs no YouTube");
+        assert!(!csp.contains("tiktok"), "the dashboard needs no TikTok");
 
         let overlay = respond(Section::Overlay, "");
         assert_eq!(
@@ -186,6 +188,13 @@ mod tests {
             .to_str()
             .unwrap();
         assert!(csp.contains("https://www.youtube.com"));
+        // TikTok is only a frame: no scripts or images are loaded from it.
+        assert!(csp.contains("frame-src") && csp.contains("https://www.tiktok.com"));
+        let script_src = csp
+            .split(';')
+            .find(|d| d.trim().starts_with("script-src"))
+            .unwrap();
+        assert!(!script_src.contains("tiktok"), "{script_src}");
         assert!(!csp.contains("unsafe-inline") && !csp.contains("unsafe-eval"));
     }
 

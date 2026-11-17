@@ -13,7 +13,7 @@ use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
 
 use super::ServerState;
-use crate::app::{AccountView, CredentialsError, Hello};
+use crate::app::{AccountView, CredentialsError, Hello, PauseOutcome};
 use crate::config::{
     BlacklistConfig, CommandConfig, DashboardConfig, ModerationConfig, TiktokConfig,
 };
@@ -217,7 +217,8 @@ pub async fn chat_connection<S: VideoSource + 'static>(
 }
 
 /// `PUT /api/playback/pause` with `{"paused": true|false}`: pauses or resumes
-/// the video that is playing. `409` when nothing is playing.
+/// the video that is playing. `409` when nothing is playing, or when it is a
+/// TikTok video (`pause_unsupported`): its player cannot be paused from outside.
 pub async fn pause_playback<S: VideoSource + 'static>(
     State(state): State<ServerState<S>>,
     Json(body): Json<Value>,
@@ -229,12 +230,17 @@ pub async fn pause_playback<S: VideoSource + 'static>(
         )
         .coded("bad_request"));
     };
-    if !state.pipeline.set_playback_paused(paused) {
-        return Err(
-            ApiError::new(StatusCode::CONFLICT, "no video is playing").coded("nothing_playing")
-        );
+    match state.pipeline.set_playback_paused(paused) {
+        PauseOutcome::Done => Ok(Json(state.pipeline.hello())),
+        PauseOutcome::NothingPlaying => {
+            Err(ApiError::new(StatusCode::CONFLICT, "no video is playing").coded("nothing_playing"))
+        }
+        PauseOutcome::Unsupported => Err(ApiError::new(
+            StatusCode::CONFLICT,
+            "this video cannot be paused",
+        )
+        .coded("pause_unsupported")),
     }
-    Ok(Json(state.pipeline.hello()))
 }
 
 /// Credentials can only be changed from the computer the program runs on,

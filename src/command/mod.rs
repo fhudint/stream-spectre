@@ -1,9 +1,11 @@
 //! Parsing of chat messages into commands.
 //!
-//! Chat text is untrusted. The parser only ever hands on a validated
-//! `VideoId`; the raw text is dropped.
+//! Chat text is untrusted. The parser only ever hands on validated values (a
+//! `VideoId`, or a `TiktokRef` made of a TikTok video ID or short code); the
+//! raw text is dropped.
 
 use crate::config::{CommandConfig, CommandEntry, CommandSource};
+use crate::tiktok::{TiktokRef, extract_tiktok_ref};
 use crate::youtube::{VideoId, extract_video_id};
 
 /// Why a message that is clearly a command was not accepted.
@@ -11,8 +13,11 @@ use crate::youtube::{VideoId, extract_video_id};
 pub enum InvalidReason {
     /// The command was sent without an argument.
     MissingArgument,
-    /// The argument is not a recognised video ID or YouTube link.
+    /// The argument is not a recognised video ID or link of the command's
+    /// source.
     InvalidLink,
+    /// The argument is a link of another source, which has its own command.
+    WrongSource(CommandSource),
 }
 
 /// Result of looking at one chat message.
@@ -20,10 +25,16 @@ pub enum InvalidReason {
 pub enum Parsed {
     /// Ordinary chat; ignore it.
     NotACommand,
-    /// The video command with an unusable argument; worth telling the sender.
-    Invalid(InvalidReason),
-    /// A valid video request.
-    Video(VideoId),
+    /// A video command with an unusable argument; worth telling the sender.
+    /// `source` is the one the command is for.
+    Invalid {
+        source: CommandSource,
+        reason: InvalidReason,
+    },
+    /// A valid YouTube request.
+    Youtube(VideoId),
+    /// A valid TikTok request. A short code still has to be looked up.
+    Tiktok(TiktokRef),
 }
 
 /// Recognises `<prefix><name> <id or link>`, for example `!v dQw4w9WgXcQ`,
@@ -42,12 +53,24 @@ impl CommandParser {
         }
     }
 
+    /// What a viewer types to ask for a video of `source`, such as `!vt`: the
+    /// first command configured for it, or `None` when there is none.
+    pub fn command_for(&self, source: CommandSource) -> Option<String> {
+        self.commands
+            .iter()
+            .find(|command| command.source == source)
+            .map(|command| format!("{}{}", self.prefix, command.name))
+    }
+
     /// Classifies a chat message. Never panics, whatever the input.
     ///
     /// - The prefix must match exactly; the command name is case-insensitive.
     /// - The name must be a whole word, so `!vid` is not `!v`, and `!vt` is
     ///   not `!v`.
     /// - Only the first word after the name is used; the rest is ignored.
+    /// - A command accepts only its own source. A link of the other source
+    ///   is reported as such, so the sender can be pointed to the right
+    ///   command; a bare ID is never taken for the other source.
     pub fn parse(&self, message: &str) -> Parsed {
         let Some(after_prefix) = message.trim().strip_prefix(self.prefix.as_str()) else {
             return Parsed::NotACommand;
@@ -64,16 +87,33 @@ impl CommandParser {
             return Parsed::NotACommand;
         };
 
+        let source = command.source;
+        let invalid = |reason| Parsed::Invalid { source, reason };
         let Some(argument) = rest.split_whitespace().next() else {
-            return Parsed::Invalid(InvalidReason::MissingArgument);
+            return invalid(InvalidReason::MissingArgument);
         };
-        match command.source {
+        match source {
             CommandSource::Youtube => match extract_video_id(argument) {
-                Some(id) => Parsed::Video(id),
-                None => Parsed::Invalid(InvalidReason::InvalidLink),
+                Some(id) => Parsed::Youtube(id),
+                None if is_link(argument) && extract_tiktok_ref(argument).is_some() => {
+                    invalid(InvalidReason::WrongSource(CommandSource::Tiktok))
+                }
+                None => invalid(InvalidReason::InvalidLink),
+            },
+            CommandSource::Tiktok => match extract_tiktok_ref(argument) {
+                Some(target) => Parsed::Tiktok(target),
+                None if is_link(argument) && extract_video_id(argument).is_some() => {
+                    invalid(InvalidReason::WrongSource(CommandSource::Youtube))
+                }
+                None => invalid(InvalidReason::InvalidLink),
             },
         }
     }
+}
+
+/// Whether the argument is written as a link rather than a bare ID or code.
+fn is_link(argument: &str) -> bool {
+    argument.contains('/')
 }
 
 #[cfg(test)]
@@ -94,12 +134,19 @@ mod tests {
         })
     }
 
+    fn invalid(reason: InvalidReason) -> Parsed {
+        Parsed::Invalid {
+            source: CommandSource::Youtube,
+            reason,
+        }
+    }
+
     fn default_parser() -> CommandParser {
         parser("!", &["v"])
     }
 
     fn video(id: &str) -> Parsed {
-        Parsed::Video(VideoId::parse(id).unwrap())
+        Parsed::Youtube(VideoId::parse(id).unwrap())
     }
 
     #[test]
@@ -139,7 +186,7 @@ mod tests {
         assert_eq!(p.parse("!v dQw4w9WgXcQ please play this"), video(ID));
         assert_eq!(
             p.parse("!v please dQw4w9WgXcQ"),
-            Parsed::Invalid(InvalidReason::InvalidLink)
+            invalid(InvalidReason::InvalidLink)
         );
     }
 
@@ -171,7 +218,7 @@ mod tests {
         for text in ["!v", "!v ", "!V   ", "  !v\t"] {
             assert_eq!(
                 p.parse(text),
-                Parsed::Invalid(InvalidReason::MissingArgument),
+                invalid(InvalidReason::MissingArgument),
                 "{text:?}"
             );
         }
@@ -192,7 +239,7 @@ mod tests {
         ] {
             assert_eq!(
                 p.parse(text),
-                Parsed::Invalid(InvalidReason::InvalidLink),
+                invalid(InvalidReason::InvalidLink),
                 "{text:?}"
             );
         }
@@ -223,14 +270,8 @@ mod tests {
             assert_eq!(p.parse(text), Parsed::NotACommand, "{text:?}");
         }
         // Each name reports its own problems.
-        assert_eq!(
-            p.parse("!yt"),
-            Parsed::Invalid(InvalidReason::MissingArgument)
-        );
-        assert_eq!(
-            p.parse("!clip nope"),
-            Parsed::Invalid(InvalidReason::InvalidLink)
-        );
+        assert_eq!(p.parse("!yt"), invalid(InvalidReason::MissingArgument));
+        assert_eq!(p.parse("!clip nope"), invalid(InvalidReason::InvalidLink));
     }
 
     #[test]
@@ -241,14 +282,128 @@ mod tests {
         assert_eq!(p.parse("!vtt dQw4w9WgXcQ"), Parsed::NotACommand);
     }
 
+    fn mixed() -> CommandParser {
+        CommandParser::new(&CommandConfig {
+            prefix: "!".to_owned(),
+            commands: vec![
+                CommandEntry::youtube("v"),
+                CommandEntry::tiktok("vt"),
+                CommandEntry::tiktok("tt"),
+            ],
+        })
+    }
+
+    fn tiktok_invalid(reason: InvalidReason) -> Parsed {
+        Parsed::Invalid {
+            source: CommandSource::Tiktok,
+            reason,
+        }
+    }
+
+    const TT_ID: &str = "7700124541145599252";
+
+    #[test]
+    fn a_tiktok_command_takes_an_id_a_code_or_a_link() {
+        let p = mixed();
+        let id = |parsed: Parsed| match parsed {
+            Parsed::Tiktok(TiktokRef::Video { id, account }) => Some((id.to_string(), account)),
+            _ => None,
+        };
+        assert_eq!(
+            id(p.parse(&format!("!vt {TT_ID}"))),
+            Some((TT_ID.to_owned(), None))
+        );
+        assert_eq!(
+            id(p.parse(&format!("!TT {TT_ID} please"))),
+            Some((TT_ID.to_owned(), None))
+        );
+        assert_eq!(
+            id(p.parse(&format!(
+                "!vt https://www.tiktok.com/@cherlynn052/video/{TT_ID}?is_from_webapp=1"
+            ))),
+            Some((TT_ID.to_owned(), Some("cherlynn052".to_owned())))
+        );
+        match p.parse("!vt ZSpGELffb") {
+            Parsed::Tiktok(TiktokRef::Short(code)) => assert_eq!(code.as_str(), "ZSpGELffb"),
+            other => panic!("{other:?}"),
+        }
+        match p.parse("!vt https://vt.tiktok.com/ZSpGELffb/") {
+            Parsed::Tiktok(TiktokRef::Short(code)) => assert_eq!(code.as_str(), "ZSpGELffb"),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn each_command_takes_only_its_own_source() {
+        let p = mixed();
+        // YouTube things after a TikTok word, and the other way round.
+        assert_eq!(
+            p.parse("!vt https://youtu.be/dQw4w9WgXcQ"),
+            tiktok_invalid(InvalidReason::WrongSource(CommandSource::Youtube))
+        );
+        assert_eq!(
+            p.parse("!v https://vt.tiktok.com/ZSpGELffb/"),
+            invalid(InvalidReason::WrongSource(CommandSource::Tiktok))
+        );
+        assert_eq!(
+            p.parse(&format!("!v https://www.tiktok.com/@a/video/{TT_ID}")),
+            invalid(InvalidReason::WrongSource(CommandSource::Tiktok))
+        );
+        // A bare ID or code is never taken for the other source: after the
+        // YouTube word it is simply not a YouTube ID.
+        assert_eq!(
+            p.parse(&format!("!v {TT_ID}")),
+            invalid(InvalidReason::InvalidLink)
+        );
+        assert_eq!(p.parse("!v ZSpGELffb"), invalid(InvalidReason::InvalidLink));
+        assert_eq!(p.parse("!v notanid"), invalid(InvalidReason::InvalidLink));
+        // And after the TikTok word a YouTube ID with a dash is not a code.
+        assert_eq!(
+            p.parse("!vt a_b-C1d2E3f"),
+            tiktok_invalid(InvalidReason::InvalidLink)
+        );
+        // Garbage and other hosts are just invalid.
+        for text in [
+            "!vt nope!",
+            "!vt https://evil.com/x",
+            "!vt javascript:alert(1)",
+            "!vt 12",
+        ] {
+            assert_eq!(
+                p.parse(text),
+                tiktok_invalid(InvalidReason::InvalidLink),
+                "{text:?}"
+            );
+        }
+        assert_eq!(
+            p.parse("!vt"),
+            tiktok_invalid(InvalidReason::MissingArgument)
+        );
+        // The words stay apart: `!v` is YouTube, `!vt` and `!tt` are TikTok.
+        assert!(matches!(p.parse(&format!("!v {ID}")), Parsed::Youtube(_)));
+        assert!(matches!(p.parse("!tt ZSpGELffb"), Parsed::Tiktok(_)));
+        assert_eq!(p.parse("!vtt ZSpGELffb"), Parsed::NotACommand);
+    }
+
+    #[test]
+    fn the_command_for_a_source_is_its_first_one_with_the_prefix() {
+        let p = mixed();
+        assert_eq!(p.command_for(CommandSource::Youtube).as_deref(), Some("!v"));
+        assert_eq!(p.command_for(CommandSource::Tiktok).as_deref(), Some("!vt"));
+        assert_eq!(default_parser().command_for(CommandSource::Tiktok), None);
+        assert_eq!(
+            parser("#", &["play"])
+                .command_for(CommandSource::Youtube)
+                .as_deref(),
+            Some("#play")
+        );
+    }
+
     #[test]
     fn oversized_messages_do_not_panic() {
         let p = default_parser();
         let long_arg = format!("!v {}", "a".repeat(100_000));
-        assert_eq!(
-            p.parse(&long_arg),
-            Parsed::Invalid(InvalidReason::InvalidLink)
-        );
+        assert_eq!(p.parse(&long_arg), invalid(InvalidReason::InvalidLink));
         let many_words = format!("!v {ID} {}", "word ".repeat(50_000));
         assert_eq!(p.parse(&many_words), video(ID));
         assert_eq!(p.parse(&"!".repeat(100_000)), Parsed::NotACommand);
@@ -322,7 +477,7 @@ mod tests {
                 .map(|_| PIECES[(rng.next() % PIECES.len() as u64) as usize])
                 .collect();
             let message = format!("{start}{body}");
-            if let Parsed::Video(id) = p.parse(&message) {
+            if let Parsed::Youtube(id) = p.parse(&message) {
                 assert!(valid.is_match(id.as_str()), "{message:?} -> {id}");
                 videos += 1;
             }

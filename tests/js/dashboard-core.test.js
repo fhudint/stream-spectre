@@ -552,7 +552,7 @@ test('the commands form is read the way the server will take it', () => {
     assert.deepEqual(core.readCommands({ prefix: '!', commands: [row('ok'), row(name)] }), { error: 'name', index: 1 }, JSON.stringify(name));
   }
   assert.equal(core.readCommands({ prefix: '!', commands: [row('x'.repeat(32))] }).value.commands[0].name.length, 32);
-  assert.deepEqual(core.readCommands({ prefix: '!', commands: [row('v', 'tiktok')] }), { error: 'source', index: 0 });
+  assert.deepEqual(core.readCommands({ prefix: '!', commands: [row('v', 'twitch')] }), { error: 'source', index: 0 });
   assert.deepEqual(core.readCommands({ prefix: '!', commands: [row('yt'), row('v'), row('YT')] }), { error: 'duplicate', index: 2 });
   // Typed with the prefix, it is the same word.
   assert.deepEqual(core.readCommands({ prefix: '!', commands: [row('v'), row('!V')] }), { error: 'duplicate', index: 1 });
@@ -569,3 +569,15 @@ test('the commands are shown the way viewers type them', () => {
   const chips = core.ruleChips({ moderation, blacklist: {}, command: { prefix: '!', commands: [{ name: 'v' }, { name: 'vt' }] } }, say);
   assert.equal(chips[0], 'dashboard.rules.commands{"list":"!v !vt"}');
 });
+
+test('a video of unknown length has no position, whatever the overlay reports', () => {
+  const state = (source, duration) => ({
+    queue: { now_playing: { id: 3, source, duration_secs: duration } },
+    playback: { item_id: 3, position_secs: 40 },
+  });
+  assert.equal(core.playbackPosition(state('youtube', 213)), 40);
+  assert.equal(core.playbackPosition(state('youtube', 30)), 30, 'never past its length');
+  assert.equal(core.playbackPosition(state('tiktok', 0)), 0);
+  assert.equal(core.playbackPosition(state('tiktok', 213)), 0, 'even if a length were sent');
+});
+

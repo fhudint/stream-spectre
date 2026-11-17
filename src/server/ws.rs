@@ -230,13 +230,13 @@ mod tests {
     use super::*;
     use crate::app::{ItemView, SkipReason};
     use crate::chat::{Role, Sender};
-    use crate::queue::{ItemId, QueueItem};
+    use crate::queue::{ItemId, Media, QueueItem};
     use crate::youtube::{LiveStatus, VideoDetails, VideoId};
 
     fn play() -> Event {
         let item = QueueItem {
             id: ItemId(1),
-            video: VideoDetails {
+            media: Media::Youtube(VideoDetails {
                 id: VideoId::parse("dQw4w9WgXcQ").unwrap(),
                 title: "t".to_owned(),
                 channel: "c".to_owned(),
@@ -245,7 +245,7 @@ mod tests {
                 age_restricted: false,
                 live: LiveStatus::None,
                 private: false,
-            },
+            }),
             sender: Sender::new("u", "n", Role::Follower),
             requested_at: SystemTime::UNIX_EPOCH,
         };

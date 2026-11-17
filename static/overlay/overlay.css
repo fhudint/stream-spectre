@@ -32,6 +32,27 @@ body {
   border: 0;
 }
 
+/* TikTok's player is a plain frame of its own, shown instead of YouTube's. */
+#tiktok {
+  display: none;
+  width: 100%;
+  height: 100%;
+}
+
+#tiktok iframe {
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
+
+#stage.tiktok #player {
+  display: none;
+}
+
+#stage.tiktok #tiktok {
+  display: block;
+}
+
 #caption {
   position: absolute;
   left: 0;

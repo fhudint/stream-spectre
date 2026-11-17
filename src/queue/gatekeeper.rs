@@ -2,10 +2,11 @@ use std::time::{Duration, Instant};
 
 use super::blacklist::{Blacklist, BlacklistHit};
 use super::cooldown::Cooldowns;
+use super::item::TiktokDetails;
 use crate::chat::{Role, Sender};
 use crate::config::ModerationConfig;
 use crate::i18n::I18n;
-use crate::youtube::{Rejection, VideoDetails, VideoId, VideoPolicy, check_video};
+use crate::youtube::{Rejection, VideoDetails, VideoPolicy, check_video};
 
 /// Why a request was turned down.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -147,7 +148,7 @@ impl Gatekeeper {
     pub fn admit(
         &mut self,
         sender: &Sender,
-        video: &VideoId,
+        video: &(impl AsRef<str> + ?Sized),
         waiting_in_queue: usize,
         now: Instant,
     ) -> Result<(), Denial> {
@@ -166,6 +167,15 @@ impl Gatekeeper {
     /// Gives the sender their cooldown back.
     pub fn refund(&mut self, sender: &Sender) {
         self.cooldowns.refund(&sender.id);
+    }
+
+    /// Stage 2 for a TikTok video: the blacklist is all there is to check,
+    /// because TikTok tells nothing about length, age or embedding.
+    pub fn vet_tiktok(&self, video: &TiktokDetails) -> Result<(), Denial> {
+        match self.blacklist.check_tiktok(video) {
+            Some(hit) => Err(hit.into()),
+            None => Ok(()),
+        }
     }
 
     /// Stage 2, with the looked-up video.
@@ -207,7 +217,7 @@ fn check_sender(settings: &ModerationConfig, sender: &Sender) -> Result<(), Deni
 mod tests {
     use super::*;
     use crate::config::{BlacklistConfig, Language};
-    use crate::youtube::LiveStatus;
+    use crate::youtube::{LiveStatus, VideoId};
 
     const OK_ID: &str = "dQw4w9WgXcQ";
 

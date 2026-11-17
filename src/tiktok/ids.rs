@@ -35,6 +35,12 @@ impl TiktokVideoId {
     }
 }
 
+impl AsRef<str> for TiktokVideoId {
+    fn as_ref(&self) -> &str {
+        &self.0
+    }
+}
+
 impl fmt::Display for TiktokVideoId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(&self.0)
@@ -76,6 +82,12 @@ impl ShortCode {
     }
 
     pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl AsRef<str> for ShortCode {
+    fn as_ref(&self) -> &str {
         &self.0
     }
 }

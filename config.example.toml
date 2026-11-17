@@ -45,7 +45,9 @@ username = "your_tiktok_username"
 # Viewers send: <prefix><name> <YouTube ID or link>, for example "!v dQw4w9WgXcQ".
 # One prefix (1 to 4 characters, no spaces) is shared by every command. Each
 # command is a name (letters, digits and _, at most 32; capitals do not count)
-# and the source its links come from. YouTube is the only source for now.
+# and the source its links come from: "youtube" or "tiktok". A command takes
+# only links and IDs of its own source. For example:
+# commands = [{ name = "v", source = "youtube" }, { name = "vt", source = "tiktok" }]
 # Up to 8 commands, no name twice. Several names for one source work like
 # several words for the same thing. Also editable on the dashboard's Rules page.
 prefix = "!"

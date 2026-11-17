@@ -17,6 +17,8 @@
   var attempt = 0;
 
   var root = document.getElementById('root');
+  var stage = document.getElementById('stage');
+  var tiktokHost = document.getElementById('tiktok');
   var requester = document.getElementById('requester');
   var title = document.getElementById('title');
 
@@ -50,6 +52,31 @@
     var pending = null;
     var playing = false;
     var wantPaused = false; // a moderator paused this video
+    var tiktokOn = false; // the TikTok frame is what is on screen
+
+    /* TikTok's embedded player: one frame per video, removed afterwards. The
+     * ID is digits only (checked by overlay-core). It reports nothing back
+     * that is used, so a TikTok video ends when a moderator skips it. */
+    function showTiktok(videoId) {
+      hideTiktok();
+      var frame = document.createElement('iframe');
+      frame.src =
+        'https://www.tiktok.com/player/v1/' +
+        encodeURIComponent(videoId) +
+        '?autoplay=1&music_info=1&description=1';
+      frame.setAttribute('allow', 'autoplay; fullscreen');
+      frame.setAttribute('allowfullscreen', '');
+      frame.setAttribute('referrerpolicy', 'strict-origin-when-cross-origin');
+      tiktokHost.appendChild(frame);
+      stage.classList.add('tiktok');
+      tiktokOn = true;
+    }
+
+    function hideTiktok() {
+      tiktokHost.replaceChildren();
+      stage.classList.remove('tiktok');
+      tiktokOn = false;
+    }
 
     function load(next) {
       playing = false;
@@ -109,9 +136,18 @@
     document.head.appendChild(script);
 
     return {
-      play: function (videoId, requestedVolume) {
+      play: function (videoId, requestedVolume, source) {
         wantPaused = false; // a new video always plays
         volume = requestedVolume;
+        if (source === 'tiktok') {
+          pending = null;
+          playing = false;
+          // Whatever YouTube was playing stops, so only one sound is heard.
+          if (ready && typeof yt.stopVideo === 'function') yt.stopVideo();
+          showTiktok(videoId);
+          return;
+        }
+        hideTiktok();
         if (failed) {
           callbacks.onError('api_unavailable');
         } else if (!ready) {
@@ -121,17 +157,20 @@
         }
       },
       pause: function () {
+        if (tiktokOn) return; // its player cannot be paused from here
         wantPaused = true;
         if (ready && typeof yt.pauseVideo === 'function') yt.pauseVideo();
       },
       resume: function () {
         wantPaused = false;
+        if (tiktokOn) return;
         if (ready && typeof yt.playVideo === 'function') yt.playVideo();
       },
       stop: function () {
         pending = null;
         wantPaused = false;
         playing = false;
+        hideTiktok();
         if (ready) yt.stopVideo();
       },
       /* Seconds into the video while it plays, otherwise null. */

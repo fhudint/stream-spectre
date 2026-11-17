@@ -465,3 +465,56 @@ test('a player that cannot pause is not a problem', () => {
   assert.doesNotThrow(() => controller.handle(paused(1, 5, true)));
   assert.doesNotThrow(() => controller.handle(paused(2, 5, false)));
 });
+
+test('isVideoRef checks the ID against the source it is for', () => {
+  for (const source of [undefined, 'youtube']) {
+    assert.ok(core.isVideoRef(source, 'dQw4w9WgXcQ'));
+    assert.ok(!core.isVideoRef(source, '7700124541145599252'));
+  }
+  assert.ok(core.isVideoRef('tiktok', '7700124541145599252'));
+  assert.ok(core.isVideoRef('tiktok', '1'.repeat(15)));
+  assert.ok(core.isVideoRef('tiktok', '9'.repeat(20)));
+  for (const bad of ['', '1'.repeat(14), '1'.repeat(21), 'dQw4w9WgXcQ', '77001245411455992a2', '７７００１２４５４１１４５５９９２５２', '7700124541145599252\n', null, undefined, 7700124541145599252, {}]) {
+    assert.ok(!core.isVideoRef('tiktok', bad), String(bad));
+  }
+  // A source the overlay does not know is not played, whatever the ID.
+  for (const source of ['vimeo', 'TikTok', '', null, 1, {}]) assert.ok(!core.isVideoRef(source, 'dQw4w9WgXcQ'), String(source));
+});
+
+test('the player is told which source the video is from', () => {
+  const calls = [];
+  const controller = core.createController({
+    player: { play: (...args) => calls.push(args), stop() {}, setVolume() {}, pause() {}, resume() {}, position: () => null },
+    ui: { show() {}, hide() {} },
+    send: () => true,
+  });
+  const base = { requested_by: { name: 'A', role: 'follower' }, title: 't' };
+  controller.handle(envelope(1, 'play', { volume: 30, item: { id: 1, video_id: 'dQw4w9WgXcQ', ...base } }));
+  controller.handle(envelope(2, 'play', { volume: 30, item: { id: 2, source: 'youtube', video_id: 'dQw4w9WgXcQ', ...base } }));
+  controller.handle(envelope(3, 'play', { volume: 30, item: { id: 3, source: 'tiktok', video_id: '7700124541145599252', ...base } }));
+  assert.deepEqual(calls, [
+    ['dQw4w9WgXcQ', 30, 'youtube'],
+    ['dQw4w9WgXcQ', 30, 'youtube'],
+    ['7700124541145599252', 30, 'tiktok'],
+  ]);
+});
+
+test('an ID that does not fit its source is reported and never played', () => {
+  const { controller, calls, sent } = setup();
+  const base = { requested_by: { name: 'A', role: 'follower' }, title: 't' };
+  const bad = [
+    { id: 1, source: 'tiktok', video_id: 'dQw4w9WgXcQ' },
+    { id: 2, source: 'youtube', video_id: '7700124541145599252' },
+    { id: 3, source: 'vimeo', video_id: 'dQw4w9WgXcQ' },
+    { id: 4, source: 'tiktok', video_id: '77001245411455992<script>' },
+  ];
+  bad.forEach((entry, index) => controller.handle(envelope(index + 1, 'play', { volume: 50, item: { ...entry, ...base } })));
+  assert.ok(!calls.some((c) => c[0] === 'play'));
+  assert.deepEqual(sent.map((m) => [m.type, m.item_id, m.code]), [
+    ['player_error', 1, 'invalid'],
+    ['player_error', 2, 'invalid'],
+    ['player_error', 3, 'invalid'],
+    ['player_error', 4, 'invalid'],
+  ]);
+});
+

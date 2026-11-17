@@ -9,9 +9,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::chat::{ChatStatus, Role};
 use crate::config::{
-    BlacklistConfig, CommandConfig, DashboardConfig, Language, ModerationConfig, TiktokConfig,
+    BlacklistConfig, CommandConfig, CommandSource, DashboardConfig, Language, ModerationConfig,
+    TiktokConfig,
 };
-use crate::queue::{QueueItem, QueueSnapshot};
+use crate::queue::{Media, QueueItem, QueueSnapshot};
 
 /// Bumped when events change in a way old clients cannot handle.
 pub const PROTOCOL_VERSION: u8 = 1;
@@ -34,10 +35,18 @@ pub struct SenderView {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ItemView {
     pub id: u64,
+    /// Where the video is from: `"youtube"` or `"tiktok"`.
+    pub source: CommandSource,
+    /// The ID in the source's own form: 11 characters for YouTube, digits for
+    /// TikTok. Safe to put in a URL.
     pub video_id: String,
+    /// For TikTok the account (`@name`), or the ID when it is not known.
     pub title: String,
+    /// `"TikTok"` for a TikTok video.
     pub channel: String,
+    /// 0 when the length is not known, which is always so for TikTok.
     pub duration_secs: u64,
+    /// Empty for TikTok, which has no thumbnail to show.
     pub thumbnail_url: String,
     pub requested_by: SenderView,
     pub requested_at_ms: u64,
@@ -47,12 +56,18 @@ impl From<&QueueItem> for ItemView {
     fn from(item: &QueueItem) -> Self {
         Self {
             id: item.id.0,
-            video_id: item.video.id.to_string(),
-            title: item.video.title.clone(),
-            channel: item.video.channel.clone(),
-            duration_secs: item.video.duration_secs,
-            // Safe to build: the ID is validated to 11 URL-safe characters.
-            thumbnail_url: format!("https://i.ytimg.com/vi/{}/mqdefault.jpg", item.video.id),
+            source: item.media.source(),
+            video_id: item.media.video_id(),
+            title: item.media.title(),
+            channel: item.media.channel(),
+            duration_secs: item.media.duration_secs().unwrap_or(0),
+            thumbnail_url: match &item.media {
+                // Safe to build: the ID is validated to 11 URL-safe characters.
+                Media::Youtube(video) => {
+                    format!("https://i.ytimg.com/vi/{}/mqdefault.jpg", video.id)
+                }
+                Media::Tiktok(_) => String::new(),
+            },
             requested_by: SenderView {
                 name: item.sender.name.clone(),
                 role: item.sender.role,
@@ -304,13 +319,14 @@ mod tests {
 
     use super::*;
     use crate::chat::Sender;
-    use crate::queue::ItemId;
+    use crate::queue::{ItemId, TiktokDetails};
+    use crate::tiktok::TiktokVideoId;
     use crate::youtube::{LiveStatus, VideoDetails, VideoId};
 
     fn item(id: u64) -> QueueItem {
         QueueItem {
             id: ItemId(id),
-            video: VideoDetails {
+            media: Media::Youtube(VideoDetails {
                 id: VideoId::parse("dQw4w9WgXcQ").unwrap(),
                 title: "Song".to_owned(),
                 channel: "Chan".to_owned(),
@@ -319,7 +335,7 @@ mod tests {
                 age_restricted: false,
                 live: LiveStatus::None,
                 private: false,
-            },
+            }),
             sender: Sender::new("u1", "Budi", Role::Subscriber),
             requested_at: UNIX_EPOCH + Duration::from_millis(1_700_000_000_123),
         }
@@ -328,6 +344,7 @@ mod tests {
     fn item_json() -> Value {
         json!({
             "id": 7,
+            "source": "youtube",
             "video_id": "dQw4w9WgXcQ",
             "title": "Song",
             "channel": "Chan",
@@ -353,6 +370,29 @@ mod tests {
     fn item_view_has_the_documented_shape() {
         let view = ItemView::from(&item(7));
         assert_eq!(serde_json::to_value(view).unwrap(), item_json());
+    }
+
+    #[test]
+    fn a_tiktok_item_has_a_source_no_length_and_no_thumbnail() {
+        let mut tiktok = item(8);
+        tiktok.media = Media::Tiktok(TiktokDetails {
+            id: TiktokVideoId::parse("7700124541145599252").unwrap(),
+            account: Some("cherlynn052".to_owned()),
+        });
+        let view = serde_json::to_value(ItemView::from(&tiktok)).unwrap();
+        assert_eq!(view["source"], "tiktok");
+        assert_eq!(view["video_id"], "7700124541145599252");
+        assert_eq!(view["title"], "@cherlynn052");
+        assert_eq!(view["channel"], "TikTok");
+        assert_eq!(view["duration_secs"], 0);
+        assert_eq!(view["thumbnail_url"], "");
+
+        tiktok.media = Media::Tiktok(TiktokDetails {
+            id: TiktokVideoId::parse("7700124541145599252").unwrap(),
+            account: None,
+        });
+        let view = serde_json::to_value(ItemView::from(&tiktok)).unwrap();
+        assert_eq!(view["title"], "7700124541145599252");
     }
 
     #[test]

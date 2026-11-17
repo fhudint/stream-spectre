@@ -2,10 +2,9 @@ use std::collections::VecDeque;
 use std::time::SystemTime;
 
 use super::gatekeeper::Denial;
-use super::item::{ItemId, QueueItem};
+use super::item::{ItemId, Media, QueueItem};
 use crate::chat::Sender;
 use crate::config::{ModerationConfig, ModerationMode};
-use crate::youtube::VideoDetails;
 
 /// Why an operation on an existing entry failed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
@@ -56,12 +55,13 @@ impl PlayQueue {
     }
 
     /// Adds a request. In manual mode it waits for approval; in auto mode it
-    /// joins the play queue directly. Fails with `Denial::QueueFull` when
-    /// `max_queue_len` entries are already waiting.
+    /// joins the play queue directly, unless the video is one that a person
+    /// must always look at first (see `Media::can_auto_approve`). Fails with
+    /// `Denial::QueueFull` when `max_queue_len` entries are already waiting.
     pub fn submit(
         &mut self,
         sender: Sender,
-        video: VideoDetails,
+        media: impl Into<Media>,
         requested_at: SystemTime,
         settings: &ModerationConfig,
     ) -> Result<ItemId, Denial> {
@@ -70,15 +70,18 @@ impl PlayQueue {
         }
         self.next_id += 1;
         let id = ItemId(self.next_id);
+        let media = media.into();
+        let auto = settings.mode == ModerationMode::Auto && media.can_auto_approve();
         let item = QueueItem {
             id,
-            video,
+            media,
             sender,
             requested_at,
         };
-        match settings.mode {
-            ModerationMode::Manual => self.pending.push_back(item),
-            ModerationMode::Auto => self.approved.push_back(item),
+        if auto {
+            self.approved.push_back(item);
+        } else {
+            self.pending.push_back(item);
         }
         Ok(id)
     }
@@ -154,7 +157,7 @@ mod tests {
 
     use super::*;
     use crate::chat::Role;
-    use crate::youtube::{LiveStatus, VideoId};
+    use crate::youtube::{LiveStatus, VideoDetails, VideoId};
 
     fn video(n: u8) -> VideoDetails {
         VideoDetails {
@@ -187,6 +190,28 @@ mod tests {
 
     fn ids(items: &[QueueItem]) -> Vec<u64> {
         items.iter().map(|i| i.id.0).collect()
+    }
+
+    fn tiktok(n: u8) -> Media {
+        Media::Tiktok(crate::queue::TiktokDetails {
+            id: crate::tiktok::TiktokVideoId::parse(&format!("77001245411455992{n:02}")).unwrap(),
+            account: None,
+        })
+    }
+
+    #[test]
+    fn automatic_approval_does_not_apply_to_tiktok_videos() {
+        let s = settings(ModerationMode::Auto, 10);
+        let mut q = PlayQueue::new();
+        let youtube = add(&mut q, 1, &s);
+        let tt = q.submit(sender("a"), tiktok(2), UNIX_EPOCH, &s).unwrap();
+        let snap = q.snapshot();
+        assert_eq!(ids(&snap.approved), vec![youtube.0]);
+        assert_eq!(ids(&snap.pending), vec![tt.0]);
+
+        // A moderator's approval puts it behind the others, as for any request.
+        q.approve(tt).unwrap();
+        assert_eq!(ids(&q.snapshot().approved), vec![youtube.0, tt.0]);
     }
 
     #[test]
@@ -386,7 +411,7 @@ mod tests {
         let item = q.snapshot().pending.remove(0);
         assert_eq!(item.id, id);
         assert_eq!(item.sender.name, "budi");
-        assert_eq!(item.video.title, "title 7");
+        assert_eq!(item.media.title(), "title 7");
         assert_eq!(item.requested_at, when);
     }
 }

@@ -17,7 +17,10 @@ const ID = 'dQw4w9WgXcQ';
 class FakeElement {
   constructor(id, classes = []) {
     this.id = id;
+    this.tag = id;
     this.classes = new Set(classes);
+    this.children = [];
+    this.attrs = {};
     this._text = '';
     this.classList = {
       add: (name) => this.classes.add(name),
@@ -30,6 +33,16 @@ class FakeElement {
   }
   set textContent(value) {
     this._text = String(value);
+  }
+  setAttribute(name, value) {
+    this.attrs[name] = String(value);
+  }
+  appendChild(child) {
+    this.children.push(child);
+    return child;
+  }
+  replaceChildren(...nodes) {
+    this.children = nodes;
   }
   set innerHTML(_value) {
     throw new Error('innerHTML must never be assigned');
@@ -94,6 +107,8 @@ function load({ search = '', protocol = 'http:', host = '127.0.0.1:8787', fetchB
     root: new FakeElement('root', ['hidden']),
     requester: new FakeElement('requester'),
     title: new FakeElement('title'),
+    stage: new FakeElement('stage'),
+    tiktok: new FakeElement('tiktok'),
   };
 
   const sandbox = {
@@ -109,7 +124,11 @@ function load({ search = '', protocol = 'http:', host = '127.0.0.1:8787', fetchB
     WebSocket: FakeWebSocket,
     document: {
       getElementById: (id) => elements[id],
-      createElement: (tag) => ({ tag }),
+      createElement: (tag) => {
+        const element = new FakeElement(tag);
+        element.tag = tag;
+        return element;
+      },
       head: { appendChild: (el) => log.scripts.push(el) },
     },
     fetch: (url, options) => {
@@ -402,3 +421,117 @@ test('no progress is reported while the video is paused', () => {
   tick();
   assert.equal(progress(), 1);
 });
+
+// --- TikTok videos ---
+
+const TT = '7700124541145599252';
+const tiktokItem = (id = 1, extra = {}) => ({ ...item(id), source: 'tiktok', video_id: TT, title: '@cherlynn052', ...extra });
+const frames = (page) => page.elements.tiktok.children;
+const readyPage = () => {
+  const page = load();
+  page.apiReady();
+  page.player().options.events.onReady();
+  page.socket().open();
+  return page;
+};
+
+test('a TikTok video is shown in TikTok\'s own frame, and YouTube is stopped', () => {
+  const page = readyPage();
+  page.socket().receive(envelope(1, 'play', { item: item(1), volume: 40 }));
+  page.socket().receive(envelope(2, 'play', { item: tiktokItem(2), volume: 40 }));
+
+  assert.equal(frames(page).length, 1);
+  const frame = frames(page)[0];
+  assert.equal(frame.tag, 'iframe');
+  assert.equal(frame.src, `https://www.tiktok.com/player/v1/${TT}?autoplay=1&music_info=1&description=1`);
+  assert.match(frame.attrs.allow, /autoplay/);
+  assert.ok(page.elements.stage.classes.has('tiktok'));
+  assert.ok(!page.elements.root.classes.has('hidden'));
+  assert.equal(page.elements.title.textContent, '@cherlynn052');
+  assert.equal(page.elements.requester.textContent, 'Requested by Budi');
+  // The YouTube video that was playing is stopped, and nothing new is loaded in it.
+  const calls = page.player().calls.map((c) => c[0]);
+  assert.equal(calls.filter((c) => c === 'loadVideoById').length, 1, 'only the first, YouTube, video');
+  assert.equal(calls.at(-1), 'stopVideo');
+});
+
+test('a TikTok video can start before the YouTube player is ready', () => {
+  const page = load();
+  page.socket().open();
+  page.socket().receive(envelope(1, 'play', { item: tiktokItem(1), volume: 40 }));
+  assert.equal(frames(page).length, 1);
+  // The player becoming ready later must not start anything.
+  page.apiReady();
+  page.player().options.events.onReady();
+  assert.ok(!page.player().calls.some((c) => c[0] === 'loadVideoById'));
+});
+
+test('the next YouTube video takes the screen back and removes the frame', () => {
+  const page = readyPage();
+  page.socket().receive(envelope(1, 'play', { item: tiktokItem(1), volume: 40 }));
+  page.socket().receive(envelope(2, 'play', { item: item(2), volume: 40 }));
+  assert.equal(frames(page).length, 0);
+  assert.ok(!page.elements.stage.classes.has('tiktok'));
+  assert.deepEqual(plain(page.player().calls.at(-1)), ['loadVideoById', ID]);
+});
+
+test('a second TikTok video replaces the first frame instead of adding one', () => {
+  const page = readyPage();
+  page.socket().receive(envelope(1, 'play', { item: tiktokItem(1), volume: 40 }));
+  page.socket().receive(envelope(2, 'play', { item: tiktokItem(2, { video_id: '7219950637247728923' }), volume: 40 }));
+  assert.equal(frames(page).length, 1);
+  assert.match(frames(page)[0].src, /7219950637247728923/);
+});
+
+test('skip and stop take the TikTok frame away', () => {
+  for (const [type, data] of [['skip', { item_id: 1, reason: 'moderator' }], ['stop', {}]]) {
+    const page = readyPage();
+    page.socket().receive(envelope(1, 'play', { item: tiktokItem(1), volume: 40 }));
+    page.socket().receive(envelope(2, type, data));
+    assert.equal(frames(page).length, 0, type);
+    assert.ok(!page.elements.stage.classes.has('tiktok'), type);
+    assert.ok(page.elements.root.classes.has('hidden'), type);
+  }
+});
+
+test('a TikTok video reports no progress and is not paused or resumed from here', () => {
+  const page = readyPage();
+  page.log.position = 12;
+  page.socket().receive(envelope(1, 'play', { item: tiktokItem(1), volume: 40 }));
+  const sent = page.socket().sent.length;
+  page.log.intervals[0].fn();
+  assert.equal(page.socket().sent.length, sent, 'no progress report');
+
+  const before = page.player().calls.length;
+  page.socket().receive(envelope(2, 'playback_paused', { item_id: 1, paused: true }));
+  page.socket().receive(envelope(3, 'playback_paused', { item_id: 1, paused: false }));
+  const pausing = plain(page.player().calls.slice(before)).map((c) => c[0]);
+  assert.ok(!pausing.includes('pauseVideo') && !pausing.includes('playVideo'), pausing.join());
+  assert.equal(frames(page).length, 1, 'still there');
+});
+
+test('a reload in the middle of a TikTok video shows it again', () => {
+  const page = readyPage();
+  page.socket().receive(envelope(1, 'hello', { volume: 40, playback_paused: false, queue: { now_playing: tiktokItem(5) } }));
+  assert.equal(frames(page).length, 1);
+  assert.ok(page.elements.stage.classes.has('tiktok'));
+});
+
+test('an ID that is not a TikTok ID never reaches the frame', () => {
+  const page = readyPage();
+  for (const [index, bad] of ['dQw4w9WgXcQ', '77001245411455992"onload="x', '../x', ''].entries()) {
+    page.socket().receive(envelope(index + 1, 'play', { item: tiktokItem(index + 1, { video_id: bad }), volume: 40 }));
+    assert.equal(frames(page).length, 0, bad);
+  }
+  const errors = page.socket().sent.filter((m) => m.type === 'player_error');
+  assert.equal(errors.length, 4);
+  assert.ok(errors.every((m) => m.code === 'invalid'));
+});
+
+test('the frame is never given markup and carries no text of the viewers', () => {
+  const page = readyPage();
+  page.socket().receive(envelope(1, 'play', { item: tiktokItem(1, { title: '<img src=x onerror=alert(1)>' }), volume: 40 }));
+  assert.equal(page.elements.title.textContent, '<img src=x onerror=alert(1)>');
+  assert.ok(!frames(page)[0].src.includes('onerror'));
+});
+

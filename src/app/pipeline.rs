@@ -11,15 +11,18 @@ use super::events::{
     QueueView, SettingsView, SkipReason, StatsView, unix_ms,
 };
 use crate::chat::{ChatEvent, ChatMessage, ChatSource, ChatStatus, Sender};
-use crate::command::{CommandParser, Parsed};
+use crate::command::{CommandParser, InvalidReason, Parsed};
 use crate::config::{
-    BlacklistConfig, CommandConfig, Config, ConfigError, DashboardConfig, ModerationConfig,
-    ModerationMode, Secret, TiktokConfig,
+    BlacklistConfig, CommandConfig, CommandSource, Config, ConfigError, DashboardConfig,
+    ModerationConfig, Secret, TiktokConfig,
 };
 use crate::i18n::I18n;
-use crate::queue::{Blacklist, Denial, Gatekeeper, ItemId, PlayQueue, QueueError};
+use crate::queue::{
+    Blacklist, Denial, Gatekeeper, ItemId, Media, PlayQueue, QueueError, TiktokDetails,
+};
 use crate::text::sanitize_text;
-use crate::youtube::{Rejection, VideoLookup, VideoSource, YoutubeError};
+use crate::tiktok::{ShortLinkResolver, TiktokRef};
+use crate::youtube::{Rejection, VideoId, VideoLookup, VideoSource, YoutubeError};
 
 /// Events kept for slow clients before they are told they lagged.
 const BUS_CAPACITY: usize = 256;
@@ -84,6 +87,16 @@ struct Inner {
     progress: Option<(ItemId, u64)>,
 }
 
+/// What came of a request to pause or resume the playing video.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PauseOutcome {
+    Done,
+    NothingPlaying,
+    /// The playing video is one whose player cannot be paused from outside
+    /// (TikTok).
+    Unsupported,
+}
+
 /// Connects chat, YouTube lookups, moderation and the play queue, and
 /// publishes everything that happens as events.
 ///
@@ -92,6 +105,8 @@ struct Inner {
 /// held while waiting for YouTube.
 pub struct Pipeline<S> {
     lookup: VideoLookup<S>,
+    /// Finds the video behind a TikTok short link.
+    short_links: ShortLinkResolver,
     i18n: I18n,
     bus: EventBus,
     /// What the chat connection should be doing: the TikTok username to read
@@ -115,8 +130,11 @@ impl<S: VideoSource> Pipeline<S> {
             Duration::from_secs(config.youtube.cache_ttl_secs),
             config.youtube.cache_max_entries as u64,
         );
+        let short_links = ShortLinkResolver::new()
+            .map_err(|error| ConfigError::invalid("tiktok.short_links", error.to_string()))?;
         Ok(Self {
             lookup,
+            short_links,
             i18n,
             bus: EventBus::new(BUS_CAPACITY),
             chat_target: watch::channel(ChatTarget {
@@ -144,6 +162,14 @@ impl<S: VideoSource> Pipeline<S> {
                 progress: None,
             }),
         })
+    }
+
+    /// Uses another resolver for TikTok short links (for tests, which must
+    /// not reach the real service).
+    #[cfg(test)]
+    pub(crate) fn with_short_links(mut self, short_links: ShortLinkResolver) -> Self {
+        self.short_links = short_links;
+        self
     }
 
     /// Reads chat until the source ends. Drop the future to stop earlier.
@@ -221,25 +247,52 @@ impl<S: VideoSource> Pipeline<S> {
         let parsed = parser.parse(&text);
         self.show_chat(&sender, &text, !matches!(parsed, Parsed::NotACommand), now);
 
-        let video_id = match parsed {
-            Parsed::NotACommand => return,
-            Parsed::Invalid(_) => {
-                // Only worth telling the moderators when the sender could
-                // have submitted something.
-                let eligible = self.lock().gatekeeper.check_sender(&sender).is_ok();
-                if eligible {
-                    self.notice(
-                        NoticeLevel::Warning,
-                        "reject.invalid_link",
-                        self.i18n.t("reject.invalid_link").to_owned(),
-                        Some(&sender),
-                    );
-                }
-                return;
+        match parsed {
+            Parsed::NotACommand => {}
+            Parsed::Invalid { source, reason } => {
+                self.tell_invalid(&parser, &sender, source, reason);
             }
-            Parsed::Video(id) => id,
-        };
+            Parsed::Youtube(video_id) => self.request_youtube(sender, video_id, now).await,
+            Parsed::Tiktok(target) => self.request_tiktok(sender, target, now).await,
+        }
+    }
 
+    /// Tells the moderators that a command could not be used, when the sender
+    /// could have submitted something. A link of the other source is
+    /// answered with the command that takes it.
+    fn tell_invalid(
+        &self,
+        parser: &CommandParser,
+        sender: &Sender,
+        source: CommandSource,
+        reason: InvalidReason,
+    ) {
+        if self.lock().gatekeeper.check_sender(sender).is_err() {
+            return;
+        }
+        let own = match source {
+            CommandSource::Youtube => "reject.invalid_link",
+            CommandSource::Tiktok => "reject.invalid_tiktok_link",
+        };
+        let (key, text) = match reason {
+            InvalidReason::WrongSource(other) => match parser.command_for(other) {
+                Some(command) => {
+                    let key = match other {
+                        CommandSource::Youtube => "reject.use_youtube_command",
+                        CommandSource::Tiktok => "reject.use_tiktok_command",
+                    };
+                    (key, self.i18n.t_with(key, &[("command", &command)]))
+                }
+                None => (own, self.i18n.t(own).to_owned()),
+            },
+            InvalidReason::MissingArgument | InvalidReason::InvalidLink => {
+                (own, self.i18n.t(own).to_owned())
+            }
+        };
+        self.notice(NoticeLevel::Warning, key, text, Some(sender));
+    }
+
+    async fn request_youtube(&self, sender: Sender, video_id: VideoId, now: Instant) {
         // Stage 1: everything that needs no YouTube call.
         let admitted = {
             let mut inner = self.lock();
@@ -281,36 +334,87 @@ impl<S: VideoSource> Pipeline<S> {
         };
 
         // Stage 2: rules that need the video's details, then queue it.
-        let outcome = {
-            let mut inner = self.lock();
-            match inner.gatekeeper.vet(&details) {
-                Err(denial) => Err(denial),
-                Ok(()) => {
-                    let settings = inner.gatekeeper.settings().clone();
-                    match inner
-                        .queue
-                        .submit(sender.clone(), details, SystemTime::now(), &settings)
-                    {
-                        Ok(_) => {
-                            inner.stats.received += 1;
-                            if settings.mode == ModerationMode::Auto {
-                                inner.stats.approved += 1;
-                            }
-                            self.advance(&mut inner);
-                            self.publish_queue(&inner);
-                            self.publish_stats(&inner);
-                            Ok(())
-                        }
-                        Err(denial) => {
-                            inner.gatekeeper.refund(&sender);
-                            Err(denial)
-                        }
-                    }
-                }
-            }
-        };
-        if let Err(denial) = outcome {
+        if let Err(denial) = self.enqueue(&sender, details.into()) {
             self.deny(&sender, denial);
+        }
+    }
+
+    async fn request_tiktok(&self, sender: Sender, target: TiktokRef, now: Instant) {
+        // Stage 1: everything that needs no request to TikTok. A short code
+        // stands in for the video here; it cannot be on the blacklist, which
+        // is checked again once the video is known.
+        let key = match &target {
+            TiktokRef::Video { id, .. } => id.to_string(),
+            TiktokRef::Short(code) => code.to_string(),
+        };
+        let admitted = {
+            let mut inner = self.lock();
+            let waiting = inner.queue.waiting_len();
+            inner.gatekeeper.admit(&sender, &key, waiting, now)
+        };
+        if let Err(denial) = admitted {
+            self.deny(&sender, denial);
+            return;
+        }
+
+        let details = match target {
+            TiktokRef::Video { id, account } => TiktokDetails { id, account },
+            TiktokRef::Short(code) => match self.short_links.resolve(&code).await {
+                Ok(Some(found)) => TiktokDetails {
+                    id: found.id,
+                    account: Some(found.account),
+                },
+                Ok(None) => {
+                    self.deny(&sender, Denial::Video(Rejection::NotFound));
+                    return;
+                }
+                Err(error) => {
+                    // Not the sender's fault: give the cooldown back.
+                    self.lock().gatekeeper.refund(&sender);
+                    tracing::warn!(%error, "TikTok short link lookup failed");
+                    self.notice(
+                        NoticeLevel::Warning,
+                        "error.tiktok_unavailable",
+                        self.i18n.t("error.tiktok_unavailable").to_owned(),
+                        Some(&sender),
+                    );
+                    return;
+                }
+            },
+        };
+
+        if let Err(denial) = self.enqueue(&sender, Media::Tiktok(details)) {
+            self.deny(&sender, denial);
+        }
+    }
+
+    /// Stage 2 for either source: the rules that need the video, then the
+    /// queue. Starts the video when nothing is playing and it is approved.
+    fn enqueue(&self, sender: &Sender, media: Media) -> Result<(), Denial> {
+        let mut inner = self.lock();
+        match &media {
+            Media::Youtube(details) => inner.gatekeeper.vet(details)?,
+            Media::Tiktok(details) => inner.gatekeeper.vet_tiktok(details)?,
+        }
+        let settings = inner.gatekeeper.settings().clone();
+        match inner
+            .queue
+            .submit(sender.clone(), media, SystemTime::now(), &settings)
+        {
+            Ok(id) => {
+                inner.stats.received += 1;
+                if !inner.queue.is_pending(id) {
+                    inner.stats.approved += 1;
+                }
+                self.advance(&mut inner);
+                self.publish_queue(&inner);
+                self.publish_stats(&inner);
+                Ok(())
+            }
+            Err(denial) => {
+                inner.gatekeeper.refund(sender);
+                Err(denial)
+            }
         }
     }
 
@@ -487,21 +591,25 @@ impl<S: VideoSource> Pipeline<S> {
         Ok(())
     }
 
-    /// Pauses (`paused`) or resumes the video that is playing. Returns false,
-    /// and changes nothing, when no video is playing. Saying what is already
-    /// so changes nothing and publishes nothing. A video that starts later
-    /// always begins playing.
-    pub fn set_playback_paused(&self, paused: bool) -> bool {
+    /// Pauses (`paused`) or resumes the video that is playing. Changes
+    /// nothing when no video is playing, and when it is a TikTok video, whose
+    /// player cannot be paused from outside. Saying what is already so changes
+    /// nothing and publishes nothing. A video that starts later always begins
+    /// playing.
+    pub fn set_playback_paused(&self, paused: bool) -> PauseOutcome {
         let mut inner = self.lock();
         let Some(item) = inner.queue.now_playing() else {
-            return false;
+            return PauseOutcome::NothingPlaying;
         };
+        if paused && item.media.source() != CommandSource::Youtube {
+            return PauseOutcome::Unsupported;
+        }
         let item_id = item.id.0;
         if inner.playback_paused != paused {
             inner.playback_paused = paused;
             self.bus.publish(Event::PlaybackPaused { item_id, paused });
         }
-        true
+        PauseOutcome::Done
     }
 
     /// Disconnects the chat (`paused`) or connects it again. Only for this
@@ -541,8 +649,12 @@ impl<S: VideoSource> Pipeline<S> {
     pub fn player_progress(&self, id: ItemId, position_secs: u64) -> Result<(), QueueError> {
         let mut inner = self.lock();
         let duration = match inner.queue.now_playing() {
-            Some(item) if item.id == id => item.video.duration_secs,
+            Some(item) if item.id == id => item.media.duration_secs(),
             _ => return Err(QueueError::NotPlaying(id)),
+        };
+        // A video of unknown length has no position to show.
+        let Some(duration) = duration else {
+            return Ok(());
         };
         let position_secs = position_secs.min(duration);
         if inner.progress == Some((id, position_secs)) {
@@ -561,7 +673,7 @@ impl<S: VideoSource> Pipeline<S> {
     pub fn player_error(&self, id: ItemId, code: &str) -> Result<(), QueueError> {
         let mut inner = self.lock();
         let title = match inner.queue.now_playing() {
-            Some(item) if item.id == id => item.video.title.clone(),
+            Some(item) if item.id == id => item.media.title(),
             _ => return Err(QueueError::NotPlaying(id)),
         };
         inner.queue.finish(id)?;
@@ -2044,7 +2156,7 @@ mod tests {
         let mut rx = p.subscribe();
         assert!(!p.hello().playback_paused);
 
-        assert!(p.set_playback_paused(true));
+        assert_eq!(p.set_playback_paused(true), PauseOutcome::Done);
         assert!(p.hello().playback_paused);
         let events = drain_all(&mut rx);
         assert_eq!(kinds(&events), vec!["playback_paused"]);
@@ -2054,10 +2166,10 @@ mod tests {
         );
 
         // Saying what is already so is fine and silent.
-        assert!(p.set_playback_paused(true));
+        assert_eq!(p.set_playback_paused(true), PauseOutcome::Done);
         assert!(drain_all(&mut rx).is_empty());
 
-        assert!(p.set_playback_paused(false));
+        assert_eq!(p.set_playback_paused(false), PauseOutcome::Done);
         assert!(!p.hello().playback_paused);
         let events = drain_all(&mut rx);
         assert_eq!(data(&events[0])["paused"], false);
@@ -2067,14 +2179,14 @@ mod tests {
     async fn with_nothing_playing_there_is_nothing_to_pause() {
         let p = default_pipeline();
         let mut rx = p.subscribe();
-        assert!(!p.set_playback_paused(true));
+        assert_eq!(p.set_playback_paused(true), PauseOutcome::NothingPlaying);
         assert!(!p.hello().playback_paused);
-        assert!(!p.set_playback_paused(false));
+        assert_eq!(p.set_playback_paused(false), PauseOutcome::NothingPlaying);
         assert!(drain_all(&mut rx).is_empty());
 
         // A request that is only waiting is not playing either.
         say(&p, sender(1, Role::Follower), &format!("!v {ID_A}")).await;
-        assert!(!p.set_playback_paused(true));
+        assert_eq!(p.set_playback_paused(true), PauseOutcome::NothingPlaying);
     }
 
     #[tokio::test]
@@ -2100,7 +2212,7 @@ mod tests {
             // And pausing again works for whatever plays now.
             if how != "last one ends" {
                 assert_eq!(p.hello().queue.now_playing.map(|i| i.id), Some(b.0));
-                assert!(p.set_playback_paused(true), "{how}");
+                assert_eq!(p.set_playback_paused(true), PauseOutcome::Done, "{how}");
             }
         }
     }
@@ -2112,7 +2224,11 @@ mod tests {
         p.set_playback_paused(true);
         assert!(p.skip());
         assert!(!p.hello().playback_paused);
-        assert!(!p.set_playback_paused(true), "nothing is playing now");
+        assert_eq!(
+            p.set_playback_paused(true),
+            PauseOutcome::NothingPlaying,
+            "nothing is playing now"
+        );
     }
 
     // --- the YouTube API key, changed while running ---
@@ -2592,5 +2708,380 @@ mod tests {
             .run_chat_until(ScriptedSource(VecDeque::new()), std::future::pending())
             .await;
         assert!(!ended, "a source that ends is not a stop request");
+    }
+
+    // --- TikTok requests ---
+
+    const TT_ID: &str = "7700124541145599252";
+    const TT_SHORT_ID: &str = "7219950637247728923";
+    const TT_LOCATION: &str =
+        "https://www.tiktok.com/@feriumar758/video/7219950637247728923?_r=1&_t=ZS-9BTRBCxhj9O";
+
+    /// A local stand-in for TikTok's short link host: answers every request
+    /// with `response` and counts them.
+    async fn short_link_host(response: String) -> (ShortLinkResolver, Arc<AtomicUsize>) {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base = url::Url::parse(&format!("http://{}/", listener.local_addr().unwrap())).unwrap();
+        let hits = Arc::new(AtomicUsize::new(0));
+        let counted = Arc::clone(&hits);
+        tokio::spawn(async move {
+            loop {
+                let Ok((mut socket, _)) = listener.accept().await else {
+                    return;
+                };
+                let mut head = Vec::new();
+                let mut buf = [0u8; 1024];
+                while !head.windows(4).any(|w| w == b"\r\n\r\n") {
+                    match socket.read(&mut buf).await {
+                        Ok(0) | Err(_) => break,
+                        Ok(n) => head.extend_from_slice(&buf[..n]),
+                    }
+                }
+                counted.fetch_add(1, Ordering::SeqCst);
+                let _ = socket.write_all(response.as_bytes()).await;
+                let _ = socket.shutdown().await;
+            }
+        });
+        let resolver = ShortLinkResolver::with_base_url(Duration::from_secs(5), base).unwrap();
+        (resolver, hits)
+    }
+
+    fn redirect_to(location: &str) -> String {
+        format!(
+            "HTTP/1.1 301 Moved Permanently\r\nLocation: {location}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+        )
+    }
+
+    fn status_only(status: &str) -> String {
+        format!("HTTP/1.1 {status}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+    }
+
+    /// `!v` for YouTube and `!vt` for TikTok.
+    fn both_sources(mutate: impl FnOnce(&mut ModerationConfig)) -> Config {
+        let mut config = config(mutate);
+        config.command.commands = vec![
+            crate::config::CommandEntry::youtube("v"),
+            crate::config::CommandEntry::tiktok("vt"),
+        ];
+        config
+    }
+
+    fn notice_of(events: &[Arc<Envelope>]) -> Value {
+        assert_eq!(kinds(events), vec!["notice"], "{events:?}");
+        data(&events[0])
+    }
+
+    #[tokio::test]
+    async fn a_tiktok_id_waits_for_approval_and_is_shown_without_details() {
+        let p = pipeline(&both_sources(|_| {}));
+        let mut rx = p.subscribe();
+        say(&p, sender(1, Role::Follower), &format!("!vt {TT_ID}")).await;
+        assert_eq!(kinds(&drain(&mut rx)), vec!["queue_updated"]);
+
+        let item = p.hello().queue.pending.remove(0);
+        assert_eq!(item.source, CommandSource::Tiktok);
+        assert_eq!(item.video_id, TT_ID);
+        // No account was told, so the ID stands in for the title.
+        assert_eq!(item.title, TT_ID);
+        assert_eq!(item.channel, "TikTok");
+        assert_eq!(item.duration_secs, 0);
+        assert_eq!(item.thumbnail_url, "");
+        assert_eq!(item.requested_by.name, "Viewer 1");
+        assert_eq!(p.lookup_source().calls(), 0, "YouTube is not asked");
+    }
+
+    #[tokio::test]
+    async fn a_web_link_tells_the_account() {
+        let p = pipeline(&both_sources(|_| {}));
+        say(
+            &p,
+            sender(1, Role::Follower),
+            &format!("!vt https://www.tiktok.com/@cherlynn052/video/{TT_ID}?is_from_webapp=1"),
+        )
+        .await;
+        let item = p.hello().queue.pending.remove(0);
+        assert_eq!(item.video_id, TT_ID);
+        assert_eq!(item.title, "@cherlynn052");
+    }
+
+    #[tokio::test]
+    async fn automatic_approval_never_applies_to_tiktok() {
+        let p = pipeline(&both_sources(|m| m.mode = ModerationMode::Auto));
+        let mut rx = p.subscribe();
+        say(&p, sender(1, Role::Follower), &format!("!vt {TT_ID}")).await;
+        // Waiting for a person: nothing plays, nothing is counted as approved.
+        assert_eq!(kinds(&drain(&mut rx)), vec!["queue_updated"]);
+        assert_eq!(p.hello().queue.pending.len(), 1);
+        assert!(p.hello().queue.now_playing.is_none());
+        assert_eq!(p.hello().stats.approved, 0);
+        assert_eq!(p.hello().stats.received, 1);
+
+        // A YouTube request in the same mode still goes straight through.
+        say(&p, sender(2, Role::Follower), &format!("!v {ID_A}")).await;
+        assert_eq!(kinds(&drain(&mut rx)), vec!["play", "queue_updated"]);
+
+        // Approving the TikTok one puts it behind, and it plays in its turn.
+        let id = p.hello().queue.pending[0].id;
+        p.approve(ItemId(id)).unwrap();
+        assert_eq!(p.hello().stats.approved, 2);
+        let playing = p.hello().queue.now_playing.unwrap().id;
+        p.player_ended(ItemId(playing)).unwrap();
+        let events = drain(&mut rx);
+        let play = events
+            .iter()
+            .find(|e| matches!(e.event, Event::Play { .. }))
+            .unwrap();
+        assert_eq!(data(play)["item"]["source"], "tiktok");
+        assert_eq!(data(play)["item"]["video_id"], TT_ID);
+    }
+
+    #[tokio::test]
+    async fn a_short_code_is_looked_up_once_and_remembered() {
+        let (resolver, hits) = short_link_host(redirect_to(TT_LOCATION)).await;
+        let p = pipeline(&both_sources(|_| {})).with_short_links(resolver);
+        say(&p, sender(1, Role::Follower), "!vt ZSpGELffb").await;
+        let item = p.hello().queue.pending.remove(0);
+        assert_eq!(item.video_id, TT_SHORT_ID);
+        assert_eq!(item.title, "@feriumar758");
+        assert_eq!(hits.load(Ordering::SeqCst), 1);
+
+        // The same code from someone else does not ask again.
+        say(
+            &p,
+            sender(2, Role::Follower),
+            "!vt https://vt.tiktok.com/ZSpGELffb/",
+        )
+        .await;
+        assert_eq!(p.hello().queue.pending.len(), 2);
+        assert_eq!(hits.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn a_short_code_that_leads_nowhere_is_turned_down_and_costs_the_cooldown() {
+        let (resolver, _) = short_link_host(redirect_to("https://www.tiktok.com/?_r=1")).await;
+        let p = pipeline(&both_sources(|m| m.cooldown_secs = 60)).with_short_links(resolver);
+        let mut rx = p.subscribe();
+        say(&p, sender(1, Role::Follower), "!vt Nothing123").await;
+        let notice = notice_of(&drain(&mut rx));
+        assert_eq!(notice["code"], "reject.not_found");
+        assert_eq!(notice["sender"], "Viewer 1");
+        assert!(p.hello().queue.pending.is_empty());
+
+        // The cooldown was spent (a cooldown denial is silent).
+        say(&p, sender(1, Role::Follower), &format!("!vt {TT_ID}")).await;
+        assert!(drain(&mut rx).is_empty());
+        assert!(p.hello().queue.pending.is_empty());
+    }
+
+    #[tokio::test]
+    async fn when_tiktok_cannot_be_reached_the_sender_keeps_the_cooldown() {
+        let (resolver, _) = short_link_host(status_only("503 Service Unavailable")).await;
+        let p = pipeline(&both_sources(|m| m.cooldown_secs = 60)).with_short_links(resolver);
+        let mut rx = p.subscribe();
+        say(&p, sender(1, Role::Follower), "!vt ZSpGELffb").await;
+        let notice = notice_of(&drain(&mut rx));
+        assert_eq!(notice["code"], "error.tiktok_unavailable");
+        assert_eq!(notice["text"], "Cannot reach TikTok to open the short link");
+
+        // Not their fault, so they may try again at once, with an ID.
+        say(&p, sender(1, Role::Follower), &format!("!vt {TT_ID}")).await;
+        assert_eq!(kinds(&drain(&mut rx)), vec!["queue_updated"]);
+    }
+
+    #[tokio::test]
+    async fn an_id_needs_no_request_to_tiktok() {
+        let (resolver, hits) = short_link_host(redirect_to(TT_LOCATION)).await;
+        let p = pipeline(&both_sources(|_| {})).with_short_links(resolver);
+        say(&p, sender(1, Role::Follower), &format!("!vt {TT_ID}")).await;
+        say(
+            &p,
+            sender(2, Role::Follower),
+            &format!("!vt https://www.tiktok.com/@a/video/{TT_ID}"),
+        )
+        .await;
+        assert_eq!(p.hello().queue.pending.len(), 2);
+        assert_eq!(hits.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn the_same_gates_apply_before_anything_is_asked_of_tiktok() {
+        let (resolver, hits) = short_link_host(redirect_to(TT_LOCATION)).await;
+        let p =
+            pipeline(&both_sources(|m| m.min_role = Role::Moderator)).with_short_links(resolver);
+        let mut rx = p.subscribe();
+        say(&p, sender(1, Role::Follower), "!vt ZSpGELffb").await;
+        // Not allowed to submit: silently ignored, and nothing was asked.
+        assert!(drain(&mut rx).is_empty());
+        assert_eq!(
+            hits.load(Ordering::SeqCst),
+            0,
+            "nothing was asked of TikTok"
+        );
+
+        let p = pipeline(&both_sources(|m| m.max_queue_len = 1));
+        let mut rx = p.subscribe();
+        say(&p, sender(1, Role::Follower), &format!("!vt {TT_ID}")).await;
+        say(
+            &p,
+            sender(2, Role::Follower),
+            &format!("!vt {}", "1".repeat(19)),
+        )
+        .await;
+        let events = drain(&mut rx);
+        assert_eq!(kinds(&events), vec!["queue_updated", "notice"]);
+        assert_eq!(data(&events[1])["code"], "reject.queue_full");
+    }
+
+    #[tokio::test]
+    async fn the_blacklist_covers_tiktok_ids_and_accounts() {
+        let mut config = both_sources(|_| {});
+        config.blacklist.video_ids = vec![TT_ID.to_owned()];
+        config.blacklist.channels = vec!["Bad.Account_1".to_owned()];
+        let p = pipeline(&config);
+        let mut rx = p.subscribe();
+
+        say(&p, sender(1, Role::Follower), &format!("!vt {TT_ID}")).await;
+        assert_eq!(
+            notice_of(&drain(&mut rx))["code"],
+            "reject.blacklisted_video"
+        );
+
+        say(
+            &p,
+            sender(2, Role::Follower),
+            &format!(
+                "!vt https://www.tiktok.com/@bad.account_1/video/{}",
+                "2".repeat(19)
+            ),
+        )
+        .await;
+        assert_eq!(
+            notice_of(&drain(&mut rx))["code"],
+            "reject.blacklisted_channel"
+        );
+
+        // The same list still catches a YouTube ID, and lets other TikToks by.
+        say(
+            &p,
+            sender(3, Role::Follower),
+            &format!("!vt https://www.tiktok.com/@fine/video/{}", "3".repeat(19)),
+        )
+        .await;
+        assert_eq!(kinds(&drain(&mut rx)), vec!["queue_updated"]);
+    }
+
+    #[tokio::test]
+    async fn a_link_of_the_other_source_is_answered_with_the_right_command() {
+        let p = pipeline(&both_sources(|_| {}));
+        let mut rx = p.subscribe();
+
+        say(
+            &p,
+            sender(1, Role::Follower),
+            "!v https://vt.tiktok.com/ZSpGELffb/",
+        )
+        .await;
+        let notice = notice_of(&drain(&mut rx));
+        assert_eq!(notice["code"], "reject.use_tiktok_command");
+        assert_eq!(notice["text"], "That is a TikTok link: use !vt for TikTok");
+
+        say(
+            &p,
+            sender(1, Role::Follower),
+            "!vt https://youtu.be/dQw4w9WgXcQ",
+        )
+        .await;
+        let notice = notice_of(&drain(&mut rx));
+        assert_eq!(notice["code"], "reject.use_youtube_command");
+        assert_eq!(notice["text"], "That is a YouTube link: use !v for YouTube");
+
+        // Nothing was queued and nothing was asked of YouTube.
+        assert!(p.hello().queue.pending.is_empty());
+        assert_eq!(p.lookup_source().calls(), 0);
+    }
+
+    #[tokio::test]
+    async fn with_no_command_for_the_other_source_it_is_just_an_invalid_link() {
+        // Only `!v` exists: a TikTok link has no command to be sent to.
+        let p = default_pipeline();
+        let mut rx = p.subscribe();
+        say(
+            &p,
+            sender(1, Role::Follower),
+            "!v https://vt.tiktok.com/ZSpGELffb/",
+        )
+        .await;
+        assert_eq!(notice_of(&drain(&mut rx))["code"], "reject.invalid_link");
+    }
+
+    #[tokio::test]
+    async fn an_unusable_tiktok_argument_is_told_in_tiktok_words() {
+        let p = pipeline(&both_sources(|_| {}));
+        let mut rx = p.subscribe();
+        for text in ["!vt", "!vt nope!", "!vt https://evil.com/x", "!vt 12"] {
+            say(&p, sender(1, Role::Follower), text).await;
+            let notice = notice_of(&drain(&mut rx));
+            assert_eq!(notice["code"], "reject.invalid_tiktok_link", "{text}");
+            assert_eq!(
+                notice["text"], "Invalid TikTok link, video ID or short link code",
+                "{text}"
+            );
+        }
+        // Not for someone who could not have submitted anything anyway.
+        say(&p, sender(2, Role::Everyone), "!vt nope!").await;
+        assert!(drain(&mut rx).is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_tiktok_video_has_no_progress_and_cannot_be_paused() {
+        let p = pipeline(&both_sources(|_| {}));
+        say(&p, sender(1, Role::Follower), &format!("!vt {TT_ID}")).await;
+        let id = ItemId(p.hello().queue.pending[0].id);
+        p.approve(id).unwrap();
+        assert_eq!(
+            p.hello().queue.now_playing.unwrap().source,
+            CommandSource::Tiktok
+        );
+
+        let mut rx = p.subscribe();
+        // The overlay has no position to report; a stray one is quietly kept out.
+        p.player_progress(id, 5).unwrap();
+        assert_eq!(
+            p.player_progress(ItemId(id.0 + 1), 5),
+            Err(QueueError::NotPlaying(ItemId(id.0 + 1)))
+        );
+        assert_eq!(p.set_playback_paused(true), PauseOutcome::Unsupported);
+        // Resuming something that is not paused is harmless.
+        assert_eq!(p.set_playback_paused(false), PauseOutcome::Done);
+        assert!(drain_all(&mut rx).is_empty());
+        assert!(!p.hello().playback_paused);
+    }
+
+    #[tokio::test]
+    async fn a_tiktok_video_that_fails_to_play_is_skipped_by_its_title() {
+        let p = pipeline(&both_sources(|_| {}));
+        say(
+            &p,
+            sender(1, Role::Follower),
+            &format!("!vt https://www.tiktok.com/@cherlynn052/video/{TT_ID}"),
+        )
+        .await;
+        let id = ItemId(p.hello().queue.pending[0].id);
+        p.approve(id).unwrap();
+        let mut rx = p.subscribe();
+        p.player_error(id, "load").unwrap();
+        let events = drain(&mut rx);
+        let notice = events
+            .iter()
+            .find(|e| matches!(e.event, Event::Notice { .. }))
+            .unwrap();
+        assert!(
+            data(notice)["text"]
+                .as_str()
+                .unwrap()
+                .contains("@cherlynn052")
+        );
     }
 }

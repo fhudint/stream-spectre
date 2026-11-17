@@ -1,6 +1,8 @@
 use std::collections::HashSet;
 
+use super::item::TiktokDetails;
 use crate::config::{BlacklistConfig, ConfigError};
+use crate::tiktok::TiktokVideoId;
 use crate::youtube::{VideoDetails, VideoId};
 
 /// Which blacklist entry matched.
@@ -13,7 +15,8 @@ pub enum BlacklistHit {
 
 /// Blocked videos, channels and title words.
 ///
-/// - Video IDs match exactly (they are case-sensitive).
+/// - Video IDs match exactly (they are case-sensitive). A YouTube ID and a
+///   TikTok ID can share one list: they cannot be mistaken for each other.
 /// - Channel names match ignoring case, punctuation and extra spaces.
 /// - Title words match as whole words or phrases, ignoring case and
 ///   punctuation: the entry `ass` does not block "Classic", and `bad word`
@@ -24,7 +27,7 @@ pub enum BlacklistHit {
 /// Look-alike characters from other alphabets are not folded.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Blacklist {
-    video_ids: HashSet<VideoId>,
+    video_ids: HashSet<String>,
     channels: HashSet<String>,
     title_phrases: Vec<String>,
 }
@@ -33,13 +36,14 @@ impl Blacklist {
     pub fn from_config(config: &BlacklistConfig) -> Result<Self, ConfigError> {
         let mut video_ids = HashSet::new();
         for (i, entry) in config.video_ids.iter().enumerate() {
-            let id = VideoId::parse(entry.trim()).map_err(|_| {
-                ConfigError::invalid(
+            let id = entry.trim();
+            if VideoId::parse(id).is_err() && TiktokVideoId::parse(id).is_err() {
+                return Err(ConfigError::invalid(
                     format!("blacklist.video_ids[{i}]"),
-                    "must be an 11-character YouTube video ID",
-                )
-            })?;
-            video_ids.insert(id);
+                    "must be an 11-character YouTube video ID or a TikTok video ID (15 to 20 digits)",
+                ));
+            }
+            video_ids.insert(id.to_owned());
         }
 
         let mut channels = HashSet::new();
@@ -74,9 +78,24 @@ impl Blacklist {
         })
     }
 
-    /// Cheap check that needs no YouTube lookup.
-    pub fn check_video_id(&self, id: &VideoId) -> Option<BlacklistHit> {
-        self.video_ids.contains(id).then_some(BlacklistHit::Video)
+    /// Cheap check that needs no lookup. Takes a YouTube or a TikTok ID.
+    pub fn check_video_id(&self, id: &(impl AsRef<str> + ?Sized)) -> Option<BlacklistHit> {
+        self.video_ids
+            .contains(id.as_ref())
+            .then_some(BlacklistHit::Video)
+    }
+
+    /// Checks a TikTok video: its ID, and its account against the channel
+    /// names (an account is the channel of a TikTok video). There is no title
+    /// to check.
+    pub fn check_tiktok(&self, video: &TiktokDetails) -> Option<BlacklistHit> {
+        if let Some(hit) = self.check_video_id(&video.id) {
+            return Some(hit);
+        }
+        let account = video.account.as_deref()?;
+        self.channels
+            .contains(&normalize(account))
+            .then_some(BlacklistHit::Channel)
     }
 
     /// Checks the channel name and title of a looked-up video.
@@ -284,5 +303,65 @@ mod tests {
         assert_eq!(normalize("!!!"), "");
         assert_eq!(normalize(""), "");
         assert_eq!(normalize("ÉCOLE"), "école");
+    }
+
+    fn tiktok(id: &str, account: Option<&str>) -> TiktokDetails {
+        TiktokDetails {
+            id: TiktokVideoId::parse(id).unwrap(),
+            account: account.map(str::to_owned),
+        }
+    }
+
+    #[test]
+    fn tiktok_ids_share_the_list_with_youtube_ids() {
+        let b = Blacklist::from_config(&config(&[OK_ID, "7700124541145599252"], &[], &[])).unwrap();
+        assert_eq!(
+            b.check_tiktok(&tiktok("7700124541145599252", None)),
+            Some(BlacklistHit::Video)
+        );
+        assert_eq!(b.check_tiktok(&tiktok("7700124541145599253", None)), None);
+        assert_eq!(
+            b.check_video_id("7700124541145599252"),
+            Some(BlacklistHit::Video)
+        );
+        // Spaces around an entry are ignored, as for YouTube.
+        let b = Blacklist::from_config(&config(&[" 7700124541145599252 "], &[], &[])).unwrap();
+        assert!(
+            b.check_tiktok(&tiktok("7700124541145599252", None))
+                .is_some()
+        );
+        // Neither kind of ID: refused, with the position.
+        for bad in [
+            "12345",
+            "77001245411455992a2",
+            "https://www.tiktok.com/@a/video/7700124541145599252",
+        ] {
+            let error = Blacklist::from_config(&config(&["dQw4w9WgXcQ", bad], &[], &[]))
+                .unwrap_err()
+                .to_string();
+            assert!(error.contains("blacklist.video_ids[1]"), "{error}");
+        }
+    }
+
+    #[test]
+    fn a_tiktok_account_is_checked_like_a_channel_name() {
+        let b = Blacklist::from_config(&config(&[], &["Bad.Account_1"], &["spoiler"])).unwrap();
+        for account in ["bad.account_1", "BAD.ACCOUNT_1", "bad_account.1"] {
+            assert_eq!(
+                b.check_tiktok(&tiktok("7700124541145599252", Some(account))),
+                Some(BlacklistHit::Channel),
+                "{account}"
+            );
+        }
+        assert_eq!(
+            b.check_tiktok(&tiktok("7700124541145599252", Some("other"))),
+            None
+        );
+        // No account known: nothing to match. Title words have nothing to match.
+        assert_eq!(b.check_tiktok(&tiktok("7700124541145599252", None)), None);
+        assert_eq!(
+            b.check_tiktok(&tiktok("7700124541145599252", Some("spoiler"))),
+            None
+        );
     }
 }

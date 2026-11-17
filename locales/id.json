@@ -45,6 +45,7 @@
   "dashboard.commands.name": "Kata",
   "dashboard.commands.source": "Sumber",
   "dashboard.commands.source.youtube": "YouTube",
+  "dashboard.commands.source.tiktok": "TikTok",
   "dashboard.commands.add": "Tambah perintah",
   "dashboard.commands.remove": "Hapus",
   "dashboard.commands.save": "Simpan perintah",
@@ -70,6 +71,9 @@
   "role.moderator": "Moderator",
   "overlay.requested_by": "Diminta oleh {name}",
   "reject.invalid_link": "Tautan atau ID YouTube tidak valid",
+  "reject.invalid_tiktok_link": "Link TikTok, ID video, atau kode link pendek tidak valid",
+  "reject.use_tiktok_command": "Itu link TikTok: pakai {command} untuk TikTok",
+  "reject.use_youtube_command": "Itu link YouTube: pakai {command} untuk YouTube",
   "reject.not_found": "Video tidak ditemukan",
   "reject.not_embeddable": "Video ini tidak bisa disematkan",
   "reject.age_restricted": "Video dibatasi usia",
@@ -89,6 +93,7 @@
   "error.player_failed": "Video “{title}” gagal diputar (kode {code})",
   "error.quota_exceeded":"Kuota YouTube API habis, coba lagi nanti",
   "error.youtube_unavailable": "YouTube API tidak bisa dihubungi",
+  "error.tiktok_unavailable": "Tidak bisa menghubungi TikTok untuk membuka link pendek",
   "error.settings_not_saved": "Pengaturan gagal disimpan ke disk dan akan hilang saat program dimulai ulang",
   "dashboard.nav.label": "Menu utama",
   "dashboard.nav.group.moderation": "Moderasi",
@@ -187,5 +192,6 @@
   "dashboard.action.pause": "Jeda",
   "dashboard.action.resume": "Lanjutkan",
   "dashboard.now.paused": "Dijeda",
+  "dashboard.now.manual_end": "TikTok tidak memberi tahu kapan video selesai. Lewati sendiri kalau sudah habis.",
   "dashboard.keys.pause": "jeda atau lanjutkan"
 }

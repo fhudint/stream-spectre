@@ -13,8 +13,13 @@ const MAX_ACCOUNT_LEN: usize = 64;
 /// What a viewer's `!vt` argument points at.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TiktokRef {
-    /// The video itself: its ID is known without asking TikTok.
-    Video(TiktokVideoId),
+    /// The video itself: its ID is known without asking TikTok. The account
+    /// is known when the viewer sent a web link (letters, digits, `_` and
+    /// `.` only, so it is safe to show).
+    Video {
+        id: TiktokVideoId,
+        account: Option<String>,
+    },
     /// A short link's code: TikTok has to be asked which video it leads to.
     Short(ShortCode),
 }
@@ -40,7 +45,7 @@ pub fn extract_tiktok_ref(token: &str) -> Option<TiktokRef> {
     // and digits is tried as a code. The two cannot clash: a code is at most
     // 12 characters and an ID at least 15.
     if let Ok(id) = TiktokVideoId::parse(token) {
-        return Some(TiktokRef::Video(id));
+        return Some(TiktokRef::Video { id, account: None });
     }
     if let Ok(code) = ShortCode::parse(token) {
         return Some(TiktokRef::Short(code));
@@ -60,7 +65,10 @@ pub fn extract_tiktok_ref(token: &str) -> Option<TiktokRef> {
         };
     }
     if VIDEO_HOSTS.contains(&host) {
-        return video_from_segments(&segments).map(|(_, id)| TiktokRef::Video(id));
+        return video_from_segments(&segments).map(|(account, id)| TiktokRef::Video {
+            id,
+            account: Some(account),
+        });
     }
     None
 }
@@ -113,7 +121,7 @@ mod tests {
 
     fn video(token: &str) -> Option<String> {
         match extract_tiktok_ref(token)? {
-            TiktokRef::Video(id) => Some(id.as_str().to_owned()),
+            TiktokRef::Video { id, .. } => Some(id.as_str().to_owned()),
             TiktokRef::Short(_) => None,
         }
     }
@@ -121,7 +129,7 @@ mod tests {
     fn short(token: &str) -> Option<String> {
         match extract_tiktok_ref(token)? {
             TiktokRef::Short(code) => Some(code.as_str().to_owned()),
-            TiktokRef::Video(_) => None,
+            TiktokRef::Video { .. } => None,
         }
     }
 
@@ -155,6 +163,19 @@ mod tests {
         ] {
             assert_eq!(video(link).as_deref(), Some(ID), "{link}");
         }
+    }
+
+    #[test]
+    fn the_account_comes_with_a_web_link_but_not_with_a_bare_id() {
+        let account = |token: &str| match extract_tiktok_ref(token) {
+            Some(TiktokRef::Video { account, .. }) => account,
+            other => panic!("{other:?}"),
+        };
+        assert_eq!(
+            account("https://www.tiktok.com/@cher.lynn_05/video/7700124541145599252").as_deref(),
+            Some("cher.lynn_05")
+        );
+        assert_eq!(account(ID), None);
     }
 
     #[test]
@@ -233,7 +254,10 @@ mod tests {
     fn the_result_never_carries_the_typed_text() {
         let token = "https://www.tiktok.com/@a/video/7700124541145599252?x=%3Cscript%3E";
         match extract_tiktok_ref(token).unwrap() {
-            TiktokRef::Video(id) => assert_eq!(id.as_str(), ID),
+            TiktokRef::Video { id, account } => {
+                assert_eq!(id.as_str(), ID);
+                assert_eq!(account.as_deref(), Some("a"));
+            }
             TiktokRef::Short(_) => panic!("not a code"),
         }
     }

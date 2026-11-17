@@ -4,6 +4,7 @@ use super::model::{
     TiktokConfig,
 };
 use super::secrets::Secrets;
+use crate::tiktok::TiktokVideoId;
 use crate::youtube::VideoId;
 
 const MAX_TIKTOK_USERNAME_LEN: usize = 64;
@@ -53,10 +54,11 @@ impl Config {
             }
         }
         for (i, entry) in b.video_ids.iter().enumerate() {
-            if VideoId::parse(entry.trim()).is_err() {
+            let id = entry.trim();
+            if VideoId::parse(id).is_err() && TiktokVideoId::parse(id).is_err() {
                 return Err(ConfigError::invalid(
                     format!("blacklist.video_ids[{i}]"),
-                    "must be an 11-character YouTube video ID, not a link",
+                    "must be an 11-character YouTube video ID or a TikTok video ID (15 to 20 digits), not a link",
                 ));
             }
         }

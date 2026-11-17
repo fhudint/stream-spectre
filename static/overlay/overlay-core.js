@@ -18,10 +18,20 @@
 
   var PROTOCOL_VERSION = 1;
   var VIDEO_ID = /^[A-Za-z0-9_-]{11}$/;
+  var TIKTOK_VIDEO_ID = /^[0-9]{15,20}$/;
   var DEFAULT_REQUESTED_BY = 'Requested by {name}';
 
   function isVideoId(value) {
     return typeof value === 'string' && VIDEO_ID.test(value);
+  }
+
+  /* Whether `value` is an ID a video of `source` can have. An item from a
+   * server that predates TikTok has no source, which means YouTube. */
+  function isVideoRef(source, value) {
+    if (typeof value !== 'string') return false;
+    if (source === undefined || source === 'youtube') return VIDEO_ID.test(value);
+    if (source === 'tiktok') return TIKTOK_VIDEO_ID.test(value);
+    return false;
   }
 
   /* Replaces {name} placeholders in one pass. Unknown placeholders and stray
@@ -66,7 +76,7 @@
   }
 
   /* deps:
-   *   player: { play(videoId, volume), stop(), setVolume(volume),
+   *   player: { play(videoId, volume, source), stop(), setVolume(volume),
    *             pause(), resume(),
    *             position() -> seconds into the video, or null when not playing }
    *   ui:     { show({ requestedBy, title }), hide() }
@@ -114,7 +124,7 @@
       reported = false;
       paused = false; // a video that starts always plays
       unsent = null;
-      if (!isVideoId(item.video_id)) {
+      if (!isVideoRef(item.source, item.video_id)) {
         reported = true;
         report({ type: 'player_error', item_id: item.id, code: 'invalid' });
         return;
@@ -122,7 +132,7 @@
       var requester = item.requested_by;
       var name = requester && typeof requester.name === 'string' ? requester.name : '';
       volume = clampVolume(requestedVolume, volume);
-      player.play(item.video_id, volume);
+      player.play(item.video_id, volume, item.source === 'tiktok' ? 'tiktok' : 'youtube');
       ui.show({
         requestedBy: format(text('overlay.requested_by') || DEFAULT_REQUESTED_BY, { name: name }),
         title: typeof item.title === 'string' ? item.title : '',
@@ -226,6 +236,7 @@
     createController: createController,
     format: format,
     isVideoId: isVideoId,
+    isVideoRef: isVideoRef,
     sanitizeCode: sanitizeCode,
   };
 });

@@ -45,6 +45,7 @@
   "dashboard.commands.name": "Word",
   "dashboard.commands.source": "Source",
   "dashboard.commands.source.youtube": "YouTube",
+  "dashboard.commands.source.tiktok": "TikTok",
   "dashboard.commands.add": "Add a command",
   "dashboard.commands.remove": "Remove",
   "dashboard.commands.save": "Save commands",
@@ -70,6 +71,9 @@
   "role.moderator": "Moderator",
   "overlay.requested_by": "Requested by {name}",
   "reject.invalid_link": "Invalid YouTube link or ID",
+  "reject.invalid_tiktok_link": "Invalid TikTok link, video ID or short link code",
+  "reject.use_tiktok_command": "That is a TikTok link: use {command} for TikTok",
+  "reject.use_youtube_command": "That is a YouTube link: use {command} for YouTube",
   "reject.not_found": "Video not found",
   "reject.not_embeddable": "This video cannot be embedded",
   "reject.age_restricted": "Video is age-restricted",
@@ -89,6 +93,7 @@
   "error.player_failed": "Video “{title}” failed to play (code {code})",
   "error.quota_exceeded":"YouTube API quota exhausted, try again later",
   "error.youtube_unavailable": "Cannot reach the YouTube API",
+  "error.tiktok_unavailable": "Cannot reach TikTok to open the short link",
   "error.settings_not_saved": "Settings could not be saved to disk and will be lost when the program restarts",
   "dashboard.nav.label": "Main menu",
   "dashboard.nav.group.moderation": "Moderation",
@@ -187,5 +192,6 @@
   "dashboard.action.pause": "Pause",
   "dashboard.action.resume": "Resume",
   "dashboard.now.paused": "Paused",
+  "dashboard.now.manual_end": "TikTok does not say when a video ends. Skip it when it is over.",
   "dashboard.keys.pause": "pause or resume"
 }

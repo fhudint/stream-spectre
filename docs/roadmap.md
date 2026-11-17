@@ -57,34 +57,39 @@ player; the queue, moderation and events all assume a YouTube video.
 - Copyright and platform rules for re-playing other people's TikToks on stream
   need the same warning as YouTube, and probably a stricter default.
 
-**Built so far (not wired in).** `src/tiktok/` has the parser and the
-short-link resolver, tested but not yet used by the pipeline, the queue or the
-overlay.
+**Built.** TikTok videos can be asked for with a command whose source is
+`tiktok` (set on the Rules page or in `[command]`). Not tried on a real stream
+or in OBS yet.
 - What a viewer types after the command: a bare video ID
   (`7700124541145599252`), a bare short code (`ZSpGELffb`, case kept), a web
   link (`tiktok.com/@name/video/<id>`, also `www.` and `m.`), or a short link
-  (`vt.tiktok.com/<code>`, `vm.`). Anything else, other hosts and shapes
-  included, is refused. A YouTube ID made only of letters and digits also looks
-  like a code; it is asked of TikTok, leads nowhere and costs one cached
-  request.
-- The resolver builds the address itself from a validated code
-  (`https://vt.tiktok.com/<code>/`), never follows a redirect, reads and checks
-  `Location` (https, TikTok's own host, a video path, an account name of
-  letters, digits, `_` and `.`), never reads the body, has a 5 second timeout,
-  and caches (24 hours for a video, 5 minutes for a code that leads nowhere;
-  failures are not cached; simultaneous lookups share one request). Checked
-  once against the real service with the two codes above.
+  (`vt.tiktok.com/<code>`, `vm.`). Anything else is refused. A command takes
+  only its own source; a link of the other one is answered with the command to
+  use. A YouTube ID made only of letters and digits also looks like a code
+  after the TikTok word; it is asked of TikTok, leads nowhere and costs one
+  cached request.
+- The resolver builds the address itself from a validated code, never follows a
+  redirect, checks `Location`, never reads the body, has a 5 second timeout and
+  caches.
+- One queue for both. A TikTok entry shows the account (when known) or the ID,
+  has no length or thumbnail, and always waits for a moderator even with
+  automatic approval. The same gates apply, and the blacklist takes TikTok IDs
+  in `video_ids` and accounts in `channels`.
+- The overlay plays it in TikTok's embedded player (`player/v1/<id>`), in a
+  frame in the same stage. It cannot be paused from the dashboard, the volume
+  slider does not reach it, there is no progress, and it ends only when a
+  moderator skips it.
 
-**Next.** A `VideoRef` and a `source` on queue items and events, the TikTok
-source for a command in `[command]`, and the overlay player. The player is the
-risky part and needs a trial in a browser or OBS.
-
-**Shape of the change (a sketch).** A `VideoRef` that is either a YouTube or a
-TikTok video, a second lookup implementation behind the existing `VideoSource`
-idea, a `source` field on queue items and `play` events (a protocol addition,
-so clients that ignore unknown fields keep working), and a second player in the
-overlay behind one small interface. The chat word that selects the source is
-item 5.
+**Still open**
+- Whether the embedded player works in OBS as it does in a browser (autoplay
+  with sound, no error like YouTube's 150 for an IP address origin).
+- Whether TikTok's player reports "ended" and errors to the page. It is
+  believed to have a `postMessage` API (*unverified*); using it would let a
+  video end by itself, allow pause and volume, and catch videos that fail to
+  load.
+- A preview of the video inside the dashboard, so a moderator can look before
+  approving, since there is no title or thumbnail.
+- A length limit for TikTok, which needs the length from somewhere.
 
 ## 2. Check YouTube IDs cheaply before using the API key
 
@@ -218,17 +223,12 @@ Names are checked at startup and when changed (1 to 32 letters, digits or `_`;
 unique ignoring case; 1 to 8 entries). They can be changed on the dashboard's
 Rules page and take effect for the next chat message. Matching is
 case-insensitive and whole-word, so `!vid` is not `!v` and `!vt` is not `!v`.
-The only source is `youtube`, so every entry means YouTube for now.
 
-**Still to do**
-- A second source (item 1, TikTok videos). Until then the "source" choice in
-  the dashboard has one option, and the strict rule below has nothing to
-  reject.
-- The parser returns which source was asked for, and the queue and events carry
-  it. This is the same `source` field that item 1 sketches, so the two should be
-  designed together.
-- Notice text that names a command ("use `!vt` for TikTok links") must read the
-  configured names from the list instead of assuming one.
+**Also built (with item 1).** The sources are `youtube` and `tiktok`; the
+parser returns which one a command is for, the queue and events carry it
+(`source`), and a link of the other source is answered with the configured
+command for it ("That is a TikTok link: use `!vt` for TikTok"), read from the
+same list.
 
 **Decided**
 - **Strict.** A command only accepts links of its own source: `!yt` with a

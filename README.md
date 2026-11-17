@@ -28,6 +28,14 @@ for what plays on your stream.
   `youtu.be/ID`, `youtube.com/watch?v=ID` and `youtube.com/shorts/ID`.
   The prefix and the command words are configurable, and you can have several
   (for example `!v` and `!yt`), on the dashboard's Rules page or in `[command]`.
+- TikTok videos too, with a command of their own that you add on the Rules page
+  (for example `!vt`, with the source TikTok). After it a viewer sends a video
+  ID (`!vt 7700124541145599252`), the code of a short link from the app
+  (`!vt ZSpGELffb`, from `vt.tiktok.com/ZSpGELffb`), or a full link. A command
+  takes only its own source: `!v` with a TikTok link is answered with the
+  command to use. TikTok videos always wait for a moderator, are played in the
+  same overlay and the same queue, and must be skipped by hand when they end
+  (see [Known limitations](#known-limitations)).
 - Checks each video with the YouTube Data API (one quota unit per new video,
   results cached): rejects videos that cannot be embedded, are age-restricted,
   are live streams, or are too long.
@@ -281,6 +289,17 @@ trust, not across the internet.
   notice with the player's error code. If *every* video fails with code 150,
   you most likely opened the overlay through an IP address; see
   [above](#use-localhost-not-an-ip-address).
+- **TikTok videos are new and not tried in OBS yet.** They play in TikTok's own
+  embedded player, in the same overlay. TikTok tells us nothing about a video
+  without a developer account, so there is no title, thumbnail or length: the
+  queue shows the account (when the link had it) and the ID, the maximum length
+  cannot be enforced, and they always wait for a moderator even with automatic
+  approval. Nothing in TikTok's player reports back, so a TikTok video stays on
+  screen until a moderator presses skip. It cannot be paused from the dashboard
+  and the volume slider does not change it. A private, deleted or region-locked
+  video cannot be told from a good one beforehand and shows TikTok's own
+  message on screen until it is skipped. A short link is opened with one request
+  to TikTok's own server, which only the code is sent to.
 - **Saved settings replace whole tables.** A table saved from the dashboard
   (for example all of `[moderation]`) replaces that table in `config.toml`;
   single keys are not merged. Apart from the TikTok username, the settings for

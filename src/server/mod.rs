@@ -262,6 +262,10 @@ mod tests {
         config.chat.tiktok.username = "streamer".to_owned();
         config.general.language = Language::En;
         config.moderation.cooldown_secs = 0;
+        config
+            .command
+            .commands
+            .push(crate::config::CommandEntry::tiktok("vt"));
         let pipeline = Arc::new(
             Pipeline::new(
                 &config,
@@ -1053,6 +1057,52 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_tiktok_video_plays_but_cannot_be_paused() {
+        let server = start(None).await;
+        server
+            .pipeline
+            .handle_chat(ChatMessage {
+                sender: Sender::new("user-9", "Viewer 9", Role::Follower),
+                text: "!vt 7700124541145599252".to_owned(),
+            })
+            .await;
+        server.pipeline.approve(crate::queue::ItemId(1)).unwrap();
+
+        let mut overlay = connect(&server, "/ws/overlay", None).await.unwrap();
+        let hello = next_json(&mut overlay).await;
+        let playing = &hello["data"]["queue"]["now_playing"];
+        assert_eq!(playing["source"], "tiktok");
+        assert_eq!(playing["video_id"], "7700124541145599252");
+        assert_eq!(playing["duration_secs"], 0);
+
+        let put = |body: Value| {
+            server
+                .http
+                .put(server.url("/api/playback/pause"))
+                .json(&body)
+                .send()
+        };
+        let refused = put(json!({"paused": true})).await.unwrap();
+        assert_eq!(refused.status(), 409);
+        assert_eq!(
+            refused.json::<Value>().await.unwrap()["code"],
+            "pause_unsupported"
+        );
+        // Resuming is always fine, even if there is nothing to resume.
+        assert_eq!(put(json!({"paused": false})).await.unwrap().status(), 200);
+
+        // The overlay may report the video as ended; it moves on.
+        overlay
+            .send(Message::Text(
+                json!({"type": "ended", "item_id": 1}).to_string().into(),
+            ))
+            .await
+            .unwrap();
+        let stop = next_json(&mut overlay).await;
+        assert_eq!(stop["type"], "stop");
+    }
+
+    #[tokio::test]
     async fn the_chat_is_disconnected_and_connected_from_the_dashboard() {
         let server = start(None).await;
         let put = |body: Value| {
@@ -1197,7 +1247,7 @@ mod tests {
         for bad in [
             json!({"commands": []}),
             json!({"commands": [{"name": "yt", "source": "youtube"}, {"name": "YT", "source": "youtube"}]}),
-            json!({"commands": [{"name": "yt", "source": "tiktok"}]}),
+            json!({"commands": [{"name": "yt", "source": "twitch"}]}),
             json!({"commands": [{"name": "yt"}]}),
             json!({"commands": [{"name": "a b", "source": "youtube"}]}),
             json!({"commands": "yt"}),

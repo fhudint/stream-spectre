@@ -124,6 +124,19 @@ another video starts or the screen empties (`play_next_or_stop`), so a pause
 never carries over to the next video, and it is in `hello` so an overlay that
 reloads in the middle of a pause stays paused.
 
+**Two sources share one queue.** A queue entry holds a `Media`: a YouTube
+video (with the details the API gave) or a TikTok video (an ID and maybe an
+account). `CommandParser` returns `Parsed::Youtube` or `Parsed::Tiktok` by the
+`source` of the command word that was used, and refuses the other source's
+links with the command to use instead. A short TikTok code is looked up by
+`tiktok::ShortLinkResolver` (one request to `vt.tiktok.com`, redirects not
+followed). The gates are the same for both (role, level, queue length,
+cooldown, blacklist), but a TikTok entry has no length, age or embedding check
+and so never skips the approval queue (`Media::can_auto_approve`). The overlay
+shows YouTube in its IFrame player and TikTok in a frame of TikTok's embedded
+player, in the same stage; the frame is replaced or removed with the next
+video. TikTok's player reports nothing used here, so those entries end by skip.
+
 **One event stream, versioned.** Everything the pages show comes from the
 events described in [`websocket-events.md`](websocket-events.md). A client
 subscribes, receives `hello` with the whole state, and then applies events

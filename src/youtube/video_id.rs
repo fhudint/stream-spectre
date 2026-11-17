@@ -40,6 +40,12 @@ fn is_valid(candidate: &str) -> bool {
             .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
 }
 
+impl AsRef<str> for VideoId {
+    fn as_ref(&self) -> &str {
+        &self.0
+    }
+}
+
 impl fmt::Display for VideoId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(&self.0)

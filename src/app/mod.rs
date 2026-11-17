@@ -18,4 +18,4 @@ pub use events::{
     NoticeLevel, OverlayMessage, PROTOCOL_VERSION, QueueView, SenderView, SettingsView, SkipReason,
     StatsView, unix_ms,
 };
-pub use pipeline::Pipeline;
+pub use pipeline::{PauseOutcome, Pipeline};

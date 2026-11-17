@@ -80,12 +80,13 @@ impl TiktokConfig {
     }
 }
 
-/// Where a video asked for with a command comes from. YouTube is the only
-/// source so far; a command only accepts links of its own source.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+/// Where a video asked for with a command comes from. A command only accepts
+/// links and IDs of its own source.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum CommandSource {
     Youtube,
+    Tiktok,
 }
 
 /// One chat word and what it asks for.
@@ -102,6 +103,13 @@ impl CommandEntry {
         Self {
             name: name.into(),
             source: CommandSource::Youtube,
+        }
+    }
+
+    pub fn tiktok(name: impl Into<String>) -> Self {
+        Self {
+            name: name.into(),
+            source: CommandSource::Tiktok,
         }
     }
 }

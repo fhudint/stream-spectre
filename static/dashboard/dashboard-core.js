@@ -35,7 +35,7 @@
   var MAX_COMMANDS = 8;
   var MAX_PREFIX_LEN = 4;
   var MAX_COMMAND_NAME_LEN = 32;
-  var COMMAND_SOURCES = ['youtube'];
+  var COMMAND_SOURCES = ['youtube', 'tiktok'];
   /* Colours for viewers' avatars and names: see .tint-N in dashboard.css. */
   var TINTS = 6;
   var THUMBNAIL = /^https:\/\/i\.ytimg\.com\/vi\/[A-Za-z0-9_-]{11}\/[A-Za-z0-9_]+\.jpg$/;
@@ -131,6 +131,8 @@
     var by = isObject(item.requested_by) ? item.requested_by : {};
     return {
       id: item.id,
+      // An item from a server that predates TikTok is a YouTube one.
+      source: item.source === 'tiktok' ? 'tiktok' : 'youtube',
       video_id: item.video_id,
       title: typeof item.title === 'string' ? item.title : '',
       channel: typeof item.channel === 'string' ? item.channel : '',
@@ -295,12 +297,20 @@
     return next;
   }
 
+  /* Whether nobody knows how long the video is, so it has to be skipped by
+   * hand when it is over. That is so for every TikTok video. */
+  function hasUnknownLength(item) {
+    return !!item && item.source === 'tiktok';
+  }
+
   /* How far the video that is playing has got, in seconds. Zero until the
    * overlay has reported for this very video, and never past its length. */
   function playbackPosition(state) {
     var playing = state.queue.now_playing;
     var playback = state.playback;
     if (!playing || !playback || playback.item_id !== playing.id) return 0;
+    // A video of unknown length has no position to show.
+    if (hasUnknownLength(playing)) return 0;
     return Math.min(playback.position_secs, playing.duration_secs);
   }
 
@@ -596,6 +606,7 @@
     formatDuration: formatDuration,
     thumbnailUrl: thumbnailUrl,
     playbackPosition: playbackPosition,
+    hasUnknownLength: hasUnknownLength,
     waitingSeconds: waitingSeconds,
     oldestWaiting: oldestWaiting,
     formatWaiting: formatWaiting,

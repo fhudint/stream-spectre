@@ -352,7 +352,7 @@ mod tests {
             // Both ways at once is ambiguous.
             "[command]\nname = \"v\"\ncommands = [{ name = \"yt\", source = \"youtube\" }]",
             // A source the program does not have.
-            "[command]\ncommands = [{ name = \"vt\", source = \"tiktok\" }]",
+            "[command]\ncommands = [{ name = \"vt\", source = \"twitch\" }]",
             // A command needs both fields, and nothing else.
             "[command]\ncommands = [{ name = \"vt\" }]",
             "[command]\ncommands = [{ name = \"vt\", source = \"youtube\", extra = 1 }]",

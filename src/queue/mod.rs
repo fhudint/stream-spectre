@@ -14,5 +14,5 @@ mod play_queue;
 pub use blacklist::{Blacklist, BlacklistHit};
 pub use cooldown::Cooldowns;
 pub use gatekeeper::{Denial, Gatekeeper};
-pub use item::{ItemId, QueueItem};
+pub use item::{ItemId, Media, QueueItem, TiktokDetails};
 pub use play_queue::{PlayQueue, QueueError, QueueSnapshot};
