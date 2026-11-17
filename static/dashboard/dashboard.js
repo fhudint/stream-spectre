@@ -16,6 +16,7 @@
   /* The heading each page moves the keyboard focus to when it is opened. */
   var HEADINGS = {
     queue: 'queue-heading',
+    requests: 'requests-heading',
     blacklist: 'blacklist-heading',
     rules: 'settings-heading',
     overlay: 'overlay-heading',
@@ -59,6 +60,7 @@
    * must not wipe them. */
   var commandsDirty = false;
   var chatDrawn = null; // the newest chat line already in the page
+  var requestsDrawn = null; // the history and blacklist the requests page shows, or null
   var commandsOnly = false;
   var view = 'queue';
   var pane = 'queue'; // queue | chat | notices
@@ -264,6 +266,7 @@
       });
     });
     if (name === 'account') loadAccount();
+    renderRequests();
     var target = $((section && SECTION_FOCUS[section]) || HEADINGS[name]);
     if (focusHeading && target && target.focus) target.focus();
   }
@@ -596,6 +599,33 @@
     return act('POST', itemPath(item, 'reject'));
   }
 
+  /* Adds one entry to the blacklist. With `item`, that request is rejected
+   * too: it is being turned down for good. */
+  function addToBlacklist(choice, item) {
+    var lists = (state.settings && state.settings.blacklist) || {};
+    var body = {};
+    body[choice.key] = (lists[choice.key] || []).concat([choice.value]);
+    act('PATCH', '/api/blacklist', body, function (result) {
+      adopt(result.data);
+      flash(t('dashboard.blacklist.added'));
+      if (item) reject(item);
+    });
+  }
+
+  /* The small buttons that blacklist a video, or its channel or account. */
+  function blacklistButtons(item, rejectToo) {
+    var lists = state.settings && state.settings.blacklist;
+    return core.blacklistChoices(item, lists).map(function (choice) {
+      var node = button(choice.listed ? 'dashboard.blacklist.listed' : choice.label, 'blacklist', function () {
+        addToBlacklist(choice, rejectToo ? item : null);
+      });
+      node.className = 'small';
+      node.setAttribute('data-key', choice.key);
+      if (choice.listed) node.disabled = true;
+      return node;
+    });
+  }
+
   function pendingIds() {
     return state.queue.pending.map(function (item) {
       return item.id;
@@ -633,22 +663,81 @@
     syncSelection();
     waiting = [];
     renderList('pending', state.queue.pending, function (item) {
-      return rowView(item, item.id === selectedId, [
-        button('dashboard.action.reject', 'reject', function () {
-          reject(item);
-        }),
-        button('dashboard.action.approve', 'approve', function () {
-          approve(item);
-        }),
-      ]);
+      return rowView(
+        item,
+        item.id === selectedId,
+        [
+          button('dashboard.action.reject', 'reject', function () {
+            reject(item);
+          }),
+          button('dashboard.action.approve', 'approve', function () {
+            approve(item);
+          }),
+        ].concat(blacklistButtons(item, true))
+      );
     });
     renderList('approved', state.queue.approved, function (item) {
-      return rowView(item, false, [
-        button('dashboard.action.reject', 'reject', function () {
-          reject(item);
-        }),
-      ]);
+      return rowView(
+        item,
+        false,
+        [
+          button('dashboard.action.reject', 'reject', function () {
+            reject(item);
+          }),
+        ].concat(blacklistButtons(item, true))
+      );
     });
+  }
+
+  /* One request in the history: what it was, who sent it, what became of it,
+   * and the buttons to blacklist it. */
+  function historyRow(entry) {
+    var picture = thumb(entry, 'thumb', 96, 54);
+    if (entry.source === 'tiktok') {
+      picture.children.push(h('span', { className: 'duration', text: t('dashboard.commands.source.tiktok') }));
+    }
+    var sub = [
+      h('span', { className: 'status status-' + entry.status, text: t('dashboard.requests.status.' + entry.status) }),
+    ];
+    if (entry.channel) sub.push(h('span', { className: 'sep', text: ' · ' }), h('span', { text: entry.channel }));
+    sub.push(h('span', { className: 'sep', text: ' · ' }), h('code', { text: entry.video_id }));
+    return h('li', { className: 'row' }, [
+      h('div', { className: picture.className }, picture.children),
+      h('div', { className: 'info' }, [
+        h('div', { className: 'row-title', text: entry.title || entry.video_id }),
+        h('div', { className: 'row-sub' }, sub),
+        entry.reason
+          ? h('div', { className: 'row-sub reason', text: entry.reason, attrs: { title: entry.reason } })
+          : null,
+      ]),
+      h('div', { className: 'who' }, [
+        h('span', {
+          className: 'avatar tint-' + core.tintIndex(entry.requested_by),
+          text: core.initial(entry.requested_by),
+          attrs: { 'aria-hidden': 'true' },
+        }),
+        h('div', { className: 'who-text' }, [
+          h('span', { className: 'who-name', text: entry.requested_by }),
+          h('span', { className: 'who-meta', text: core.formatWhen(entry.requested_at_ms, Date.now()) }),
+        ]),
+      ]),
+      h('div', { className: 'actions' }, blacklistButtons(entry, false)),
+    ]);
+  }
+
+  /* The requests page, newest first. Only redrawn when the history or the
+   * blacklist changed: it can hold hundreds of rows. */
+  function renderRequests() {
+    if (view !== 'requests') return;
+    var blacklist = state.settings && state.settings.blacklist;
+    if (requestsDrawn && requestsDrawn.history === state.history && requestsDrawn.blacklist === blacklist) return;
+    requestsDrawn = { history: state.history, blacklist: blacklist };
+    var box = $('requests');
+    if (state.history.length === 0) {
+      box.replaceChildren(h('li', { className: 'empty', text: t('dashboard.requests.empty') }));
+      return;
+    }
+    box.replaceChildren.apply(box, state.history.slice().reverse().map(historyRow));
   }
 
   function renderVolume() {
@@ -888,6 +977,7 @@
     renderRules();
     renderNow();
     renderQueues();
+    renderRequests();
     renderVolume();
     renderChat(false);
     renderNotices();

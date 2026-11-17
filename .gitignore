@@ -10,6 +10,7 @@ CLAUDE.md
 !.env.example
 config.toml
 config.settings.toml
+config.history.json*
 config.secrets.toml
 demo-videos*.json
 !demo-videos.example.json

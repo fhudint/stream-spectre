@@ -122,6 +122,7 @@ Sent once to each client, first.
     "queue": { "pending": [], "approved": [], "now_playing": null },
     "chat": { "state": "connected", "channel": "streamer", "text": "..." },
     "chat_log": [ ChatLine ],
+    "history": [ HistoryEntry ],
     "stats": { "since_ms": 1700000000000, "received": 30, "approved": 15, "rejected": 9 },
     "playback_paused": false
 } }
@@ -130,8 +131,10 @@ Sent once to each client, first.
 `chat` is `null` until the chat connection has reported its first status.
 `chat_log` holds the most recent chat messages, oldest first, at most
 `settings.dashboard.chat_history` of them (see [`chat_message`](#chat_message)).
-`stats` is described under [`stats_updated`](#stats_updated). The overlay's
-`hello` carries `stats` with every number zero, like its empty `chat_log`.
+`history` holds every request kept, oldest first (see
+[`history_entry`](#history_entry)). `stats` is described under
+[`stats_updated`](#stats_updated). The overlay's `hello` carries `stats` with
+every number zero, like its empty `chat_log` and `history`.
 
 ### `queue_updated`
 
@@ -341,6 +344,45 @@ The counters of what the moderators decided since the program started
 
 At any moment `received = approved + rejected + waiting`, where `waiting` is
 the length of `queue.pending`. The counters live in memory only.
+
+### `history_entry`
+
+A request was logged, or what became of it changed (dashboard only). `data` is
+one entry of the request history; a client **replaces the entry with the same
+`id`**, or adds it at the end when it has none.
+
+```json
+{ "type": "history_entry", "data": {
+    "id": 17,
+    "source": "youtube",
+    "video_id": "dQw4w9WgXcQ",
+    "title": "Never Gonna Give You Up",
+    "channel": "Rick Astley",
+    "requested_by": "Sari",
+    "requested_at_ms": 1700000000000,
+    "status": "waiting",
+    "reason": ""
+} }
+```
+
+- `id`: 1, 2, 3, ... in the order requests came in. It keeps counting across
+  restarts, unlike queue item IDs.
+- `source`, `video_id`: as in a queue item. For a TikTok short link turned away
+  before it was opened, `video_id` is the short code.
+- `title`, `channel`: for TikTok the account (`@name`, or the ID) and the
+  account without the `@`. Both are empty when the request was turned away
+  before the video was looked up.
+- `status`: `waiting` (for a moderator), `queued` (approved, waiting its turn),
+  `playing`, `played`, `skipped` (by a moderator while playing), `rejected` (by
+  a moderator), `failed` (the player could not play it), `refused` (turned away
+  by the rules or a failed lookup; it never entered the queue) or `dropped`
+  (still waiting or playing when the program stopped; only seen after a
+  restart).
+- `reason`: why a `refused` request was turned away, in the configured
+  language; empty otherwise.
+
+The server keeps the last 500 entries, in memory and in
+`config.history.json`. A client keeps no more than that.
 
 ### `playback_paused`
 

@@ -4,7 +4,9 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::Context;
-use stream_spectre::app::{Credentials, Pipeline, SETTLE, autosave};
+use stream_spectre::app::{
+    Credentials, Pipeline, SETTLE, autosave, autosave_history, history_path, load_history,
+};
 use stream_spectre::chat::tiktok_source;
 use stream_spectre::cli::{self, Command};
 use stream_spectre::config::{self, KeySource, LoadOptions, Loaded};
@@ -58,6 +60,7 @@ async fn serve(loaded: Loaded) -> anyhow::Result<()> {
     let Loaded {
         config,
         secrets,
+        path,
         baseline,
         saved_path,
         saved_tables,
@@ -94,6 +97,9 @@ async fn serve(loaded: Loaded) -> anyhow::Result<()> {
         Duration::from_secs(config.youtube.request_timeout_secs),
     )?;
     let pipeline = Arc::new(Pipeline::new(&config, i18n, youtube)?);
+    let history_file = history_path(&path);
+    pipeline.restore_history(load_history(&history_file));
+    tracing::info!(path = %history_file.display(), "the request history is kept here");
     let credentials = Arc::new(Credentials::new(
         secrets_path,
         env_api_key,
@@ -143,6 +149,13 @@ async fn serve(loaded: Loaded) -> anyhow::Result<()> {
         stopped.clone(),
     ));
 
+    let history_saver = tokio::spawn(autosave_history(
+        Arc::clone(&pipeline),
+        history_file,
+        SETTLE,
+        stopped.clone(),
+    ));
+
     tokio::spawn(async move {
         platform::shutdown_signal().await;
         tracing::info!("stopping");
@@ -160,5 +173,6 @@ async fn serve(loaded: Loaded) -> anyhow::Result<()> {
     let _ = chat.await;
     // Writes any change that was still waiting to be saved.
     let _ = saver.await;
+    let _ = history_saver.await;
     Ok(())
 }

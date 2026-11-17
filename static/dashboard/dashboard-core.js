@@ -21,12 +21,21 @@
   /* Most chat lines the page keeps, and the most the server may remember. */
   var MAX_CHAT_LINES = 200;
   var MAX_CHAT_HISTORY = 200;
+  /* Most requests the page keeps: the same as the server's HISTORY_LIMIT. */
+  var MAX_HISTORY = 500;
   var NOTICE_LEVELS = ['info', 'warning', 'error'];
+  /* What can have become of a request, as the server names it. */
+  var REQUEST_STATUSES = [
+    'waiting', 'queued', 'playing', 'played', 'skipped', 'rejected', 'failed', 'refused', 'dropped',
+  ];
+  /* The IDs the server takes into the blacklist. */
+  var YOUTUBE_ID = /^[A-Za-z0-9_-]{11}$/;
+  var TIKTOK_ID = /^[0-9]{15,20}$/;
   /* The pages of the dashboard, in the order of the menu. */
-  var VIEWS = ['queue', 'blacklist', 'rules', 'overlay', 'settings', 'account'];
+  var VIEWS = ['queue', 'requests', 'blacklist', 'rules', 'overlay', 'settings', 'account'];
   /* The ones with an entry in the side menu. The account page is reached from
    * the avatar instead. */
-  var MENU_VIEWS = ['queue', 'blacklist', 'rules', 'overlay', 'settings'];
+  var MENU_VIEWS = ['queue', 'requests', 'blacklist', 'rules', 'overlay', 'settings'];
   /* The parts of the account page: #account/tiktok and so on. */
   var ACCOUNT_SECTIONS = ['tiktok', 'youtube', 'token'];
   /* The longest YouTube API key the server accepts. */
@@ -188,6 +197,48 @@
     return Array.isArray(list) ? list.map(cleanLine).filter(Boolean).slice(-MAX_CHAT_LINES) : [];
   }
 
+  /* A request from the history the page can safely show, or null. */
+  function cleanEntry(entry) {
+    if (!isObject(entry) || !Number.isInteger(entry.id) || typeof entry.video_id !== 'string') {
+      return null;
+    }
+    var source = entry.source === 'tiktok' ? 'tiktok' : 'youtube';
+    return {
+      id: entry.id,
+      source: source,
+      video_id: entry.video_id,
+      title: typeof entry.title === 'string' ? entry.title : '',
+      channel: typeof entry.channel === 'string' ? entry.channel : '',
+      requested_by: typeof entry.requested_by === 'string' ? entry.requested_by : '',
+      requested_at_ms: wholeNumber(entry.requested_at_ms),
+      status: REQUEST_STATUSES.indexOf(entry.status) >= 0 ? entry.status : 'refused',
+      reason: typeof entry.reason === 'string' ? entry.reason : '',
+      // The same picture the queue shows; only YouTube has one.
+      thumbnail_url:
+        source === 'youtube' && YOUTUBE_ID.test(entry.video_id)
+          ? 'https://i.ytimg.com/vi/' + entry.video_id + '/mqdefault.jpg'
+          : '',
+    };
+  }
+
+  function cleanHistory(list) {
+    return Array.isArray(list) ? list.map(cleanEntry).filter(Boolean).slice(-MAX_HISTORY) : [];
+  }
+
+  /* The history with `entry` in it: it replaces the one with the same id, or
+   * goes last. */
+  function withEntry(history, entry) {
+    var at = history.findIndex(function (old) {
+      return old.id === entry.id;
+    });
+    if (at >= 0) {
+      var copy = history.slice();
+      copy[at] = entry;
+      return copy;
+    }
+    return history.concat([entry]).slice(-MAX_HISTORY);
+  }
+
   function cleanStats(stats) {
     var s = isObject(stats) ? stats : {};
     return {
@@ -212,6 +263,8 @@
       queue: { pending: [], approved: [], now_playing: null },
       chat: null,
       messages: [],
+      /* Every request, oldest first. */
+      history: [],
       notices: [],
       stats: cleanStats(null),
       /* The video that is playing was paused by a moderator. */
@@ -237,6 +290,7 @@
         queue: cleanQueue(data.queue),
         chat: isObject(data.chat) ? data.chat : null,
         messages: cleanLines(data.chat_log),
+        history: cleanHistory(data.history),
         stats: cleanStats(data.stats),
         paused: data.playback_paused === true,
         playback: null,
@@ -264,6 +318,10 @@
         break;
       case 'stats_updated':
         next.stats = cleanStats(data);
+        break;
+      case 'history_entry':
+        var entry = cleanEntry(data);
+        if (entry) next.history = withEntry(state.history, entry);
         break;
       case 'playback_paused':
         next.paused = data.paused === true;
@@ -372,6 +430,19 @@
     return pad(date.getHours()) + ':' + pad(date.getMinutes()) + ':' + pad(date.getSeconds());
   }
 
+  /* When a request came in: the time of day for today, otherwise the date
+   * too. '' when the time is not known. `now` is the browser's clock. */
+  function formatWhen(ms, now) {
+    var clock = formatClock(ms);
+    if (!clock) return '';
+    var date = new Date(ms);
+    if (date.toDateString() === new Date(now).toDateString()) return clock;
+    var pad = function (n) {
+      return n < 10 ? '0' + n : String(n);
+    };
+    return date.getFullYear() + '-' + pad(date.getMonth() + 1) + '-' + pad(date.getDate()) + ' ' + clock;
+  }
+
   /* The short list of rules in force, as text. `text(key, values)` gives a
    * translated, filled-in text. */
   function ruleChips(settings, text) {
@@ -401,6 +472,53 @@
     }, 0);
     if (blocked > 0) chips.push(text('dashboard.rules.blocked', { count: blocked }));
     return chips;
+  }
+
+  /* The name to blacklist for a video's channel: the YouTube channel, or the
+   * TikTok account (a TikTok title is "@account" when the account is known).
+   * Works on queue entries and requests alike. */
+  function channelName(item) {
+    if (item.source === 'tiktok') {
+      return item.title.charAt(0) === '@' ? item.title.slice(1) : '';
+    }
+    return item.channel;
+  }
+
+  function isListed(list, value) {
+    var wanted = String(value).trim().toLowerCase();
+    return (list || []).some(function (entry) {
+      return String(entry).trim().toLowerCase() === wanted;
+    });
+  }
+
+  /* What a moderator can add to the blacklist for this video or request, as
+   * { key, value, label, listed }: the video, when its ID is one the server
+   * takes, and its channel or account, when known. `label` is a text key. */
+  function blacklistChoices(item, blacklist) {
+    var lists = isObject(blacklist) ? blacklist : {};
+    var choices = [];
+    var idPattern = item.source === 'tiktok' ? TIKTOK_ID : YOUTUBE_ID;
+    if (idPattern.test(item.video_id)) {
+      choices.push({
+        key: 'video_ids',
+        value: item.video_id,
+        label: 'dashboard.action.blacklist_video',
+        listed: (lists.video_ids || []).indexOf(item.video_id) >= 0,
+      });
+    }
+    var channel = channelName(item).trim();
+    if (channel) {
+      choices.push({
+        key: 'channels',
+        value: channel,
+        label:
+          item.source === 'tiktok'
+            ? 'dashboard.action.blacklist_account'
+            : 'dashboard.action.blacklist_channel',
+        listed: isListed(lists.channels, channel),
+      });
+    }
+    return choices;
   }
 
   /* Which page the address bar asks for; the queue when it asks for nothing
@@ -596,6 +714,7 @@
     MAX_NOTICES: MAX_NOTICES,
     MAX_CHAT_LINES: MAX_CHAT_LINES,
     MAX_CHAT_HISTORY: MAX_CHAT_HISTORY,
+    MAX_HISTORY: MAX_HISTORY,
     VIEWS: VIEWS,
     MENU_VIEWS: MENU_VIEWS,
     ACCOUNT_SECTIONS: ACCOUNT_SECTIONS,
@@ -607,12 +726,14 @@
     thumbnailUrl: thumbnailUrl,
     playbackPosition: playbackPosition,
     hasUnknownLength: hasUnknownLength,
+    blacklistChoices: blacklistChoices,
     waitingSeconds: waitingSeconds,
     oldestWaiting: oldestWaiting,
     formatWaiting: formatWaiting,
     tintIndex: tintIndex,
     initial: initial,
     formatClock: formatClock,
+    formatWhen: formatWhen,
     ruleChips: ruleChips,
     parseView: parseView,
     parseSection: parseSection,

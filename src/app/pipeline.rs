@@ -10,6 +10,7 @@ use super::events::{
     ChatLineView, ChatState, ChatStatusView, Envelope, Event, Hello, ItemView, NoticeLevel,
     QueueView, SettingsView, SkipReason, StatsView, unix_ms,
 };
+use super::history::{History, HistoryEntry, RequestStatus, Subject};
 use crate::chat::{ChatEvent, ChatMessage, ChatSource, ChatStatus, Sender};
 use crate::command::{CommandParser, InvalidReason, Parsed};
 use crate::config::{
@@ -74,6 +75,8 @@ struct Inner {
     parser: Arc<CommandParser>,
     chat: Option<ChatStatusView>,
     chat_log: VecDeque<ChatLineView>,
+    /// Every request and what became of it.
+    history: History,
     chat_rate: ChatRate,
     tiktok: TiktokConfig,
     /// The chat was disconnected from the account menu. Only for this run: it
@@ -151,6 +154,7 @@ impl<S: VideoSource> Pipeline<S> {
                 parser: Arc::new(CommandParser::new(&config.command)),
                 chat: None,
                 chat_log: VecDeque::new(),
+                history: History::default(),
                 chat_rate: ChatRate::default(),
                 tiktok,
                 chat_paused: false,
@@ -299,15 +303,16 @@ impl<S: VideoSource> Pipeline<S> {
             let waiting = inner.queue.waiting_len();
             inner.gatekeeper.admit(&sender, &video_id, waiting, now)
         };
+        let bare = Subject::bare(CommandSource::Youtube, video_id.as_str());
         if let Err(denial) = admitted {
-            self.deny(&sender, denial);
+            self.deny(&sender, bare, denial);
             return;
         }
 
         let details = match self.lookup.lookup(&video_id).await {
             Ok(Some(details)) => details,
             Ok(None) => {
-                self.deny(&sender, Denial::Video(Rejection::NotFound));
+                self.deny(&sender, bare, Denial::Video(Rejection::NotFound));
                 return;
             }
             Err(error) => {
@@ -323,20 +328,15 @@ impl<S: VideoSource> Pipeline<S> {
                 } else {
                     NoticeLevel::Warning
                 };
-                self.notice(
-                    level,
-                    error.notice_key(),
-                    self.i18n.t(error.notice_key()).to_owned(),
-                    Some(&sender),
-                );
+                let text = self.i18n.t(error.notice_key()).to_owned();
+                self.notice(level, error.notice_key(), text.clone(), Some(&sender));
+                self.log_refused(&sender, bare, text);
                 return;
             }
         };
 
         // Stage 2: rules that need the video's details, then queue it.
-        if let Err(denial) = self.enqueue(&sender, details.into()) {
-            self.deny(&sender, denial);
-        }
+        self.enqueue(&sender, details.into());
     }
 
     async fn request_tiktok(&self, sender: Sender, target: TiktokRef, now: Instant) {
@@ -352,8 +352,9 @@ impl<S: VideoSource> Pipeline<S> {
             let waiting = inner.queue.waiting_len();
             inner.gatekeeper.admit(&sender, &key, waiting, now)
         };
+        let bare = Subject::bare(CommandSource::Tiktok, key);
         if let Err(denial) = admitted {
-            self.deny(&sender, denial);
+            self.deny(&sender, bare, denial);
             return;
         }
 
@@ -365,32 +366,40 @@ impl<S: VideoSource> Pipeline<S> {
                     account: Some(found.account),
                 },
                 Ok(None) => {
-                    self.deny(&sender, Denial::Video(Rejection::NotFound));
+                    self.deny(&sender, bare, Denial::Video(Rejection::NotFound));
                     return;
                 }
                 Err(error) => {
                     // Not the sender's fault: give the cooldown back.
                     self.lock().gatekeeper.refund(&sender);
                     tracing::warn!(%error, "TikTok short link lookup failed");
+                    let text = self.i18n.t("error.tiktok_unavailable").to_owned();
                     self.notice(
                         NoticeLevel::Warning,
                         "error.tiktok_unavailable",
-                        self.i18n.t("error.tiktok_unavailable").to_owned(),
+                        text.clone(),
                         Some(&sender),
                     );
+                    self.log_refused(&sender, bare, text);
                     return;
                 }
             },
         };
 
-        if let Err(denial) = self.enqueue(&sender, Media::Tiktok(details)) {
-            self.deny(&sender, denial);
-        }
+        self.enqueue(&sender, Media::Tiktok(details));
     }
 
     /// Stage 2 for either source: the rules that need the video, then the
-    /// queue. Starts the video when nothing is playing and it is approved.
-    fn enqueue(&self, sender: &Sender, media: Media) -> Result<(), Denial> {
+    /// queue. Starts the video when nothing is playing and it is approved. A
+    /// request that is turned away is told to the moderators and logged.
+    fn enqueue(&self, sender: &Sender, media: Media) {
+        let subject = Subject::from(&media);
+        if let Err(denial) = self.try_enqueue(sender, media, &subject) {
+            self.deny(sender, subject, denial);
+        }
+    }
+
+    fn try_enqueue(&self, sender: &Sender, media: Media, subject: &Subject) -> Result<(), Denial> {
         let mut inner = self.lock();
         match &media {
             Media::Youtube(details) => inner.gatekeeper.vet(details)?,
@@ -403,9 +412,17 @@ impl<S: VideoSource> Pipeline<S> {
         {
             Ok(id) => {
                 inner.stats.received += 1;
-                if !inner.queue.is_pending(id) {
+                let status = if inner.queue.is_pending(id) {
+                    RequestStatus::Waiting
+                } else {
                     inner.stats.approved += 1;
-                }
+                    RequestStatus::Queued
+                };
+                let entry =
+                    inner
+                        .history
+                        .add(subject.clone(), sender, Some(id), status, String::new());
+                self.bus.publish(Event::HistoryEntry(entry));
                 self.advance(&mut inner);
                 self.publish_queue(&inner);
                 self.publish_stats(&inner);
@@ -464,6 +481,7 @@ impl<S: VideoSource> Pipeline<S> {
         let mut inner = self.lock();
         inner.queue.approve(id)?;
         inner.stats.approved += 1;
+        self.set_status(&mut inner, id, RequestStatus::Queued);
         self.advance(&mut inner);
         self.publish_queue(&inner);
         self.publish_stats(&inner);
@@ -480,6 +498,7 @@ impl<S: VideoSource> Pipeline<S> {
             inner.stats.approved = inner.stats.approved.saturating_sub(1);
         }
         inner.stats.rejected += 1;
+        self.set_status(&mut inner, id, RequestStatus::Rejected);
         self.publish_queue(&inner);
         self.publish_stats(&inner);
         Ok(())
@@ -495,6 +514,7 @@ impl<S: VideoSource> Pipeline<S> {
             item_id: skipped.id.0,
             reason: SkipReason::Moderator,
         });
+        self.set_status(&mut inner, skipped.id, RequestStatus::Skipped);
         self.play_next_or_stop(&mut inner);
         self.publish_queue(&inner);
         true
@@ -638,6 +658,7 @@ impl<S: VideoSource> Pipeline<S> {
     pub fn player_ended(&self, id: ItemId) -> Result<(), QueueError> {
         let mut inner = self.lock();
         inner.queue.finish(id)?;
+        self.set_status(&mut inner, id, RequestStatus::Played);
         self.play_next_or_stop(&mut inner);
         self.publish_queue(&inner);
         Ok(())
@@ -677,6 +698,7 @@ impl<S: VideoSource> Pipeline<S> {
             _ => return Err(QueueError::NotPlaying(id)),
         };
         inner.queue.finish(id)?;
+        self.set_status(&mut inner, id, RequestStatus::Failed);
 
         self.bus.publish(Event::Skip {
             item_id: id.0,
@@ -693,6 +715,19 @@ impl<S: VideoSource> Pipeline<S> {
         self.play_next_or_stop(&mut inner);
         self.publish_queue(&inner);
         Ok(())
+    }
+
+    // --- the request history ---
+
+    /// Takes over the history read from disk. Meant to be called once, before
+    /// the first request.
+    pub fn restore_history(&self, saved: Vec<HistoryEntry>) {
+        self.lock().history = History::restore(saved);
+    }
+
+    /// Every request kept, oldest first.
+    pub fn history(&self) -> Vec<HistoryEntry> {
+        self.lock().history.entries()
     }
 
     // --- for new clients ---
@@ -752,6 +787,7 @@ impl<S: VideoSource> Pipeline<S> {
             queue: QueueView::from(&inner.queue.snapshot()),
             chat: inner.chat.clone(),
             chat_log: inner.chat_log.iter().cloned().collect(),
+            history: inner.history.entries(),
             stats: inner.stats,
             playback_paused: inner.playback_paused,
         }
@@ -792,16 +828,16 @@ impl<S: VideoSource> Pipeline<S> {
             return true;
         }
         let volume = inner.gatekeeper.settings().volume;
-        match inner.queue.start_next() {
-            Some(item) => {
-                self.bus.publish(Event::Play {
-                    item: ItemView::from(item),
-                    volume,
-                });
-                true
-            }
-            None => false,
-        }
+        let started = inner
+            .queue
+            .start_next()
+            .map(|item| (item.id, ItemView::from(item)));
+        let Some((id, item)) = started else {
+            return false;
+        };
+        self.bus.publish(Event::Play { item, volume });
+        self.set_status(inner, id, RequestStatus::Playing);
+        true
     }
 
     /// After a video ends: play the next one, or tell clients the screen is
@@ -814,17 +850,30 @@ impl<S: VideoSource> Pipeline<S> {
         }
     }
 
-    fn deny(&self, sender: &Sender, denial: Denial) {
+    fn deny(&self, sender: &Sender, subject: Subject, denial: Denial) {
+        let text = denial.message(&self.i18n);
+        self.log_refused(sender, subject, text.clone());
         if denial.is_silent() {
             tracing::debug!(sender = %sender.name, ?denial, "request ignored");
             return;
         }
-        self.notice(
-            NoticeLevel::Warning,
-            denial.i18n_key(),
-            denial.message(&self.i18n),
-            Some(sender),
-        );
+        self.notice(NoticeLevel::Warning, denial.i18n_key(), text, Some(sender));
+    }
+
+    /// Logs a request that was turned away and tells the dashboards.
+    fn log_refused(&self, sender: &Sender, subject: Subject, reason: String) {
+        let mut inner = self.lock();
+        let entry = inner
+            .history
+            .add(subject, sender, None, RequestStatus::Refused, reason);
+        self.bus.publish(Event::HistoryEntry(entry));
+    }
+
+    /// Records what became of a queue entry and tells the dashboards.
+    fn set_status(&self, inner: &mut Inner, id: ItemId, status: RequestStatus) {
+        if let Some(entry) = inner.history.set_status(id, status) {
+            self.bus.publish(Event::HistoryEntry(entry));
+        }
     }
 
     fn notice(&self, level: NoticeLevel, code: &str, text: String, sender: Option<&Sender>) {
@@ -995,11 +1044,17 @@ mod tests {
         out
     }
 
-    /// Everything published so far except the chat lines and the counters,
-    /// which every request produces and which have tests of their own.
+    /// Everything published so far except the chat lines, the counters and
+    /// the history, which every request produces and which have tests of
+    /// their own.
     fn drain(rx: &mut broadcast::Receiver<Arc<Envelope>>) -> Vec<Arc<Envelope>> {
         let mut events = drain_all(rx);
-        events.retain(|e| !matches!(e.event, Event::ChatMessage(_) | Event::StatsUpdated(_)));
+        events.retain(|e| {
+            !matches!(
+                e.event,
+                Event::ChatMessage(_) | Event::StatsUpdated(_) | Event::HistoryEntry(_)
+            )
+        });
         events
     }
 
@@ -1624,6 +1679,44 @@ mod tests {
 
         assert!(!p.skip());
         assert!(drain(&mut rx).is_empty());
+    }
+
+    #[tokio::test]
+    async fn the_history_follows_each_request_to_its_end() {
+        let p = default_pipeline();
+        let (a, b) = two_pending(&p).await;
+        let statuses = |p: &Pipeline<FakeSource>| -> Vec<RequestStatus> {
+            p.history().iter().map(|entry| entry.status).collect()
+        };
+        assert_eq!(statuses(&p), [RequestStatus::Waiting; 2]);
+
+        p.approve(a).unwrap();
+        p.reject(b).unwrap();
+        assert_eq!(
+            statuses(&p),
+            [RequestStatus::Playing, RequestStatus::Rejected]
+        );
+        p.player_ended(a).unwrap();
+        assert_eq!(statuses(&p)[0], RequestStatus::Played);
+
+        // A request turned away is logged with the reason, and published.
+        let mut rx = p.subscribe();
+        p.update_blacklist(BlacklistConfig {
+            video_ids: vec![ID_C.to_owned()],
+            ..BlacklistConfig::default()
+        })
+        .unwrap();
+        say(&p, sender(3, Role::Moderator), &format!("!v {ID_C}")).await;
+        let last = p.history().pop().unwrap();
+        assert_eq!(last.status, RequestStatus::Refused);
+        assert_eq!(last.video_id, ID_C);
+        assert_eq!(last.reason, "This video is blacklisted");
+        let events = drain_all(&mut rx);
+        assert!(
+            events
+                .iter()
+                .any(|e| matches!(&e.event, Event::HistoryEntry(entry) if entry.id == last.id))
+        );
     }
 
     #[tokio::test]

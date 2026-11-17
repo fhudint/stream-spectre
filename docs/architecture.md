@@ -171,6 +171,18 @@ the program with a message that names it. Whole tables are stored, so a saved
 table replaces the table in `config.toml` entirely. A failed write is logged and
 shown to the moderators as a notice.
 
+**Every request is logged.** `app::history` keeps the last 500 requests in
+the pipeline, each with a status that the pipeline updates at every step (queued,
+approved, playing, ended, skipped, rejected, failed) and a `refused` entry for
+requests the rules or a failed lookup turned away. Each change is published as
+a `history_entry` event, and `hello` carries the whole list. `app::history_store`
+writes the list as JSON to `config.history.json` beside `config.toml` (same
+temporary-file-and-rename write as the saved settings, after a short quiet
+period) and reads it at startup; entries that were still open then become
+`dropped`, and a file that cannot be read is moved to `.bad` rather than
+overwritten. The blacklist buttons on the dashboard use the existing
+`PATCH /api/blacklist`.
+
 **A YouTube API key can be replaced while the program runs.** `Credentials`
 (in `app`) holds the key saved from the dashboard. Changing it checks the new
 key with one real request, writes it to the secrets file (created readable only

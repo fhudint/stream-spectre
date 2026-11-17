@@ -7,6 +7,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 
+use super::history::HistoryEntry;
 use crate::chat::{ChatStatus, Role};
 use crate::config::{
     BlacklistConfig, CommandConfig, CommandSource, DashboardConfig, Language, ModerationConfig,
@@ -198,6 +199,8 @@ pub struct Hello {
     /// The most recent chat messages, oldest first, at most
     /// `settings.dashboard.chat_history` of them.
     pub chat_log: Vec<ChatLineView>,
+    /// Every request kept, oldest first (see [`history_entry`](Event::HistoryEntry)).
+    pub history: Vec<HistoryEntry>,
     pub stats: StatsView,
     /// The video that is playing was paused by a moderator.
     pub playback_paused: bool,
@@ -213,6 +216,7 @@ impl Hello {
         self.settings.blacklist = BlacklistConfig::default();
         self.chat = None;
         self.chat_log.clear();
+        self.history.clear();
         self.stats = StatsView::default();
         self
     }
@@ -273,6 +277,9 @@ pub enum Event {
     ChatMessage(ChatLineView),
     /// The counters changed (dashboard).
     StatsUpdated(StatsView),
+    /// A request was logged, or what became of it changed (dashboard). A
+    /// client replaces the entry with the same `id`, or adds it.
+    HistoryEntry(HistoryEntry),
     /// A moderator paused or resumed the video that is playing.
     PlaybackPaused {
         item_id: u64,
@@ -318,6 +325,7 @@ mod tests {
     use serde_json::{Value, json};
 
     use super::*;
+    use crate::app::history::{History, RequestStatus, Subject};
     use crate::chat::Sender;
     use crate::queue::{ItemId, TiktokDetails};
     use crate::tiktok::TiktokVideoId;
@@ -574,6 +582,7 @@ mod tests {
                 command: false,
                 skipped: 0,
             }],
+            history: vec![],
             stats: StatsView {
                 since_ms: 1000,
                 received: 5,
@@ -636,6 +645,13 @@ mod tests {
                 command: false,
                 skipped: 0,
             }],
+            history: vec![History::default().add(
+                Subject::bare(CommandSource::Youtube, "dQw4w9WgXcQ"),
+                &Sender::new("id", "Secret Viewer", Role::Follower),
+                None,
+                RequestStatus::Refused,
+                String::new(),
+            )],
             stats: StatsView {
                 since_ms: 1000,
                 received: 5,
@@ -651,6 +667,7 @@ mod tests {
         assert!(overlay.queue.pending.is_empty() && overlay.queue.approved.is_empty());
         assert_eq!(overlay.settings.blacklist, BlacklistConfig::default());
         assert!(overlay.chat.is_none());
+        assert!(overlay.history.is_empty());
         assert!(overlay.chat_log.is_empty());
         assert_eq!(overlay.stats, StatsView::default());
         assert!(

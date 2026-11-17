@@ -107,6 +107,8 @@ button {
 button:hover { background: #2b3036; }
 button.primary { background: var(--text); color: #000; }
 button.primary:hover { background: #e6e6e6; }
+button.small { height: 28px; padding: 0 12px; font-size: 12px; }
+button.small:disabled { opacity: 0.4; cursor: default; }
 
 input[type='text'],
 input[type='password'],
@@ -472,7 +474,7 @@ kbd { padding: 1px 6px; border-radius: 4px; background: var(--button); color: va
 
 .rows > .row {
   display: grid;
-  grid-template-columns: 96px minmax(0, 1fr) 190px auto;
+  grid-template-columns: 96px minmax(0, 1fr) 180px 190px;
   align-items: center;
   gap: 16px;
   min-height: 80px;
@@ -480,6 +482,12 @@ kbd { padding: 1px 6px; border-radius: 4px; background: var(--button); color: va
   border-top: 1px solid var(--rule);
 }
 
+.rows > .row > .actions { justify-content: flex-end; }
+
+/* The requests page has room for both blacklist buttons on one line. */
+@media (min-width: 900px) {
+  #requests > .row { grid-template-columns: 96px minmax(0, 1fr) 190px 240px; }
+}
 .rows > .row.selected { background: var(--row); }
 .rows > .row.selected button.primary { outline: 2px solid var(--text); outline-offset: 2px; }
 
@@ -507,6 +515,14 @@ kbd { padding: 1px 6px; border-radius: 4px; background: var(--button); color: va
 
 .info { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
 .row-title { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* What became of a request. */
+.status { font-weight: 500; }
+.status-playing { color: var(--accent); }
+.status-waiting, .status-queued { color: var(--warn); }
+.status-rejected, .status-refused, .status-failed { color: var(--bad); }
+.status-played, .status-skipped, .status-dropped { color: var(--muted); }
+.reason { color: var(--dim); }
 
 .who { min-width: 0; display: flex; align-items: center; gap: 8px; }
 .who-text { min-width: 0; display: flex; flex-direction: column; gap: 2px; }

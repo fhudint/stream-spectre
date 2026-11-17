@@ -176,14 +176,30 @@ writes and `config.toml` never is. See [Saved settings](#saved-settings).
 
 #### Using the dashboard
 
-The menu has five pages: **Queue** (the video playing and how far it has got,
+The menu has six pages: **Queue** (the video playing and how far it has got,
 the requests waiting for a decision, the play queue, the rules in force, the
-chat, and counters for this session), **Blacklist**, **Rules** (the moderation
-settings), **Overlay** (the address to copy into OBS, and the volume) and
-**Settings** (how much chat the dashboard remembers). Each page has its own
-address (`#queue`, `#blacklist`, `#rules`, `#overlay`, `#settings`). On a phone
-the menu is at the bottom and the queue page shows the waiting requests, the
-chat and the notices as three tabs.
+chat, and counters for this session), **Requests** (every request viewers sent,
+newest first, with what became of it: waiting, in the play queue, playing,
+played, skipped, rejected, could not play, or refused by the rules with the
+reason), **Blacklist**, **Rules** (the moderation settings), **Overlay** (the
+address to copy into OBS, and the volume) and **Settings** (how much chat the
+dashboard remembers). Each page has its own address (`#queue`, `#requests`,
+`#blacklist`, `#rules`, `#overlay`, `#settings`). On a phone the menu is at the
+bottom and the queue page shows the waiting requests, the chat and the notices
+as three tabs.
+
+Next to a waiting or approved request, and on every row of the **Requests**
+page, **Blacklist video** adds the video's ID to the blacklist and **Blacklist
+channel** (**account** for TikTok) adds its channel. On the queue page the
+request is rejected at the same time. The button is greyed out once the entry
+is listed, and a row has no button for what cannot be listed (a TikTok short
+link that was never opened).
+
+The **Requests** list keeps the last 500 requests, also across restarts, in
+`config.history.json` next to `config.toml` (it holds viewers' display names;
+delete it to clear the list). A request that was still waiting or playing when
+the program stopped shows as "Never played". A busy chat with a full queue or
+viewers who ask too often fills the list with refused requests.
 
 The avatar at the top right opens a small menu with two items:
 

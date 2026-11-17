@@ -6,6 +6,8 @@ mod autosave;
 mod bus;
 mod credentials;
 mod events;
+mod history;
+mod history_store;
 mod pipeline;
 
 pub use autosave::{SETTLE, autosave};
@@ -18,4 +20,6 @@ pub use events::{
     NoticeLevel, OverlayMessage, PROTOCOL_VERSION, QueueView, SenderView, SettingsView, SkipReason,
     StatsView, unix_ms,
 };
+pub use history::{HISTORY_LIMIT, HistoryEntry, RequestStatus};
+pub use history_store::{autosave_history, history_path, load_history};
 pub use pipeline::{PauseOutcome, Pipeline};

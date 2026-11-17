@@ -327,6 +327,81 @@ test('the counters come with hello and stats_updated, and bad values are zero', 
   assert.equal(old, state);
 });
 
+const request = (id, extra = {}) => ({
+  id,
+  source: 'youtube',
+  video_id: 'dQw4w9WgXcQ',
+  title: `Video ${id}`,
+  channel: 'Channel',
+  requested_by: 'Budi',
+  requested_at_ms: 5,
+  status: 'waiting',
+  reason: '',
+  ...extra,
+});
+
+test('the history comes with hello, and history_entry adds a request or updates it', () => {
+  let state = core.reduce(core.initialState(), hello(1));
+  assert.deepEqual(state.history, []);
+  state = core.reduce(state, hello(2, { history: [request(1), request(2)] }));
+  assert.deepEqual(state.history.map((e) => e.id), [1, 2]);
+  assert.equal(state.history[0].thumbnail_url, 'https://i.ytimg.com/vi/dQw4w9WgXcQ/mqdefault.jpg');
+
+  state = core.reduce(state, envelope(3, 'history_entry', request(3)));
+  state = core.reduce(state, envelope(4, 'history_entry', request(1, { status: 'played' })));
+  assert.deepEqual(state.history.map((e) => `${e.id}:${e.status}`), ['1:played', '2:waiting', '3:waiting']);
+
+  // Garbage changes nothing; an event the snapshot covers is ignored.
+  const before = state.history;
+  state = core.reduce(state, envelope(5, 'history_entry', { id: 'x' }));
+  assert.equal(state.history, before);
+  state = core.reduce(state, envelope(5, 'history_entry', request(9)));
+  assert.equal(state.history.length, 3);
+});
+
+test('a request is cleaned up: unknown status and source, no picture for TikTok, a capped list', () => {
+  const state = core.reduce(core.initialState(), hello(1, { history: [request(1, { status: 'odd', source: 'tiktok', video_id: '7700124541145599252' }), request(2, { video_id: '<x>' })] }));
+  assert.equal(state.history[0].status, 'refused');
+  assert.equal(state.history[0].thumbnail_url, '');
+  assert.equal(state.history[1].thumbnail_url, '', 'only a real ID builds a picture address');
+  let history = [];
+  for (let id = 1; id <= core.MAX_HISTORY + 2; id += 1) {
+    history = core.reduce({ ...core.initialState(), history, seq: id - 1 }, envelope(id, 'history_entry', request(id))).history;
+  }
+  assert.equal(history.length, core.MAX_HISTORY);
+  assert.equal(history[0].id, 3);
+});
+
+test('what can be blacklisted: the video when its ID is acceptable, the channel or account when known', () => {
+  const none = { video_ids: [], channels: [], title_words: [] };
+  const labels = (item, lists = none) => core.blacklistChoices(item, lists).map((c) => `${c.key}=${c.value}:${c.listed}`);
+  assert.deepEqual(labels(request(1)), ['video_ids=dQw4w9WgXcQ:false', 'channels=Channel:false']);
+  // Already listed (a channel matches ignoring case, an ID exactly).
+  assert.deepEqual(
+    labels(request(1), { video_ids: ['dQw4w9WgXcQ'], channels: [' channel '] }),
+    ['video_ids=dQw4w9WgXcQ:true', 'channels=Channel:true']
+  );
+  assert.deepEqual(labels(request(1), { video_ids: ['dqw4w9wgxcq'] })[0], 'video_ids=dQw4w9WgXcQ:false');
+  // TikTok: the account is what follows the @ in the title.
+  const tiktok = { source: 'tiktok', video_id: '7700124541145599252', title: '@cherlynn052', channel: 'TikTok' };
+  assert.deepEqual(labels(tiktok), ['video_ids=7700124541145599252:false', 'channels=cherlynn052:false']);
+  assert.deepEqual(core.blacklistChoices(tiktok, none)[1].label, 'dashboard.action.blacklist_account');
+  // A short code and an unknown account give nothing to add; so does a YouTube lookalike on TikTok.
+  assert.deepEqual(labels({ source: 'tiktok', video_id: 'ZSpGELffb', title: '', channel: '' }), []);
+  assert.deepEqual(labels({ source: 'tiktok', video_id: 'dQw4w9WgXcQ', title: '7700124541145599252', channel: 'TikTok' }), []);
+  assert.deepEqual(labels(request(1, { channel: '' })), ['video_ids=dQw4w9WgXcQ:false']);
+  assert.equal(core.blacklistChoices(request(1), undefined).length, 2, 'before the settings are known');
+});
+
+test('a request shows its time today, and the date too on another day', () => {
+  const at = new Date(2026, 0, 5, 19, 51, 24).getTime();
+  const sameDay = new Date(2026, 0, 5, 23, 0, 0).getTime();
+  const later = new Date(2026, 0, 7, 8, 0, 0).getTime();
+  assert.equal(core.formatWhen(at, sameDay), '19:51:24');
+  assert.equal(core.formatWhen(at, later), '2026-01-05 19:51:24');
+  assert.equal(core.formatWhen(0, later), '');
+});
+
 test('playback reports are kept, checked, and dropped by a new hello', () => {
   let state = core.reduce(core.initialState(), hello(1, { queue: { pending: [], approved: [], now_playing: item(7) } }));
   assert.equal(state.playback, null);
@@ -430,9 +505,9 @@ test('the rules in force are listed as short texts', () => {
 
 test('the address bar picks a page, and anything else means the queue', () => {
   for (const view of core.VIEWS) assert.equal(core.parseView('#' + view), view);
-  assert.deepEqual(core.VIEWS, ['queue', 'blacklist', 'rules', 'overlay', 'settings', 'account']);
+  assert.deepEqual(core.VIEWS, ['queue', 'requests', 'blacklist', 'rules', 'overlay', 'settings', 'account']);
   // The account page is reached from the avatar, so it is not in the side menu.
-  assert.deepEqual(core.MENU_VIEWS, ['queue', 'blacklist', 'rules', 'overlay', 'settings']);
+  assert.deepEqual(core.MENU_VIEWS, ['queue', 'requests', 'blacklist', 'rules', 'overlay', 'settings']);
   assert.equal(core.parseView('#account/youtube'), 'account');
   assert.equal(core.parseView('#queue/anything'), 'queue');
   for (const other of ['', '#', '#token=abc', '#nope', '#QUEUE', '#queue?x=1', undefined, null, '#__proto__', '#constructor']) {

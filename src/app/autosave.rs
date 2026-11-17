@@ -117,7 +117,7 @@ async fn next_settings_event(events: &mut Receiver<Arc<Envelope>>) -> bool {
 }
 
 /// Completes when `stopped` turns true or its sender is gone.
-async fn wait_for_stop(stopped: &mut watch::Receiver<bool>) {
+pub(super) async fn wait_for_stop(stopped: &mut watch::Receiver<bool>) {
     let _ = stopped.wait_for(|stop| *stop).await;
 }
 

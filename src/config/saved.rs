@@ -156,22 +156,28 @@ fn parse(text: &str, path: &Path) -> Result<SavedSettings, ConfigError> {
     })
 }
 
-/// Writes the file in one step: the text goes to a temporary file next to it
-/// first, so a crash or a full disk never leaves a half-written file behind.
+/// Writes the file in one step (see `write_atomically`).
 pub fn write(path: &Path, saved: &SavedSettings) -> std::io::Result<()> {
     let body = toml::to_string_pretty(saved).map_err(std::io::Error::other)?;
+    let mut text = HEADER.to_owned();
+    if !body.is_empty() {
+        text.push('\n');
+        text.push_str(&body);
+    }
+    write_atomically(path, text.as_bytes())
+}
 
+/// Writes `contents` to `path` in one step: the bytes go to a temporary file
+/// next to it first, so a crash or a full disk never leaves a half-written
+/// file behind.
+pub fn write_atomically(path: &Path, contents: &[u8]) -> std::io::Result<()> {
     let mut temporary = path.as_os_str().to_owned();
     temporary.push(".tmp");
     let temporary = PathBuf::from(temporary);
 
     let result = (|| {
         let mut file = std::fs::File::create(&temporary)?;
-        file.write_all(HEADER.as_bytes())?;
-        if !body.is_empty() {
-            file.write_all(b"\n")?;
-            file.write_all(body.as_bytes())?;
-        }
+        file.write_all(contents)?;
         file.sync_all()?;
         drop(file);
         std::fs::rename(&temporary, path)

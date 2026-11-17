@@ -1357,6 +1357,8 @@ mod tests {
         assert_eq!(hello["type"], "hello");
         assert_eq!(hello["v"], 1);
         assert_eq!(hello["data"]["queue"]["pending"][0]["video_id"], ID_A);
+        assert_eq!(hello["data"]["history"][0]["video_id"], ID_A);
+        assert_eq!(hello["data"]["history"][0]["status"], "waiting");
         let hello_seq = hello["seq"].as_u64().unwrap();
         assert_eq!(hello["data"]["seq"].as_u64().unwrap(), hello_seq);
 
@@ -1366,9 +1368,13 @@ mod tests {
         assert_eq!(line["seq"].as_u64().unwrap(), hello_seq + 1);
         assert_eq!(line["data"]["name"], "Viewer 2");
         assert_eq!(line["data"]["command"], true);
+        let logged = next_json(&mut ws).await;
+        assert_eq!(logged["type"], "history_entry");
+        assert_eq!(logged["data"]["id"], 2);
+        assert_eq!(logged["data"]["requested_by"], "Viewer 2");
         let update = next_json(&mut ws).await;
         assert_eq!(update["type"], "queue_updated");
-        assert_eq!(update["seq"].as_u64().unwrap(), hello_seq + 2);
+        assert_eq!(update["seq"].as_u64().unwrap(), hello_seq + 3);
         assert_eq!(update["data"]["pending"].as_array().unwrap().len(), 2);
         let stats = next_json(&mut ws).await;
         assert_eq!(stats["type"], "stats_updated");
@@ -1392,6 +1398,7 @@ mod tests {
             "no viewer names for the overlay"
         );
         assert_eq!(hello["data"]["queue"]["now_playing"], Value::Null);
+        assert_eq!(hello["data"]["history"], json!([]));
 
         // Approving starts playback: the overlay hears `play`, but not the
         // `queue_updated` that follows.

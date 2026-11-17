@@ -666,6 +666,120 @@ test('the blacklist form shows the lists and saves them cleaned up', async () =>
   assert.equal(page.elements['blacklist-channels'].value, 'Bad\nOther');
 });
 
+const entry = (id, extra = {}) => ({
+  id,
+  source: 'youtube',
+  video_id: ITEM_ID,
+  title: `Video ${id}`,
+  channel: 'Some Channel',
+  requested_by: `Viewer ${id}`,
+  requested_at_ms: 0,
+  status: 'played',
+  reason: '',
+  ...extra,
+});
+const withHistory = (history) => ({ 'GET /api/state': () => ({ status: 200, body: snapshot({ history }) }) });
+const blacklistButtons = (node) => buttons(node, 'blacklist');
+
+test('the requests page lists every request, newest first, with what became of it', async () => {
+  const history = [
+    entry(1),
+    entry(2, { status: 'refused', source: 'tiktok', video_id: 'ZSpGELffb', title: '', channel: '', reason: 'Please wait 30 seconds' }),
+    entry(3, { status: 'waiting', source: 'tiktok', video_id: '7700124541145599252', title: '@cherlynn052', channel: 'cherlynn052' }),
+  ];
+  const page = await ready({ hash: '#requests', routes: withHistory(history) });
+  assert.deepEqual(shown(page), ['requests']);
+  const rows = page.elements.requests.children;
+  assert.equal(rows.length, 3);
+  assert.match(rows[0].textContent, /@cherlynn052.*Awaiting approval.*7700124541145599252/);
+  assert.match(rows[0].textContent, /TikTok/);
+  assert.match(rows[1].textContent, /Refused/);
+  assert.match(rows[1].textContent, /Please wait 30 seconds/);
+  assert.match(rows[2].textContent, /Video 1.*Played.*Some Channel/);
+  assert.deepEqual(blacklistButtons(rows[0]).map((b) => b.textContent), ['Blacklist video', 'Blacklist account']);
+  assert.deepEqual(blacklistButtons(rows[1]), [], 'a short code cannot be blacklisted');
+  assert.deepEqual(blacklistButtons(rows[2]).map((b) => b.textContent), ['Blacklist video', 'Blacklist channel']);
+  assert.equal(buttons(rows[2], 'reject').length, 0, 'the list only blacklists');
+});
+
+test('an empty history says so, and a live event adds a request or changes its status', async () => {
+  const page = await ready({ hash: '#requests' });
+  assert.equal(page.elements.requests.children[0].textContent, 'No requests yet');
+  page.socket().receive(envelope(6, 'history_entry', entry(1, { status: 'waiting' })));
+  assert.equal(page.elements.requests.children.length, 1);
+  assert.match(page.elements.requests.children[0].textContent, /Awaiting approval/);
+  page.socket().receive(envelope(7, 'history_entry', entry(1, { status: 'playing' })));
+  page.socket().receive(envelope(8, 'history_entry', entry(2, { status: 'rejected' })));
+  const rows = page.elements.requests.children;
+  assert.equal(rows.length, 2);
+  assert.match(rows[0].textContent, /Rejected/);
+  assert.match(rows[1].textContent, /Playing now/);
+});
+
+test('the requests are drawn when the page is opened, not for every message while it is not shown', async () => {
+  const page = await ready({ routes: withHistory([entry(1)]) });
+  assert.equal(page.elements.requests.children.length, 0);
+  page.go('#requests');
+  assert.equal(page.elements.requests.children.length, 1);
+  assert.ok(page.elements['requests-heading'].focused);
+});
+
+test('blacklisting from the awaiting list adds the entry, then rejects the request', async () => {
+  const page = await ready();
+  const updated = snapshot();
+  updated.settings.blacklist.video_ids = ['aaaaaaaaaaa', ITEM_ID];
+  page.table['PATCH /api/blacklist'] = { status: 200, body: updated };
+  page.table['POST /api/queue/7/reject'] = { status: 204 };
+
+  const [video, channel] = blacklistButtons(page.elements.pending.children[0]);
+  assert.equal(video.textContent, 'Blacklist video');
+  assert.equal(channel.textContent, 'Blacklist channel');
+  video.fire('click');
+  await settle();
+
+  const sent = page.log.requests.filter((r) => r.method !== 'GET').map((r) => `${r.method} ${r.path}`);
+  assert.deepEqual(sent, ['PATCH /api/blacklist', 'POST /api/queue/7/reject']);
+  assert.deepEqual(page.log.requests.find((r) => r.path === '/api/blacklist').body, { video_ids: ['aaaaaaaaaaa', ITEM_ID] });
+  assert.equal(page.elements.flash.textContent, 'Added to the blacklist');
+});
+
+test('the channel button sends the channel, and an approved request can be blacklisted too', async () => {
+  const page = await ready();
+  page.table['PATCH /api/blacklist'] = { status: 200, body: snapshot() };
+  page.table['POST /api/queue/9/reject'] = { status: 204 };
+  blacklistButtons(page.elements.approved.children[0])[1].fire('click');
+  await settle();
+  assert.deepEqual(page.log.requests.find((r) => r.path === '/api/blacklist').body, { channels: ['Some Channel'] });
+  assert.ok(page.log.requests.some((r) => r.path === '/api/queue/9/reject'));
+});
+
+test('a blacklist the server refuses leaves the request where it is', async () => {
+  const page = await ready();
+  page.table['PATCH /api/blacklist'] = { status: 400, body: { error: 'bad entry' } };
+  blacklistButtons(page.elements.pending.children[0])[0].fire('click');
+  await settle();
+  assert.ok(!page.log.requests.some((r) => r.path.endsWith('/reject')));
+  assert.ok(!page.elements.error.hidden);
+});
+
+test('from the requests page it only blacklists, and what is listed cannot be added again', async () => {
+  const page = await ready({ hash: '#requests', routes: withHistory([entry(1, { status: 'waiting' })]) });
+  const updated = snapshot({ history: [entry(1, { status: 'waiting' })] });
+  updated.settings.blacklist.channels = ['Some Channel'];
+  page.table['PATCH /api/blacklist'] = { status: 200, body: updated };
+
+  const [video, channel] = blacklistButtons(page.elements.requests.children[0]);
+  channel.fire('click');
+  await settle();
+  assert.deepEqual(page.log.requests.filter((r) => r.method !== 'GET').map((r) => r.path), ['/api/blacklist']);
+  // The new blacklist redraws the list: the channel is now listed.
+  const after = blacklistButtons(page.elements.requests.children[0]);
+  assert.equal(after[1].textContent, 'Blacklisted');
+  assert.ok(after[1].disabled);
+  assert.ok(!after[0].disabled);
+  assert.ok(video);
+});
+
 test('the volume slider follows the maximum and sends what was chosen', async () => {
   const page = await ready();
   assert.equal(page.elements.volume.max, '80');
@@ -878,7 +992,7 @@ test('every text the page uses exists in both languages', () => {
 
 // --- the pages of the menu ---
 
-const MENU_VIEWS = ['queue', 'blacklist', 'rules', 'overlay', 'settings'];
+const MENU_VIEWS = ['queue', 'requests', 'blacklist', 'rules', 'overlay', 'settings'];
 const VIEWS = [...MENU_VIEWS, 'account'];
 const shown = (page) => VIEWS.filter((v) => !page.elements[`view-${v}`].hidden);
 const current = (page, prefix) => MENU_VIEWS.filter((v) => page.elements[`${prefix}-${v}`].attrs['aria-current'] === 'page');
