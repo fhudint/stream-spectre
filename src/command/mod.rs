@@ -3,6 +3,7 @@
 //! Chat text is untrusted. The parser only ever hands on a validated
 //! `VideoId`; the raw text is dropped.
 
+use crate::config::{CommandConfig, CommandEntry, CommandSource};
 use crate::youtube::{VideoId, extract_video_id};
 
 /// Why a message that is clearly a command was not accepted.
@@ -25,25 +26,27 @@ pub enum Parsed {
     Video(VideoId),
 }
 
-/// Recognises `<prefix><name> <id or link>`, for example `!v dQw4w9WgXcQ`.
+/// Recognises `<prefix><name> <id or link>`, for example `!v dQw4w9WgXcQ`,
+/// for any of the configured names.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CommandParser {
     prefix: String,
-    name: String,
+    commands: Vec<CommandEntry>,
 }
 
 impl CommandParser {
-    pub fn new(prefix: impl Into<String>, name: impl Into<String>) -> Self {
+    pub fn new(config: &CommandConfig) -> Self {
         Self {
-            prefix: prefix.into(),
-            name: name.into(),
+            prefix: config.prefix.clone(),
+            commands: config.commands.clone(),
         }
     }
 
     /// Classifies a chat message. Never panics, whatever the input.
     ///
     /// - The prefix must match exactly; the command name is case-insensitive.
-    /// - The name must be a whole word, so `!vid` is not `!v`.
+    /// - The name must be a whole word, so `!vid` is not `!v`, and `!vt` is
+    ///   not `!v`.
     /// - Only the first word after the name is used; the rest is ignored.
     pub fn parse(&self, message: &str) -> Parsed {
         let Some(after_prefix) = message.trim().strip_prefix(self.prefix.as_str()) else {
@@ -53,16 +56,22 @@ impl CommandParser {
         let (word, rest) = after_prefix
             .split_once(char::is_whitespace)
             .unwrap_or((after_prefix, ""));
-        if !word.eq_ignore_ascii_case(&self.name) {
+        let Some(command) = self
+            .commands
+            .iter()
+            .find(|command| word.eq_ignore_ascii_case(&command.name))
+        else {
             return Parsed::NotACommand;
-        }
+        };
 
         let Some(argument) = rest.split_whitespace().next() else {
             return Parsed::Invalid(InvalidReason::MissingArgument);
         };
-        match extract_video_id(argument) {
-            Some(id) => Parsed::Video(id),
-            None => Parsed::Invalid(InvalidReason::InvalidLink),
+        match command.source {
+            CommandSource::Youtube => match extract_video_id(argument) {
+                Some(id) => Parsed::Video(id),
+                None => Parsed::Invalid(InvalidReason::InvalidLink),
+            },
         }
     }
 }
@@ -75,8 +84,18 @@ mod tests {
 
     const ID: &str = "dQw4w9WgXcQ";
 
+    fn parser(prefix: &str, names: &[&str]) -> CommandParser {
+        CommandParser::new(&CommandConfig {
+            prefix: prefix.to_owned(),
+            commands: names
+                .iter()
+                .map(|name| CommandEntry::youtube(*name))
+                .collect(),
+        })
+    }
+
     fn default_parser() -> CommandParser {
-        CommandParser::new("!", "v")
+        parser("!", &["v"])
     }
 
     fn video(id: &str) -> Parsed {
@@ -181,15 +200,45 @@ mod tests {
 
     #[test]
     fn prefix_and_name_come_from_configuration() {
-        let p = CommandParser::new("#", "play");
+        let p = parser("#", &["play"]);
         assert_eq!(p.parse("#play dQw4w9WgXcQ"), video(ID));
         assert_eq!(p.parse("#PLAY dQw4w9WgXcQ"), video(ID));
         assert_eq!(p.parse("!v dQw4w9WgXcQ"), Parsed::NotACommand);
         assert_eq!(p.parse("#playlist dQw4w9WgXcQ"), Parsed::NotACommand);
 
-        let p = CommandParser::new("?!", "song_1");
+        let p = parser("?!", &["song_1"]);
         assert_eq!(p.parse("?!song_1 dQw4w9WgXcQ"), video(ID));
         assert_eq!(p.parse("?song_1 dQw4w9WgXcQ"), Parsed::NotACommand);
+    }
+
+    #[test]
+    fn every_configured_name_is_a_command_and_the_others_are_not() {
+        let p = parser("!", &["v", "yt", "Clip"]);
+        assert_eq!(p.parse("!v dQw4w9WgXcQ"), video(ID));
+        assert_eq!(p.parse("!yt dQw4w9WgXcQ"), video(ID));
+        assert_eq!(p.parse("!YT dQw4w9WgXcQ"), video(ID));
+        assert_eq!(p.parse("!clip dQw4w9WgXcQ"), video(ID));
+        // A name that only starts like a configured one is not a command.
+        for text in ["!vt dQw4w9WgXcQ", "!y dQw4w9WgXcQ", "!ytt dQw4w9WgXcQ"] {
+            assert_eq!(p.parse(text), Parsed::NotACommand, "{text:?}");
+        }
+        // Each name reports its own problems.
+        assert_eq!(
+            p.parse("!yt"),
+            Parsed::Invalid(InvalidReason::MissingArgument)
+        );
+        assert_eq!(
+            p.parse("!clip nope"),
+            Parsed::Invalid(InvalidReason::InvalidLink)
+        );
+    }
+
+    #[test]
+    fn a_name_that_starts_like_another_is_told_apart() {
+        let p = parser("!", &["v", "vt"]);
+        assert_eq!(p.parse("!v dQw4w9WgXcQ"), video(ID));
+        assert_eq!(p.parse("!vt dQw4w9WgXcQ"), video(ID));
+        assert_eq!(p.parse("!vtt dQw4w9WgXcQ"), Parsed::NotACommand);
     }
 
     #[test]

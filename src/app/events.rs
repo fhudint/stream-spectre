@@ -8,7 +8,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
 
 use crate::chat::{ChatStatus, Role};
-use crate::config::{BlacklistConfig, DashboardConfig, Language, ModerationConfig, TiktokConfig};
+use crate::config::{
+    BlacklistConfig, CommandConfig, DashboardConfig, Language, ModerationConfig, TiktokConfig,
+};
 use crate::queue::{QueueItem, QueueSnapshot};
 
 /// Bumped when events change in a way old clients cannot handle.
@@ -96,14 +98,15 @@ pub struct ChatLineView {
     pub skipped: u32,
 }
 
-/// Settings, in the same shape as the `[moderation]`, `[blacklist]` and
-/// `[dashboard]` tables of `config.toml`. `moderation.volume` is always the
+/// Settings, in the same shape as the `[moderation]`, `[blacklist]`,
+/// `[dashboard]` and `[command]` tables of `config.toml`. `moderation.volume` is always the
 /// current volume.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct SettingsView {
     pub moderation: ModerationConfig,
     pub blacklist: BlacklistConfig,
     pub dashboard: DashboardConfig,
+    pub command: CommandConfig,
     pub chat: ChatSettingsView,
 }
 
@@ -437,6 +440,7 @@ mod tests {
             moderation: ModerationConfig::default(),
             blacklist: BlacklistConfig::default(),
             dashboard: DashboardConfig::default(),
+            command: CommandConfig::default(),
             chat: ChatSettingsView::default(),
         });
         let value = to_json(&settings);
@@ -512,6 +516,7 @@ mod tests {
                 moderation: ModerationConfig::default(),
                 blacklist: BlacklistConfig::default(),
                 dashboard: DashboardConfig::default(),
+                command: CommandConfig::default(),
                 chat: ChatSettingsView::default(),
             },
             volume: 50,
@@ -569,6 +574,7 @@ mod tests {
                     title_words: vec!["secretword".to_owned()],
                 },
                 dashboard: DashboardConfig::default(),
+                command: CommandConfig::default(),
                 chat: ChatSettingsView::default(),
             },
             volume: 42,

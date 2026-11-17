@@ -84,6 +84,14 @@ way and the state is `paused` until it is connected again. That switch lives onl
 in memory, so a restart connects by itself. The
 username is also one of the tables saved beside `config.toml`.
 
+The chat words are a list of `{ name, source }` behind one shared prefix
+(`[command]`). `CommandParser` is built from it and kept in the pipeline's
+state, so `update_commands` swaps it while the program runs; the next message
+is read with the new words. A name matches as a whole word, ignoring capitals,
+and what follows it is read according to the command's source (a YouTube
+command accepts only YouTube IDs and links). `[command]` is saved beside
+`config.toml` like the other tables.
+
 **`ChatSource` is the only thing that knows about TikTok.** The rest of the app
 sees `ChatMessage { sender, text }` and `ChatStatus`. TikTok has no official
 API; the adapter uses the `piratetok-live-rs` crate (pinned to the audited

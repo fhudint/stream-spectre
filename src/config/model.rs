@@ -80,19 +80,81 @@ impl TiktokConfig {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Deserialize)]
-#[serde(default, deny_unknown_fields)]
+/// Where a video asked for with a command comes from. YouTube is the only
+/// source so far; a command only accepts links of its own source.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum CommandSource {
+    Youtube,
+}
+
+/// One chat word and what it asks for.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct CommandEntry {
+    /// The word after the prefix, without it (`v` for `!v`).
+    pub name: String,
+    pub source: CommandSource,
+}
+
+impl CommandEntry {
+    pub fn youtube(name: impl Into<String>) -> Self {
+        Self {
+            name: name.into(),
+            source: CommandSource::Youtube,
+        }
+    }
+}
+
+/// `[command]`: one prefix shared by every command, and the commands.
+///
+/// `config.toml` may also say `name = "v"` instead of `commands`, which is the
+/// same as one YouTube command with that name. It is read, never written.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(try_from = "RawCommandConfig")]
 pub struct CommandConfig {
     pub prefix: String,
-    pub name: String,
+    pub commands: Vec<CommandEntry>,
 }
 
 impl Default for CommandConfig {
     fn default() -> Self {
         Self {
-            prefix: "!".to_owned(),
-            name: "v".to_owned(),
+            prefix: DEFAULT_PREFIX.to_owned(),
+            commands: vec![CommandEntry::youtube(DEFAULT_COMMAND_NAME)],
         }
+    }
+}
+
+const DEFAULT_PREFIX: &str = "!";
+const DEFAULT_COMMAND_NAME: &str = "v";
+
+/// `[command]` as it is written in a file.
+#[derive(Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+struct RawCommandConfig {
+    prefix: Option<String>,
+    name: Option<String>,
+    commands: Option<Vec<CommandEntry>>,
+}
+
+impl TryFrom<RawCommandConfig> for CommandConfig {
+    type Error = String;
+
+    fn try_from(raw: RawCommandConfig) -> Result<Self, Self::Error> {
+        let defaults = Self::default();
+        let commands = match (raw.name, raw.commands) {
+            (Some(_), Some(_)) => {
+                return Err("set either `name` or `commands`, not both".to_owned());
+            }
+            (Some(name), None) => vec![CommandEntry::youtube(name)],
+            (None, Some(commands)) => commands,
+            (None, None) => defaults.commands,
+        };
+        Ok(Self {
+            prefix: raw.prefix.unwrap_or(defaults.prefix),
+            commands,
+        })
     }
 }
 

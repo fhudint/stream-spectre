@@ -161,26 +161,23 @@ native window added around it later.
 makes a settings screen in a future app (items 3 and 4) simple: a small table of
 "word, source" rows.
 
-**Today.** Prefix and name are already configurable (`[command]` in
-`config.toml`, default `!v`), but there is exactly one command and it means
-YouTube. The name is checked at startup (1 to 32 characters), the prefix too,
-and matching is case-insensitive on the name and whole-word, so `!vid` is not
-`!v`.
+**Today (built).** `[command]` has one shared prefix and a list of
+`{ name, source }` entries; the old `name = "v"` form still reads as one entry.
+Names are checked at startup and when changed (1 to 32 letters, digits or `_`;
+unique ignoring case; 1 to 8 entries). They can be changed on the dashboard's
+Rules page and take effect for the next chat message. Matching is
+case-insensitive and whole-word, so `!vid` is not `!v` and `!vt` is not `!v`.
+The only source is `youtube`, so every entry means YouTube for now.
 
-**What it needs**
-- Config for several commands, each with a name and a source, for example a
-  list of `{ name, source }` entries next to the shared prefix. The current
-  `name` keeps working as one entry (an additive change, so existing configs do
-  not break).
-- Startup validation: names must be unique (ignoring case), and each source must
-  be one the program has. A name that is the start of another one is fine,
-  because names match as whole words.
+**Still to do**
+- A second source (item 1, TikTok videos). Until then the "source" choice in
+  the dashboard has one option, and the strict rule below has nothing to
+  reject.
 - The parser returns which source was asked for, and the queue and events carry
   it. This is the same `source` field that item 1 sketches, so the two should be
-  designed together; this item can be built first with YouTube as the only
-  source.
-- Dashboard and notice text that says "`!v`" must read the configured names
-  from the config instead of assuming one.
+  designed together.
+- Notice text that names a command ("use `!vt` for TikTok links") must read the
+  configured names from the list instead of assuming one.
 
 **Decided**
 - **Strict.** A command only accepts links of its own source: `!yt` with a

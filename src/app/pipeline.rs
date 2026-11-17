@@ -13,8 +13,8 @@ use super::events::{
 use crate::chat::{ChatEvent, ChatMessage, ChatSource, ChatStatus, Sender};
 use crate::command::{CommandParser, Parsed};
 use crate::config::{
-    BlacklistConfig, Config, ConfigError, DashboardConfig, ModerationConfig, ModerationMode,
-    Secret, TiktokConfig,
+    BlacklistConfig, CommandConfig, Config, ConfigError, DashboardConfig, ModerationConfig,
+    ModerationMode, Secret, TiktokConfig,
 };
 use crate::i18n::I18n;
 use crate::queue::{Blacklist, Denial, Gatekeeper, ItemId, PlayQueue, QueueError};
@@ -66,6 +66,9 @@ struct Inner {
     gatekeeper: Gatekeeper,
     blacklist: BlacklistConfig,
     dashboard: DashboardConfig,
+    /// The chat words, and the parser built from them.
+    command: CommandConfig,
+    parser: Arc<CommandParser>,
     chat: Option<ChatStatusView>,
     chat_log: VecDeque<ChatLineView>,
     chat_rate: ChatRate,
@@ -88,7 +91,6 @@ struct Inner {
 /// events always arrive in the order the changes were made. The lock is never
 /// held while waiting for YouTube.
 pub struct Pipeline<S> {
-    parser: CommandParser,
     lookup: VideoLookup<S>,
     i18n: I18n,
     bus: EventBus,
@@ -104,6 +106,7 @@ impl<S: VideoSource> Pipeline<S> {
     pub fn new(config: &Config, i18n: I18n, video_source: S) -> Result<Self, ConfigError> {
         config.moderation.validate()?;
         config.dashboard.validate()?;
+        config.command.validate()?;
         config.chat.tiktok.validate()?;
         let tiktok = normalized(&config.chat.tiktok);
         let blacklist = Blacklist::from_config(&config.blacklist)?;
@@ -113,7 +116,6 @@ impl<S: VideoSource> Pipeline<S> {
             config.youtube.cache_max_entries as u64,
         );
         Ok(Self {
-            parser: CommandParser::new(&config.command.prefix, &config.command.name),
             lookup,
             i18n,
             bus: EventBus::new(BUS_CAPACITY),
@@ -127,6 +129,8 @@ impl<S: VideoSource> Pipeline<S> {
                 gatekeeper: Gatekeeper::new(config.moderation.clone(), blacklist),
                 blacklist: config.blacklist.clone(),
                 dashboard: config.dashboard.clone(),
+                command: config.command.clone(),
+                parser: Arc::new(CommandParser::new(&config.command)),
                 chat: None,
                 chat_log: VecDeque::new(),
                 chat_rate: ChatRate::default(),
@@ -213,7 +217,8 @@ impl<S: VideoSource> Pipeline<S> {
     async fn handle_chat_at(&self, message: ChatMessage, now: Instant) {
         let ChatMessage { sender, text } = message;
 
-        let parsed = self.parser.parse(&text);
+        let parser = Arc::clone(&self.lock().parser);
+        let parsed = parser.parse(&text);
         self.show_chat(&sender, &text, !matches!(parsed, Parsed::NotACommand), now);
 
         let video_id = match parsed {
@@ -445,6 +450,22 @@ impl<S: VideoSource> Pipeline<S> {
         Ok(())
     }
 
+    /// Replaces the chat commands (the prefix and the words). Invalid ones
+    /// are refused and nothing changes; messages already read are not looked
+    /// at again.
+    pub fn update_commands(&self, new: CommandConfig) -> Result<(), ConfigError> {
+        new.validate()?;
+        let mut inner = self.lock();
+        if inner.command == new {
+            return Ok(());
+        }
+        inner.parser = Arc::new(CommandParser::new(&new));
+        inner.command = new;
+        self.bus
+            .publish(Event::SettingsUpdated(Self::settings_view(&inner)));
+        Ok(())
+    }
+
     /// Changes the TikTok username whose chat is read; empty stops reading.
     /// An invalid name is refused and nothing changes. Saying the same name
     /// again changes nothing either.
@@ -635,6 +656,7 @@ impl<S: VideoSource> Pipeline<S> {
             moderation: inner.gatekeeper.settings().clone(),
             blacklist: inner.blacklist.clone(),
             dashboard: inner.dashboard.clone(),
+            command: inner.command.clone(),
             chat: ChatSettingsView {
                 tiktok: inner.tiktok.clone(),
             },
@@ -1657,6 +1679,66 @@ mod tests {
         drain(&mut rx);
         say(&p, sender(1, Role::Everyone), &format!("!v {ID_A}")).await;
         assert_eq!(kinds(&drain(&mut rx)), vec!["queue_updated"]);
+    }
+
+    fn commands(prefix: &str, names: &[&str]) -> CommandConfig {
+        CommandConfig {
+            prefix: prefix.to_owned(),
+            commands: names
+                .iter()
+                .map(|name| crate::config::CommandEntry::youtube(*name))
+                .collect(),
+        }
+    }
+
+    #[tokio::test]
+    async fn new_chat_commands_apply_to_the_next_message_and_are_announced() {
+        let p = pipeline(&config(|m| m.mode = ModerationMode::Auto));
+        let mut rx = p.subscribe();
+        p.update_commands(commands("?", &["yt", "vt"])).unwrap();
+        let events = drain(&mut rx);
+        assert_eq!(kinds(&events), vec!["settings_updated"]);
+        assert_eq!(data(&events[0])["command"]["prefix"], "?");
+        assert_eq!(data(&events[0])["command"]["commands"][1]["name"], "vt");
+        assert_eq!(
+            data(&events[0])["command"]["commands"][0]["source"],
+            "youtube"
+        );
+
+        // The old word is ordinary chat now, the new ones are commands.
+        say(&p, sender(1, Role::Follower), &format!("!v {ID_A}")).await;
+        assert!(drain(&mut rx).is_empty());
+        // Automatic approval: the first request starts playing at once.
+        say(&p, sender(1, Role::Follower), &format!("?vt {ID_A}")).await;
+        assert_eq!(kinds(&drain(&mut rx)), vec!["play", "queue_updated"]);
+        say(&p, sender(2, Role::Follower), &format!("?YT {ID_B}")).await;
+        assert_eq!(kinds(&drain(&mut rx)), vec!["queue_updated"]);
+    }
+
+    #[test]
+    fn bad_chat_commands_are_refused_and_change_nothing() {
+        let p = default_pipeline();
+        let before = p.hello().settings;
+        let mut rx = p.subscribe();
+        for bad in [
+            commands("!", &[]),
+            commands("!", &["v", "V"]),
+            commands("!", &["two words"]),
+            commands("", &["v"]),
+            commands("a b", &["v"]),
+        ] {
+            assert!(p.update_commands(bad.clone()).is_err(), "{bad:?}");
+        }
+        assert!(drain_all(&mut rx).is_empty());
+        assert_eq!(p.hello().settings, before);
+    }
+
+    #[test]
+    fn saying_the_same_chat_commands_again_announces_nothing() {
+        let p = default_pipeline();
+        let mut rx = p.subscribe();
+        p.update_commands(p.hello().settings.command).unwrap();
+        assert!(drain_all(&mut rx).is_empty());
     }
 
     #[tokio::test]

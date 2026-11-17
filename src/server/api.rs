@@ -14,7 +14,9 @@ use serde_json::{Value, json};
 
 use super::ServerState;
 use crate::app::{AccountView, CredentialsError, Hello};
-use crate::config::{BlacklistConfig, DashboardConfig, ModerationConfig, TiktokConfig};
+use crate::config::{
+    BlacklistConfig, CommandConfig, DashboardConfig, ModerationConfig, TiktokConfig,
+};
 use crate::i18n::catalog_json;
 use crate::queue::{ItemId, QueueError};
 use crate::youtube::VideoSource;
@@ -177,6 +179,22 @@ pub async fn dashboard<S: VideoSource + 'static>(
     state
         .pipeline
         .update_dashboard(updated)
+        .map_err(|error| ApiError::new(StatusCode::BAD_REQUEST, error.to_string()))?;
+    Ok(Json(state.pipeline.hello()))
+}
+
+/// `PATCH /api/commands`: changes the chat commands (`prefix` and/or
+/// `commands`, the whole list of `{name, source}`) and keeps the rest. Invalid
+/// values are refused and nothing changes.
+pub async fn commands<S: VideoSource + 'static>(
+    State(state): State<ServerState<S>>,
+    Json(patch): Json<Value>,
+) -> ApiResult<Json<Hello>> {
+    let current = state.pipeline.hello().settings.command;
+    let updated: CommandConfig = merge_patch(&current, patch)?;
+    state
+        .pipeline
+        .update_commands(updated)
         .map_err(|error| ApiError::new(StatusCode::BAD_REQUEST, error.to_string()))?;
     Ok(Json(state.pipeline.hello()))
 }

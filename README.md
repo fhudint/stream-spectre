@@ -26,7 +26,8 @@ for what plays on your stream.
 
 - Chat command `!v <id or link>`. Accepts an 11-character video ID,
   `youtu.be/ID`, `youtube.com/watch?v=ID` and `youtube.com/shorts/ID`.
-  The prefix and command name are configurable.
+  The prefix and the command words are configurable, and you can have several
+  (for example `!v` and `!yt`), on the dashboard's Rules page or in `[command]`.
 - Checks each video with the YouTube Data API (one quota unit per new video,
   results cached): rejects videos that cannot be embedded, are age-restricted,
   are live streams, or are too long.
@@ -211,8 +212,8 @@ zero each time the program starts. "Copy overlay URL" copies the address with
 #### Saved settings
 
 `config.toml` is yours: the program only reads it, so your comments stay. When
-you change moderation settings, the volume, the blacklist, the chat history or
-the TikTok username in the dashboard, the program writes the changed tables to
+you change moderation settings, the volume, the blacklist, the chat commands,
+the chat history or the TikTok username in the dashboard, the program writes the changed tables to
 `config.settings.toml` (named after your config file, in the same folder). At
 the next start, a table in that file **replaces** the same table in
 `config.toml`, and the log says which ones. This also means that editing a

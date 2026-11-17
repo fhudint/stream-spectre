@@ -14,9 +14,9 @@ use std::path::{Path, PathBuf};
 
 pub use error::ConfigError;
 pub use model::{
-    BlacklistConfig, ChatConfig, ChatSourceKind, CommandConfig, Config, DashboardConfig,
-    GeneralConfig, Language, MAX_CHAT_HISTORY, ModerationConfig, ModerationMode, ServerConfig,
-    TiktokConfig, YoutubeConfig,
+    BlacklistConfig, ChatConfig, ChatSourceKind, CommandConfig, CommandEntry, CommandSource,
+    Config, DashboardConfig, GeneralConfig, Language, MAX_CHAT_HISTORY, ModerationConfig,
+    ModerationMode, ServerConfig, TiktokConfig, YoutubeConfig,
 };
 pub use paths::{CONFIG_FILE_NAME, ENV_CONFIG_PATH};
 /// A new empty folder under the system temp folder, for tests.
@@ -318,9 +318,54 @@ mod tests {
         assert_eq!(c.moderation.mode, ModerationMode::Manual);
         assert_eq!(c.moderation.min_role, Role::Follower);
         assert_eq!(c.command.prefix, "!");
-        assert_eq!(c.command.name, "v");
+        assert_eq!(c.command.commands, vec![CommandEntry::youtube("v")]);
         assert_eq!(c.general.language, Language::Id);
         assert_eq!(c.dashboard.chat_history, 20);
+    }
+
+    #[test]
+    fn command_table_takes_a_list_or_the_single_name_of_older_files() {
+        let c = parse_str(
+            "[command]\nprefix = \"#\"\n\
+             commands = [{ name = \"yt\", source = \"youtube\" }, { name = \"v\", source = \"youtube\" }]",
+        )
+        .unwrap();
+        assert_eq!(c.command.prefix, "#");
+        assert_eq!(
+            c.command.commands,
+            vec![CommandEntry::youtube("yt"), CommandEntry::youtube("v")]
+        );
+
+        // Older files: one name, same as a YouTube command with that name.
+        let c = parse_str("[command]\nname = \"play\"").unwrap();
+        assert_eq!(c.command.prefix, "!");
+        assert_eq!(c.command.commands, vec![CommandEntry::youtube("play")]);
+
+        // Only a prefix: the default command stays.
+        let c = parse_str("[command]\nprefix = \"?\"").unwrap();
+        assert_eq!(c.command.commands, vec![CommandEntry::youtube("v")]);
+    }
+
+    #[test]
+    fn command_table_mistakes_are_refused() {
+        for bad in [
+            // Both ways at once is ambiguous.
+            "[command]\nname = \"v\"\ncommands = [{ name = \"yt\", source = \"youtube\" }]",
+            // A source the program does not have.
+            "[command]\ncommands = [{ name = \"vt\", source = \"tiktok\" }]",
+            // A command needs both fields, and nothing else.
+            "[command]\ncommands = [{ name = \"vt\" }]",
+            "[command]\ncommands = [{ name = \"vt\", source = \"youtube\", extra = 1 }]",
+            "[command]\nsurprise = 1",
+        ] {
+            assert!(parse_str(bad).is_err(), "{bad}");
+        }
+        // A list with a repeated name is well formed but does not validate.
+        let twice = parse_str(
+            "[command]\ncommands = [{ name = \"v\", source = \"youtube\" }, { name = \"V\", source = \"youtube\" }]",
+        )
+        .unwrap();
+        assert!(twice.validate().is_err());
     }
 
     #[test]

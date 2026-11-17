@@ -218,6 +218,22 @@
         <div class="card page-card">
           <form id="settings-form" class="form"></form>
         </div>
+        <div class="card page-card">
+          <form id="commands-form" class="form">
+            <h2 data-i18n="dashboard.commands.title"></h2>
+            <p class="muted small" data-i18n="dashboard.commands.hint"></p>
+            <div class="field">
+              <label for="commands-prefix" data-i18n="dashboard.commands.prefix"></label>
+              <input id="commands-prefix" type="text" class="short" autocomplete="off" spellcheck="false" maxlength="8">
+            </div>
+            <div id="commands-rows" class="command-rows"></div>
+            <p id="commands-example" class="muted small"></p>
+            <div class="actions">
+              <button id="commands-add" type="button" data-i18n="dashboard.commands.add"></button>
+              <button type="submit" class="primary" data-i18n="dashboard.commands.save"></button>
+            </div>
+          </form>
+        </div>
       </section>
 
       <section id="view-overlay" class="view hidden">

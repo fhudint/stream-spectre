@@ -91,6 +91,7 @@ fn changes<S: VideoSource>(pipeline: &Pipeline<S>, baseline: &Config) -> SavedSe
         &settings.moderation,
         &settings.blacklist,
         &settings.dashboard,
+        &settings.command,
         &settings.chat.tiktok,
     )
 }
@@ -341,6 +342,7 @@ mod tests {
             &applied.moderation,
             &applied.blacklist,
             &applied.dashboard,
+            &applied.command,
             &applied.chat.tiktok,
         );
         write_saved(&path, &first).unwrap();

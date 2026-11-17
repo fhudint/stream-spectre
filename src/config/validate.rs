@@ -1,6 +1,7 @@
 use super::error::ConfigError;
 use super::model::{
-    ChatSourceKind, Config, DashboardConfig, MAX_CHAT_HISTORY, ModerationConfig, TiktokConfig,
+    ChatSourceKind, CommandConfig, Config, DashboardConfig, MAX_CHAT_HISTORY, ModerationConfig,
+    TiktokConfig,
 };
 use super::secrets::Secrets;
 use crate::youtube::VideoId;
@@ -8,6 +9,8 @@ use crate::youtube::VideoId;
 const MAX_TIKTOK_USERNAME_LEN: usize = 64;
 const MAX_PREFIX_LEN: usize = 4;
 const MAX_COMMAND_NAME_LEN: usize = 32;
+/// More words than this is a typo or a mistake, not a setup.
+const MAX_COMMANDS: usize = 8;
 
 impl Config {
     /// Checks every value that serde cannot check by type alone.
@@ -23,8 +26,7 @@ impl Config {
             ChatSourceKind::Tiktok => self.chat.tiktok.validate()?,
         }
 
-        validate_prefix(&self.command.prefix)?;
-        validate_command_name(&self.command.name)?;
+        self.command.validate()?;
 
         let y = &self.youtube;
         require_positive("youtube.cache_ttl_secs", y.cache_ttl_secs)?;
@@ -164,6 +166,34 @@ impl TiktokConfig {
     }
 }
 
+impl CommandConfig {
+    /// The prefix is short and has no whitespace; there are 1 to
+    /// `MAX_COMMANDS` commands with valid names, no two the same when case is
+    /// ignored (chat matches names that way).
+    pub fn validate(&self) -> Result<(), ConfigError> {
+        validate_prefix(&self.prefix)?;
+        if self.commands.is_empty() || self.commands.len() > MAX_COMMANDS {
+            return Err(ConfigError::invalid(
+                "command.commands",
+                format!("must have 1 to {MAX_COMMANDS} commands"),
+            ));
+        }
+        for (i, entry) in self.commands.iter().enumerate() {
+            validate_command_name(&format!("command.commands[{i}].name"), &entry.name)?;
+            let repeats = self.commands[..i]
+                .iter()
+                .any(|earlier| earlier.name.eq_ignore_ascii_case(&entry.name));
+            if repeats {
+                return Err(ConfigError::invalid(
+                    format!("command.commands[{i}].name"),
+                    "is used twice (capital letters do not make a difference)",
+                ));
+            }
+        }
+        Ok(())
+    }
+}
+
 fn validate_prefix(prefix: &str) -> Result<(), ConfigError> {
     let field = "command.prefix";
     if prefix.is_empty() || prefix.chars().count() > MAX_PREFIX_LEN {
@@ -178,8 +208,7 @@ fn validate_prefix(prefix: &str) -> Result<(), ConfigError> {
     Ok(())
 }
 
-fn validate_command_name(name: &str) -> Result<(), ConfigError> {
-    let field = "command.name";
+fn validate_command_name(field: &str, name: &str) -> Result<(), ConfigError> {
     if name.is_empty() || name.chars().count() > MAX_COMMAND_NAME_LEN {
         return Err(ConfigError::invalid(
             field,
@@ -200,6 +229,7 @@ mod tests {
     use std::net::{IpAddr, Ipv4Addr};
 
     use super::*;
+    use crate::config::CommandEntry;
 
     fn valid() -> Config {
         let mut c = Config::default();
@@ -294,16 +324,39 @@ mod tests {
         }
         for bad in ["", "two words", "v!", "vídeo", &"x".repeat(33)] {
             let mut c = valid();
-            c.command.name = bad.to_owned();
+            c.command.commands = vec![CommandEntry::youtube("ok"), CommandEntry::youtube(bad)];
             assert_eq!(
                 field_of(c.validate().unwrap_err()),
-                "command.name",
+                "command.commands[1].name",
                 "{bad:?}"
             );
         }
         let mut c = valid();
         c.command.prefix = "#".to_owned();
-        c.command.name = "play_video2".to_owned();
+        c.command.commands = vec![CommandEntry::youtube("play_video2")];
+        c.validate().unwrap();
+    }
+
+    #[test]
+    fn there_are_one_to_eight_commands_and_no_name_twice() {
+        let mut c = valid();
+        c.command.commands = vec![];
+        assert_eq!(field_of(c.validate().unwrap_err()), "command.commands");
+        c.command.commands = (0..9)
+            .map(|n| CommandEntry::youtube(format!("c{n}")))
+            .collect();
+        assert_eq!(field_of(c.validate().unwrap_err()), "command.commands");
+        c.command.commands.truncate(8);
+        c.validate().unwrap();
+
+        // Chat ignores capitals in the name, so these would be one command.
+        c.command.commands = vec![CommandEntry::youtube("yt"), CommandEntry::youtube("YT")];
+        assert_eq!(
+            field_of(c.validate().unwrap_err()),
+            "command.commands[1].name"
+        );
+        // A name that only starts like another is fine: names match whole.
+        c.command.commands = vec![CommandEntry::youtube("v"), CommandEntry::youtube("vt")];
         c.validate().unwrap();
     }
 

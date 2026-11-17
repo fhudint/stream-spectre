@@ -120,6 +120,7 @@ const snapshot = (extra = {}) => ({
     },
     blacklist: { video_ids: ['aaaaaaaaaaa'], channels: [], title_words: [] },
     dashboard: { chat_history: 20 },
+    command: { prefix: '!', commands: [{ name: 'v', source: 'youtube' }] },
     chat: { tiktok: { username: 'streamer' } },
   },
   chat_log: [],
@@ -990,7 +991,7 @@ test('without a start time the session line is left empty', async () => {
 test('the active rules are listed from the settings and follow changes', async () => {
   const page = await ready();
   const chips = () => page.elements['rules-chips'].children.map((c) => c.textContent);
-  assert.deepEqual(chips(), ['Follower and above', '60 s cooldown', 'Max. 10:00', 'Queue of 20', '1 blocked']);
+  assert.deepEqual(chips(), ['Commands !v', 'Follower and above', '60 s cooldown', 'Max. 10:00', 'Queue of 20', '1 blocked']);
 
   const next = snapshot().settings;
   next.moderation.mode = 'auto';
@@ -998,7 +999,7 @@ test('the active rules are listed from the settings and follow changes', async (
   next.moderation.cooldown_secs = 0;
   next.blacklist = { video_ids: [], channels: [], title_words: [] };
   page.socket().receive(envelope(6, 'settings_updated', next));
-  assert.deepEqual(chips(), ['Anyone may submit', 'Automatic approval', 'No cooldown', 'Max. 10:00', 'Queue of 20']);
+  assert.deepEqual(chips(), ['Commands !v', 'Anyone may submit', 'Automatic approval', 'No cooldown', 'Max. 10:00', 'Queue of 20']);
 });
 
 test('the channel is shown in the top bar, with its first letter', async () => {
@@ -1881,4 +1882,188 @@ test('a refused pause shows the error and the card stays as it was', async () =>
 
 test('the keyboard hint lists P', () => {
   assert.match(html, /<kbd>P<\/kbd><span data-i18n="dashboard\.keys\.pause">/);
+});
+
+// --- chat commands (Rules page) ---
+
+const commandPatches = (page) => page.log.requests.filter((r) => r.path === '/api/commands');
+const commandRows = (page) =>
+  page.elements['commands-rows'].children.map((row) => ({
+    name: row.children[0],
+    source: row.children[1],
+    remove: row.children[2],
+  }));
+const typedCommands = (page) => commandRows(page).map((row) => [row.name.value, row.source.value]);
+const withCommands = (command) => {
+  const updated = snapshot();
+  updated.settings.command = command;
+  return updated;
+};
+const twoCommands = { prefix: '!', commands: [{ name: 'v', source: 'youtube' }, { name: 'yt', source: 'youtube' }] };
+
+test('the rules page shows the commands in force, with an example and in the rules card', async () => {
+  const page = await ready();
+  assert.equal(page.elements['commands-prefix'].value, '!');
+  assert.deepEqual(typedCommands(page), [['v', 'youtube']]);
+  assert.equal(page.elements['commands-example'].textContent, 'Example: !v dQw4w9WgXcQ');
+  assert.ok(page.elements['rules-chips'].children.some((chip) => chip.textContent === 'Commands !v'));
+  // One word is all there is: it cannot be removed.
+  assert.equal(commandRows(page)[0].remove.disabled, true);
+
+  const more = await ready();
+  more.socket().receive(envelope(6, 'settings_updated', { ...snapshot().settings, command: twoCommands }));
+  assert.deepEqual(typedCommands(more), [['v', 'youtube'], ['yt', 'youtube']]);
+  assert.ok(commandRows(more).every((row) => row.remove.disabled === false));
+  assert.ok(more.elements['rules-chips'].children.some((chip) => chip.textContent === 'Commands !v !yt'));
+});
+
+test('adding a word and saving sends the whole list, and shows the answer', async () => {
+  const page = await ready();
+  page.table['PATCH /api/commands'] = { status: 200, body: withCommands({ prefix: '!', commands: [{ name: 'v', source: 'youtube' }, { name: 'vt', source: 'youtube' }] }) };
+
+  page.click(page.elements['commands-add']);
+  assert.equal(commandRows(page).length, 2);
+  assert.equal(commandRows(page)[1].name.focused, true, 'the new word is ready to type in');
+  // Typed with the prefix in front: the prefix is dropped.
+  commandRows(page)[1].name.value = ' !vt ';
+  page.elements['commands-form'].fire('submit');
+  await settle();
+
+  assert.equal(commandPatches(page).length, 1);
+  assert.deepEqual(commandPatches(page)[0].body, {
+    prefix: '!',
+    commands: [{ name: 'v', source: 'youtube' }, { name: 'vt', source: 'youtube' }],
+  });
+  assert.deepEqual(typedCommands(page), [['v', 'youtube'], ['vt', 'youtube']]);
+  assert.equal(page.elements.flash.textContent, 'Chat commands saved');
+  assert.ok(page.elements.error.hidden);
+});
+
+test('the prefix can be changed on its own', async () => {
+  const page = await ready();
+  page.table['PATCH /api/commands'] = { status: 200, body: withCommands({ prefix: '?', commands: [{ name: 'v', source: 'youtube' }] }) };
+  page.elements['commands-prefix'].value = '?';
+  page.elements['commands-form'].fire('submit');
+  await settle();
+  assert.deepEqual(commandPatches(page)[0].body, { prefix: '?', commands: [{ name: 'v', source: 'youtube' }] });
+  assert.equal(page.elements['commands-example'].textContent, 'Example: ?v dQw4w9WgXcQ');
+});
+
+test('a word can be removed, and a changed word is sent', async () => {
+  const page = await ready();
+  page.socket().receive(envelope(6, 'settings_updated', { ...snapshot().settings, command: twoCommands }));
+  page.table['PATCH /api/commands'] = { status: 200, body: withCommands({ prefix: '!', commands: [{ name: 'clip', source: 'youtube' }] }) };
+
+  page.click(commandRows(page)[0].remove);
+  assert.deepEqual(typedCommands(page), [['yt', 'youtube']]);
+  assert.equal(commandRows(page)[0].remove.disabled, true, 'the last one stays');
+  commandRows(page)[0].name.value = 'clip';
+  page.elements['commands-form'].fire('submit');
+  await settle();
+  assert.deepEqual(commandPatches(page)[0].body.commands, [{ name: 'clip', source: 'youtube' }]);
+});
+
+test('saving what is already in force sends nothing and tidies what was typed', async () => {
+  const page = await ready();
+  page.elements['commands-prefix'].value = ' ! ';
+  commandRows(page)[0].name.value = ' !V'.toLowerCase();
+  page.elements['commands-form'].fire('submit');
+  await settle();
+  assert.equal(commandPatches(page).length, 0);
+  assert.equal(page.elements['commands-prefix'].value, '!');
+  assert.deepEqual(typedCommands(page), [['v', 'youtube']]);
+  assert.equal(page.elements.flash.textContent, 'Chat commands saved');
+});
+
+test('commands that cannot work are refused before anything is sent', async () => {
+  const page = await ready();
+  let seq = 100;
+  const attempt = (prefix, words) => {
+    seq += 1;
+    page.socket().receive(envelope(seq, 'settings_updated', { ...snapshot().settings, command: { prefix: '!', commands: words.map((name) => ({ name, source: 'youtube' })) } }));
+    page.elements['commands-prefix'].value = prefix;
+  };
+  const submit = async () => {
+    page.elements['commands-form'].fire('submit');
+    await settle();
+    return page.elements.error.textContent;
+  };
+
+  attempt('', ['v']);
+  assert.equal(await submit(), 'Invalid value for Prefix');
+  attempt('a b', ['v']);
+  assert.equal(await submit(), 'Invalid value for Prefix');
+  attempt('12345', ['v']);
+  assert.equal(await submit(), 'Invalid value for Prefix');
+
+  for (const bad of ['', '   ', 'two words', 'vídeo', 'v!', 'x'.repeat(33)]) {
+    attempt('!', ['v', 'ok']);
+    commandRows(page)[1].name.value = bad;
+    assert.equal(await submit(), 'Invalid value for Word', JSON.stringify(bad));
+    assert.equal(commandRows(page)[1].name.focused, true, 'the word at fault gets the focus');
+  }
+
+  attempt('!', ['v', 'yt']);
+  commandRows(page)[1].name.value = 'V';
+  assert.equal(await submit(), 'Each word can be used once; capital letters do not count');
+
+  // Nine rows are too many.
+  attempt('!', ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h']);
+  page.click(page.elements['commands-add']);
+  commandRows(page)[8].name.value = 'i';
+  assert.equal(await submit(), 'Use between 1 and 8 commands');
+
+  assert.equal(commandPatches(page).length, 0);
+});
+
+test('the server refusing the commands is shown and the typed words stay', async () => {
+  const page = await ready();
+  page.table['PATCH /api/commands'] = { status: 400, body: { error: 'invalid config value `command.commands[1].name`: is used twice' } };
+  page.click(page.elements['commands-add']);
+  commandRows(page)[1].name.value = 'yt';
+  page.elements['commands-form'].fire('submit');
+  await settle();
+  assert.match(page.elements.error.textContent, /command\.commands\[1\]\.name/);
+  assert.ok(page.elements.flash.hidden);
+  assert.deepEqual(typedCommands(page), [['v', 'youtube'], ['yt', 'youtube']]);
+});
+
+test('a change from outside does not wipe words that are being edited, until they are saved', async () => {
+  const page = await ready();
+  page.click(page.elements['commands-add']);
+  commandRows(page)[1].name.value = 'half';
+  // A moderator on another screen changes a rule.
+  const other = snapshot().settings;
+  other.moderation.cooldown_secs = 5;
+  page.socket().receive(envelope(6, 'settings_updated', other));
+  assert.deepEqual(typedCommands(page), [['v', 'youtube'], ['half', 'youtube']]);
+
+  page.table['PATCH /api/commands'] = { status: 200, body: withCommands({ prefix: '!', commands: [{ name: 'v', source: 'youtube' }, { name: 'half', source: 'youtube' }] }) };
+  page.elements['commands-form'].fire('submit');
+  await settle();
+  // Saved: the form follows the server again.
+  page.socket().receive(envelope(20, 'settings_updated', { ...other, command: twoCommands }));
+  assert.deepEqual(typedCommands(page), [['v', 'youtube'], ['yt', 'youtube']]);
+});
+
+test('typing in the prefix or a word counts as editing, so an outside change leaves it alone', async () => {
+  for (const edit of [
+    (page) => { page.elements['commands-prefix'].value = '?'; page.elements['commands-prefix'].fire('input'); },
+    (page) => { commandRows(page)[0].name.value = 'mine'; commandRows(page)[0].name.fire('input'); },
+    (page) => { commandRows(page)[0].source.fire('change'); },
+  ]) {
+    const page = await ready();
+    edit(page);
+    const typed = [page.elements['commands-prefix'].value, ...typedCommands(page).flat()];
+    page.socket().receive(envelope(6, 'settings_updated', { ...snapshot().settings, command: twoCommands }));
+    assert.deepEqual([page.elements['commands-prefix'].value, ...typedCommands(page).flat()], typed);
+  }
+});
+
+test('a page whose server sends no command settings still works', async () => {
+  const old = snapshot();
+  delete old.settings.command;
+  const page = await ready({ routes: { 'GET /api/state': () => ({ status: 200, body: old }) } });
+  assert.equal(page.elements['commands-rows'].children.length, 0);
+  assert.ok(!page.elements['rules-chips'].children.some((chip) => /^Commands/.test(chip.textContent)));
 });

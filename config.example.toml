@@ -43,8 +43,14 @@ username = "your_tiktok_username"
 
 [command]
 # Viewers send: <prefix><name> <YouTube ID or link>, for example "!v dQw4w9WgXcQ".
+# One prefix (1 to 4 characters, no spaces) is shared by every command. Each
+# command is a name (letters, digits and _, at most 32; capitals do not count)
+# and the source its links come from. YouTube is the only source for now.
+# Up to 8 commands, no name twice. Several names for one source work like
+# several words for the same thing. Also editable on the dashboard's Rules page.
 prefix = "!"
-name = "v"
+commands = [{ name = "v", source = "youtube" }]
+# An older file with `name = "v"` instead of `commands` still works.
 
 [youtube]
 # How long video lookups are cached, and how many are kept.

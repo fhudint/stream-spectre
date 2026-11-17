@@ -53,6 +53,11 @@
   var built = false;
   var flashTimer = null;
   var lastSettings = '';
+  /* The rows of the chat commands form: { name, source } inputs. */
+  var commandRefs = [];
+  /* The commands form has edits that are not saved; a change from outside
+   * must not wipe them. */
+  var commandsDirty = false;
   var chatDrawn = null; // the newest chat line already in the page
   var commandsOnly = false;
   var view = 'queue';
@@ -729,6 +734,131 @@
         input.value = core.linesToText(state.settings.blacklist[field.key]);
       }
     });
+    renderCommands();
+  }
+
+  /* The chat commands form shows the saved commands, unless the moderator is
+   * in the middle of editing them. */
+  function renderCommands() {
+    var command = state.settings && state.settings.command;
+    if (!command || !Array.isArray(command.commands) || command.commands.length === 0) return;
+    var words = core.commandWords(command);
+    $('commands-example').textContent = tf('dashboard.commands.example', { example: words[0] + ' dQw4w9WgXcQ' });
+    if (!commandsDirty) showCommands();
+  }
+
+  function showCommands() {
+    var command = state.settings && state.settings.command;
+    if (!command || !Array.isArray(command.commands)) return;
+    $('commands-prefix').value = String(command.prefix);
+    drawCommandRows(command.commands);
+  }
+
+  function markCommandsDirty() {
+    commandsDirty = true;
+  }
+
+  /* What is typed in the rows now. */
+  function readCommandRows() {
+    return commandRefs.map(function (row) {
+      return { name: row.name.value, source: row.source.value };
+    });
+  }
+
+  function drawCommandRows(entries) {
+    var list = $('commands-rows');
+    list.replaceChildren();
+    commandRefs = entries.map(function (entry, index) {
+      var name = h('input', {
+        attrs: {
+          id: 'command-name-' + index,
+          type: 'text',
+          autocomplete: 'off',
+          spellcheck: 'false',
+          maxlength: '40',
+          'aria-label': t('dashboard.commands.name'),
+        },
+        on: { input: markCommandsDirty },
+      });
+      name.value = String(entry.name);
+      var source = h(
+        'select',
+        {
+          attrs: { id: 'command-source-' + index, 'aria-label': t('dashboard.commands.source') },
+          on: { change: markCommandsDirty },
+        },
+        core.COMMAND_SOURCES.map(function (id) {
+          return h('option', { text: t('dashboard.commands.source.' + id), attrs: { value: id } });
+        })
+      );
+      source.value = String(entry.source);
+      var remove = h('button', {
+        text: t('dashboard.commands.remove'),
+        attrs: { type: 'button', 'data-action': 'remove-command' },
+        on: {
+          click: function () {
+            changeCommandRows(function (rows) {
+              return rows.filter(function (row, at) {
+                return at !== index;
+              });
+            });
+          },
+        },
+      });
+      // The last word cannot go: there must be a command.
+      remove.disabled = entries.length <= 1;
+      list.appendChild(h('div', { className: 'command-row' }, [name, source, remove]));
+      return { name: name, source: source };
+    });
+  }
+
+  /* Redraws the rows after `change` turned the typed rows into new ones. */
+  function changeCommandRows(change) {
+    var rows = change(readCommandRows());
+    markCommandsDirty();
+    drawCommandRows(rows);
+  }
+
+  function saveCommands() {
+    var read = core.readCommands({ prefix: $('commands-prefix').value, commands: readCommandRows() });
+    if (read.error) {
+      var field = {
+        prefix: 'dashboard.commands.prefix',
+        name: 'dashboard.commands.name',
+        source: 'dashboard.commands.source',
+      }[read.error];
+      showError(
+        read.error === 'count'
+          ? tf('dashboard.commands.error.count', { max: core.MAX_COMMANDS })
+          : read.error === 'duplicate'
+            ? t('dashboard.commands.error.duplicate')
+            : tf('dashboard.error.invalid_value', { field: t(field) })
+      );
+      if (read.index !== undefined && commandRefs[read.index]) commandRefs[read.index].name.focus();
+      return;
+    }
+    var current = state.settings && state.settings.command;
+    var same =
+      current &&
+      JSON.stringify({
+        prefix: current.prefix,
+        commands: current.commands.map(function (entry) {
+          return { name: entry.name, source: entry.source };
+        }),
+      }) === JSON.stringify(read.value);
+    if (same) {
+      // Typed like "!vt" or with spaces around: show it the way it is kept.
+      clearError();
+      commandsDirty = false;
+      showCommands();
+      flash(t('dashboard.commands.saved'));
+      return;
+    }
+    act('PATCH', '/api/commands', read.value, function (result) {
+      commandsDirty = false;
+      adopt(result.data);
+      flash(t('dashboard.commands.saved'));
+    });
   }
 
   /* The address OBS needs, as shown (no token) and as copied (with it). */
@@ -793,6 +923,19 @@
     settingsForm.addEventListener('submit', function (event) {
       event.preventDefault();
       saveSettings();
+    });
+
+    $('commands-prefix').addEventListener('input', markCommandsDirty);
+    $('commands-add').addEventListener('click', function () {
+      changeCommandRows(function (rows) {
+        return rows.concat([{ name: '', source: core.COMMAND_SOURCES[0] }]);
+      });
+      var last = commandRefs[commandRefs.length - 1];
+      if (last) last.name.focus();
+    });
+    $('commands-form').addEventListener('submit', function (event) {
+      event.preventDefault();
+      saveCommands();
     });
 
     var blacklistForm = $('blacklist-form');

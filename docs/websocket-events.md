@@ -19,6 +19,7 @@ of truth; this page describes them for people writing clients.
 | `PATCH /api/settings` | Change some moderation settings, keep the rest; answers the new state |
 | `PATCH /api/blacklist` | Replace some blacklist lists (`video_ids`, `channels`, `title_words`), keep the rest |
 | `PATCH /api/dashboard` | Change dashboard settings (`chat_history`), keep the rest |
+| `PATCH /api/commands` | Change the chat commands: `{"prefix": "!", "commands": [{"name": "v", "source": "youtube"}]}`. Either field may be left out; `commands` is always the whole list. Takes effect for the next chat message. `400` for an empty list, more than 8, a name used twice (capitals do not count), a name with anything but ASCII letters, digits and `_`, an unknown source, or a prefix that is empty, longer than 4 or has spaces. Answers the new state. |
 | `PATCH /api/chat/tiktok` | Body `{"username": "name"}`: set the TikTok username (an empty string stops reading chat); the chat follows it without a restart. Letters, digits, `_` and `.`, at most 64; a leading `@` and spaces are dropped. Answers the new state. |
 | `PUT /api/playback/pause` | Body `{"paused": true or false}`: pauses or resumes the video that is playing. Answers the new state. `409` with `"code": "nothing_playing"` when no video is playing. |
 | `PUT /api/chat/connection` | Body `{"connected": true or false}`: disconnects the chat (`false`) or connects it again (`true`), for as long as the program runs; not saved. Answers the new state. |
@@ -225,11 +226,14 @@ The moderation settings, the blacklist or the dashboard settings changed
     },
     "blacklist": { "video_ids": [], "channels": [], "title_words": [] },
     "dashboard": { "chat_history": 20 },
+    "command": { "prefix": "!", "commands": [{ "name": "v", "source": "youtube" }] },
     "chat": { "tiktok": { "username": "streamer" } }
 } }
 ```
 
-`moderation.volume` is always the current volume. `chat.tiktok.username` is
+`moderation.volume` is always the current volume. `command` is the `[command]`
+table: one shared prefix and the list of chat words, each with its `source`
+(`"youtube"` is the only one so far). `chat.tiktok.username` is
 empty while no username is set. The overlay's `hello` carries the same
 `settings.chat`; only the dashboard receives `settings_updated`.
 

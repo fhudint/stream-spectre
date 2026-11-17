@@ -100,6 +100,7 @@ pub fn router<S: VideoSource + 'static>(state: ServerState<S>, guard: Arc<Guard>
         .route("/api/settings", patch(api::settings::<S>))
         .route("/api/blacklist", patch(api::blacklist::<S>))
         .route("/api/dashboard", patch(api::dashboard::<S>))
+        .route("/api/commands", patch(api::commands::<S>))
         .route("/api/chat/tiktok", patch(api::tiktok::<S>))
         .route("/api/chat/connection", put(api::chat_connection::<S>))
         .route("/api/account", get(api::account::<S>))
@@ -1151,6 +1152,75 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(state["settings"]["dashboard"]["chat_history"], 5);
+    }
+
+    #[tokio::test]
+    async fn the_chat_commands_are_patched_checked_and_keep_the_rest() {
+        let server = start(None).await;
+        let patch = |body: Value| {
+            server
+                .http
+                .patch(server.url("/api/commands"))
+                .json(&body)
+                .send()
+        };
+
+        // Only the list: the prefix stays.
+        let updated: Value = patch(json!({"commands": [
+            {"name": "yt", "source": "youtube"},
+            {"name": "vt", "source": "youtube"},
+        ]}))
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+        assert_eq!(updated["settings"]["command"]["prefix"], "!");
+        assert_eq!(updated["settings"]["command"]["commands"][1]["name"], "vt");
+
+        // Only the prefix: the list stays.
+        let updated: Value = patch(json!({"prefix": "?"}))
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        assert_eq!(updated["settings"]["command"]["prefix"], "?");
+        assert_eq!(
+            updated["settings"]["command"]["commands"]
+                .as_array()
+                .unwrap()
+                .len(),
+            2
+        );
+
+        for bad in [
+            json!({"commands": []}),
+            json!({"commands": [{"name": "yt", "source": "youtube"}, {"name": "YT", "source": "youtube"}]}),
+            json!({"commands": [{"name": "yt", "source": "tiktok"}]}),
+            json!({"commands": [{"name": "yt"}]}),
+            json!({"commands": [{"name": "a b", "source": "youtube"}]}),
+            json!({"commands": "yt"}),
+            json!({"prefix": ""}),
+            json!({"prefix": "a b"}),
+            // The one-name form belongs in config.toml, not here.
+            json!({"name": "yt"}),
+            json!(["yt"]),
+        ] {
+            let refused = patch(bad.clone()).await.unwrap();
+            assert_eq!(refused.status(), 400, "{bad}");
+        }
+        let state: Value = server
+            .http
+            .get(server.url("/api/state"))
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        assert_eq!(state["settings"]["command"]["prefix"], "?");
+        assert_eq!(state["settings"]["command"]["commands"][0]["name"], "yt");
     }
 
     #[tokio::test]

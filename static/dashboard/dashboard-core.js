@@ -31,6 +31,11 @@
   var ACCOUNT_SECTIONS = ['tiktok', 'youtube', 'token'];
   /* The longest YouTube API key the server accepts. */
   var MAX_KEY_LEN = 200;
+  /* The server's limits for the chat commands. */
+  var MAX_COMMANDS = 8;
+  var MAX_PREFIX_LEN = 4;
+  var MAX_COMMAND_NAME_LEN = 32;
+  var COMMAND_SOURCES = ['youtube'];
   /* Colours for viewers' avatars and names: see .tint-N in dashboard.css. */
   var TINTS = 6;
   var THUMBNAIL = /^https:\/\/i\.ytimg\.com\/vi\/[A-Za-z0-9_-]{11}\/[A-Za-z0-9_]+\.jpg$/;
@@ -363,6 +368,8 @@
     if (!settings || !isObject(settings.moderation)) return [];
     var m = settings.moderation;
     var chips = [];
+    var words = commandWords(settings.command);
+    if (words.length > 0) chips.push(text('dashboard.rules.commands', { list: words.join(' ') }));
     chips.push(
       m.min_role === 'everyone'
         ? text('dashboard.rules.everyone', {})
@@ -533,8 +540,49 @@
     return number;
   }
 
+  /* The chat commands typed into the form, as the server will take them.
+   * `raw` is { prefix, commands: [{ name, source }] } with text as typed. A
+   * word may be typed with the prefix in front of it ("!vt"); the prefix is
+   * dropped. Returns { value: { prefix, commands } } or
+   * { error: 'prefix' | 'count' | 'name' | 'source' | 'duplicate', index }
+   * (index: the row at fault). The server checks the same rules. */
+  function readCommands(raw) {
+    var prefix = String(raw.prefix).trim();
+    var length = Array.from(prefix).length;
+    if (length < 1 || length > MAX_PREFIX_LEN || /[\s\u0000-\u001f\u007f-\u009f]/.test(prefix)) {
+      return { error: 'prefix' };
+    }
+    var rows = Array.isArray(raw.commands) ? raw.commands : [];
+    if (rows.length < 1 || rows.length > MAX_COMMANDS) return { error: 'count' };
+    var seen = Object.create(null);
+    var commands = [];
+    for (var i = 0; i < rows.length; i += 1) {
+      var name = String(rows[i].name).trim();
+      if (name.indexOf(prefix) === 0) name = name.slice(prefix.length);
+      if (name.length < 1 || name.length > MAX_COMMAND_NAME_LEN || !/^[A-Za-z0-9_]+$/.test(name)) {
+        return { error: 'name', index: i };
+      }
+      if (COMMAND_SOURCES.indexOf(rows[i].source) < 0) return { error: 'source', index: i };
+      var key = name.toLowerCase();
+      if (seen[key]) return { error: 'duplicate', index: i };
+      seen[key] = true;
+      commands.push({ name: name, source: rows[i].source });
+    }
+    return { value: { prefix: prefix, commands: commands } };
+  }
+
+  /* What a viewer types for a command, like "!vt". */
+  function commandWords(command) {
+    if (!isObject(command) || !Array.isArray(command.commands)) return [];
+    return command.commands.map(function (entry) {
+      return String(command.prefix) + String(entry.name);
+    });
+  }
+
   return {
     PROTOCOL_VERSION: PROTOCOL_VERSION,
+    MAX_COMMANDS: MAX_COMMANDS,
+    COMMAND_SOURCES: COMMAND_SOURCES,
     MAX_NOTICES: MAX_NOTICES,
     MAX_CHAT_LINES: MAX_CHAT_LINES,
     MAX_CHAT_HISTORY: MAX_CHAT_HISTORY,
@@ -569,5 +617,7 @@
     readSettings: readSettings,
     readChatHistory: readChatHistory,
     readTiktokUsername: readTiktokUsername,
+    readCommands: readCommands,
+    commandWords: commandWords,
   };
 });

@@ -527,3 +527,45 @@ test('the pause comes with hello and playback_paused, and any new video or empty
   // An event the snapshot already covers is ignored.
   assert.equal(core.reduce(state, envelope(3, 'playback_paused', { item_id: 7, paused: false })), state);
 });
+
+test('the commands form is read the way the server will take it', () => {
+  const row = (name, source = 'youtube') => ({ name, source });
+  assert.deepEqual(core.readCommands({ prefix: '!', commands: [row('v')] }), { value: { prefix: '!', commands: [row('v')] } });
+  // Spaces around are dropped, and so is a prefix typed in front of a word.
+  assert.deepEqual(core.readCommands({ prefix: ' ? ', commands: [row(' ?vt '), row('yt')] }), {
+    value: { prefix: '?', commands: [row('vt'), row('yt')] },
+  });
+  assert.deepEqual(core.readCommands({ prefix: '!?', commands: [row('a_1')] }).value.prefix, '!?');
+  assert.deepEqual(core.readCommands({ prefix: '😀', commands: [row('v')] }).value.prefix, '😀');
+
+  for (const prefix of ['', '   ', 'a b', '12345', 'a\tb', 'a\u0000']) {
+    assert.deepEqual(core.readCommands({ prefix, commands: [row('v')] }), { error: 'prefix' }, JSON.stringify(prefix));
+  }
+  assert.deepEqual(core.readCommands({ prefix: '!', commands: [] }), { error: 'count' });
+  assert.deepEqual(core.readCommands({ prefix: '!', commands: undefined }), { error: 'count' });
+  const nine = Array.from({ length: 9 }, (_, n) => row('c' + n));
+  assert.deepEqual(core.readCommands({ prefix: '!', commands: nine }), { error: 'count' });
+  assert.equal(core.readCommands({ prefix: '!', commands: nine.slice(0, 8) }).value.commands.length, 8);
+  assert.equal(core.MAX_COMMANDS, 8);
+
+  for (const name of ['', '  ', 'two words', 'vídeo', 'v!', 'x'.repeat(33), '!', '!!v']) {
+    assert.deepEqual(core.readCommands({ prefix: '!', commands: [row('ok'), row(name)] }), { error: 'name', index: 1 }, JSON.stringify(name));
+  }
+  assert.equal(core.readCommands({ prefix: '!', commands: [row('x'.repeat(32))] }).value.commands[0].name.length, 32);
+  assert.deepEqual(core.readCommands({ prefix: '!', commands: [row('v', 'tiktok')] }), { error: 'source', index: 0 });
+  assert.deepEqual(core.readCommands({ prefix: '!', commands: [row('yt'), row('v'), row('YT')] }), { error: 'duplicate', index: 2 });
+  // Typed with the prefix, it is the same word.
+  assert.deepEqual(core.readCommands({ prefix: '!', commands: [row('v'), row('!V')] }), { error: 'duplicate', index: 1 });
+  // A name that only starts like another is fine.
+  assert.ok(core.readCommands({ prefix: '!', commands: [row('v'), row('vt')] }).value);
+});
+
+test('the commands are shown the way viewers type them', () => {
+  assert.deepEqual(core.commandWords({ prefix: '!', commands: [{ name: 'v' }, { name: 'yt' }] }), ['!v', '!yt']);
+  assert.deepEqual(core.commandWords(null), []);
+  assert.deepEqual(core.commandWords({ prefix: '!' }), []);
+  const say = (key, values) => `${key}${JSON.stringify(values)}`;
+  const moderation = { mode: 'manual', min_role: 'everyone', min_gifter_level: 0, min_fan_club_level: 0, cooldown_secs: 0, max_duration_secs: 600, max_queue_len: 20 };
+  const chips = core.ruleChips({ moderation, blacklist: {}, command: { prefix: '!', commands: [{ name: 'v' }, { name: 'vt' }] } }, say);
+  assert.equal(chips[0], 'dashboard.rules.commands{"list":"!v !vt"}');
+});
