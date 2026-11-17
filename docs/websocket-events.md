@@ -282,7 +282,7 @@ A message in the chat (dashboard only; the overlay never receives chat).
 { "type": "chat_message", "data": {
     "name": "Budi",
     "role": "follower",
-    "text": "!v dQw4w9WgXcQ",
+    "text": "!yt dQw4w9WgXcQ",
     "at_ms": 1700000000123,
     "command": true,
     "skipped": 0

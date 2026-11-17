@@ -7,7 +7,7 @@ is **mediashare through chat**: viewers send a YouTube video in chat, a
 moderator approves it in a dashboard, and it plays on your stream.
 
 ```
-viewer: !v dQw4w9WgXcQ   →   checked   →   dashboard (approve / reject / skip)   →   plays in OBS
+viewer: !yt dQw4w9WgXcQ   →   checked   →   dashboard (approve / reject / skip)   →   plays in OBS
 ```
 
 > **Status: early.** The code is complete for the first version and well
@@ -24,15 +24,16 @@ for what plays on your stream.
 
 ## Features
 
-- Chat command `!v <id or link>`. Accepts an 11-character video ID,
+- Chat command `!yt <id or link>`. Accepts an 11-character video ID,
   `youtu.be/ID`, `youtube.com/watch?v=ID` and `youtube.com/shorts/ID`.
   The prefix and the command words are configurable, and you can have several
-  (for example `!v` and `!yt`), on the dashboard's Rules page or in `[command]`.
-- TikTok videos too, with a command of their own that you add on the Rules page
-  (for example `!vt`, with the source TikTok). After it a viewer sends a video
+  (for example `!yt` and `!v` for the same thing), on the dashboard's Rules
+  page or in `[command]`.
+- TikTok videos too, with a command of their own (`!vt` in the example config,
+  or any word you add on the Rules page with the source TikTok). After it a viewer sends a video
   ID (`!vt 7700124541145599252`), the code of a short link from the app
   (`!vt ZSpGELffb`, from `vt.tiktok.com/ZSpGELffb`), or a full link. A command
-  takes only its own source: `!v` with a TikTok link is answered with the
+  takes only its own source: `!yt` with a TikTok link is answered with the
   command to use. TikTok videos always wait for a moderator, are played in the
   same overlay and the same queue, and must be skipped by hand when they end
   (see [Known limitations](#known-limitations)).
@@ -79,11 +80,19 @@ cargo run --example demo
 ```
 
 Open <http://localhost:8787/dashboard/>. Pretend viewers send real public
-YouTube videos every few seconds; approve one and it plays in
+YouTube videos, and now and then a TikTok one, every few seconds, using the
+commands of `config.example.toml` (`!yt` and `!vt`); approve one and it plays in
 <http://localhost:8787/overlay/>.
 
 Always use `localhost`, not `127.0.0.1`, in these addresses: see
 [the note on addresses](#use-localhost-not-an-ip-address) below.
+
+To try videos of your own, copy `demo-videos.example.json` to
+`demo-videos.json` (it is git-ignored, like `.env`) and list the videos in it:
+`youtube` takes IDs or links, `tiktok` takes IDs, short link codes or links. A
+key you leave out keeps the built-in list, `[]` turns that source off, and an
+entry the program would not understand is reported and skipped. `DEMO_VIDEOS`
+names another file.
 
 ## Set up
 
