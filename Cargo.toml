@@ -7,6 +7,16 @@ description = "OBS browser-source stream overlay with chat-driven YouTube medias
 license = "AGPL-3.0-only"
 publish = false
 
+# The same program in a window of its own (see src/bin/window.rs). Off by
+# default: it needs GTK and WebKitGTK on Linux, which a plain build does not.
+[features]
+window = ["dep:wry", "dep:tao"]
+
+[[bin]]
+name = "stream-spectre-window"
+path = "src/bin/window.rs"
+required-features = ["window"]
+
 [dependencies]
 anyhow = "1.0.104"
 axum = { version = "0.8.9", features = ["ws"] }
@@ -20,12 +30,14 @@ rust-embed = { version = "8.14.0", features = ["mime-guess"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 subtle = "2.6.1"
+tao = { version = "0.37.2", optional = true }
 thiserror = "2.0.21"
 tokio = { version = "1.54.1", features = ["macros", "net", "rt-multi-thread", "signal", "sync", "time"] }
 toml = "1.2.1"
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 url = "2.5.8"
+wry = { version = "0.57.2", optional = true }
 
 [dev-dependencies]
 futures-util = "0.3.34"

@@ -75,6 +75,26 @@ cargo build --release
 The binary is `target/release/stream-spectre`. It is a single file with the
 pages built in.
 
+### In a window of its own (Linux)
+
+`stream-spectre-window` is the same program with the dashboard in a window of
+its own instead of a browser tab (the overlay stays a browser source in OBS).
+Closing the window stops the program, after it has saved. It is an optional
+build, because it needs the development files of GTK 3 and WebKitGTK (Fedora:
+`sudo dnf install webkit2gtk4.1-devel gtk3-devel libsoup3-devel`):
+
+```sh
+cargo build --release --features window
+```
+
+To build it and put "Stream Spectre" with the ghost icon in your application
+menu, run `scripts/install-linux.sh`. It installs under `~/.local` and copies
+your config to `~/.config/stream-spectre/` the first time; `--uninstall`
+removes it again. Started from the menu there is no terminal, so a problem
+before the window opens (such as a broken `config.toml`) is only in the log:
+run `stream-spectre-window` in a terminal to see it. A port that is taken is
+shown in the window itself.
+
 Development so far has been on Linux (Fedora). CI also builds on Windows and
 macOS, but those have not been tried by hand.
 

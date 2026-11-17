@@ -165,6 +165,13 @@ with the server running in the same process, and installers for Windows, macOS
 and Linux. The pages and the server logic can be reused as they are. The overlay
 stays a browser source in OBS, because OBS needs a URL for it.
 
+**Built so far.** A lighter step exists: `stream-spectre-window` (`src/bin/window.rs`, build
+with `--features window`, Linux tested) shows the dashboard in a small web view
+(`wry` and `tao`), with the server in the same process (`run::serve`); closing
+the window stops the program after it has saved. `scripts/install-linux.sh`
+puts it in the application menu. What Tauri would still add: installers,
+a tray icon, updates and signing.
+
 **Open questions**
 - Installers and signing: unsigned apps show security warnings on Windows and
   macOS. Windows and macOS have so far only been built in CI, not run by hand.
