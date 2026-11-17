@@ -9,7 +9,8 @@
 //! Then open <http://localhost:8787/dashboard/> and add
 //! <http://localhost:8787/overlay/mediashare/> as a browser source (use `localhost`, not
 //! `127.0.0.1`: YouTube's player refuses to play from an IP address). A pretend
-//! viewer asks for a video every few seconds, mostly YouTube and now and then
+//! viewer asks for a video every few seconds (most add a few words, which the
+//! overlay shows), mostly YouTube and now and then
 //! TikTok; approve one in the dashboard and it plays in the overlay. A TikTok
 //! video has to be skipped by hand when it is over.
 //!
@@ -168,6 +169,14 @@ const SMALL_TALK: [&str; 4] = [
     "first time here",
 ];
 
+/// What some of the requests say after the link; every third has nothing.
+const MESSAGES: [&str; 4] = [
+    "halo ka, puterin ini dong",
+    "this one is my favourite",
+    "request dari Bandung!",
+    "",
+];
+
 /// Answers every ID with an ordinary three-minute video.
 struct DemoVideos;
 
@@ -242,7 +251,8 @@ fn request_text(commands: &Commands, videos: &Videos, round: usize) -> Option<St
     } else {
         round - round / TIKTOK_EVERY
     };
-    Some(format!("{command} {}", list[turn % list.len()]))
+    let message = MESSAGES[round % MESSAGES.len()];
+    Some(format!("{command} {} {message}", list[turn % list.len()]))
 }
 
 async fn request(pipeline: &Pipeline<DemoVideos>, plan: &Plan, round: usize) {

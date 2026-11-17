@@ -65,6 +65,18 @@ impl PlayQueue {
         requested_at: SystemTime,
         settings: &ModerationConfig,
     ) -> Result<ItemId, Denial> {
+        self.submit_with_message(sender, media, String::new(), requested_at, settings)
+    }
+
+    /// `submit` for a request that comes with the viewer's message.
+    pub fn submit_with_message(
+        &mut self,
+        sender: Sender,
+        media: impl Into<Media>,
+        message: String,
+        requested_at: SystemTime,
+        settings: &ModerationConfig,
+    ) -> Result<ItemId, Denial> {
         if self.waiting_len() >= settings.max_queue_len {
             return Err(Denial::QueueFull);
         }
@@ -77,6 +89,7 @@ impl PlayQueue {
             media,
             sender,
             requested_at,
+            message,
         };
         if auto {
             self.approved.push_back(item);

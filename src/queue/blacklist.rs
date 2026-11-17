@@ -98,6 +98,15 @@ impl Blacklist {
             .then_some(BlacklistHit::Channel)
     }
 
+    /// Whether a viewer's message has one of the banned words, the same words
+    /// as for titles and matched the same way.
+    pub fn check_message(&self, message: &str) -> bool {
+        let text = format!(" {} ", normalize(message));
+        self.title_phrases
+            .iter()
+            .any(|phrase| text.contains(phrase.as_str()))
+    }
+
     /// Checks the channel name and title of a looked-up video.
     pub fn check_details(&self, video: &VideoDetails) -> Option<BlacklistHit> {
         if let Some(hit) = self.check_video_id(&video.id) {
@@ -240,6 +249,15 @@ mod tests {
         for title in ["bad", "word bad", "badword", "bad words"] {
             assert_eq!(b.check_details(&video(OK_ID, title, "c")), None, "{title}");
         }
+    }
+
+    #[test]
+    fn a_message_is_checked_against_the_same_words() {
+        let b = Blacklist::from_config(&config(&[], &[], &["bad word"])).unwrap();
+        assert!(b.check_message("you Bad-Word!"));
+        assert!(!b.check_message("badword"));
+        assert!(!b.check_message(""));
+        assert!(!Blacklist::default().check_message("anything"));
     }
 
     #[test]

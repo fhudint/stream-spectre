@@ -352,6 +352,13 @@
     return tf('dashboard.row.meta', { role: role, time: core.formatWaiting(seconds, timeTemplates()) });
   }
 
+  /* What the viewer wrote after the link, on a line of its own; nothing when
+   * they wrote nothing. */
+  function messageLine(message) {
+    if (!message) return null;
+    return h('div', { className: 'row-message', text: '\u201C' + message + '\u201D', attrs: { title: message } });
+  }
+
   /* One request in a list: picture, title, who asked and for how long. */
   function rowView(item, selected, actions) {
     var picture = thumb(item, 'thumb', 96, 54);
@@ -379,6 +386,7 @@
         h('div', { className: picture.className }, picture.children),
         h('div', { className: 'info' }, [
           h('div', { className: 'row-title', text: item.title }),
+          messageLine(item.message),
           h('div', { className: 'row-sub' }, [
             h('span', { text: item.channel }),
             h('span', { className: 'sep', text: ' · ' }),
@@ -565,6 +573,7 @@
       h('div', { className: 'now-info' }, [
         h('div', { className: 'live-row' }, [live, badge]),
         h('div', { className: 'now-title', text: item.title }),
+        item.message ? h('div', { className: 'now-message', text: '\u201C' + item.message + '\u201D' }) : null,
         h('div', { className: 'row-sub' }, [
           h('span', { text: item.channel }),
           h('span', { className: 'sep', text: ' · ' }),
@@ -767,6 +776,7 @@
       h('div', { className: picture.className }, picture.children),
       h('div', { className: 'info' }, [
         h('div', { className: 'row-title', text: entry.title || entry.video_id }),
+        messageLine(entry.message),
         h('div', { className: 'row-sub' }, sub),
         entry.reason
           ? h('div', { className: 'row-sub reason', text: entry.reason, attrs: { title: entry.reason } })

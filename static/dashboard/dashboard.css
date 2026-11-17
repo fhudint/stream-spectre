@@ -428,6 +428,8 @@ li.empty { padding: 18px 22px; border-top: 1px solid var(--rule); }
 .now-title { font-size: 16px; font-weight: 500; line-height: 1.35; overflow-wrap: anywhere; }
 .row-sub { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .row-sub code { color: var(--muted); }
+.row-message { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.now-message { font-size: 14px; line-height: 1.35; overflow-wrap: anywhere; }
 .sep { color: var(--dim); }
 
 progress {

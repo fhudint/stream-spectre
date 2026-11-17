@@ -299,8 +299,12 @@ impl<S: VideoSource> Pipeline<S> {
             Parsed::Invalid { source, reason } => {
                 self.tell_invalid(&parser, &sender, source, reason);
             }
-            Parsed::Youtube(video_id) => self.request_youtube(sender, video_id, now).await,
-            Parsed::Tiktok(target) => self.request_tiktok(sender, target, now).await,
+            Parsed::Youtube { id, message } => {
+                self.request_youtube(sender, id, message, now).await;
+            }
+            Parsed::Tiktok { target, message } => {
+                self.request_tiktok(sender, target, message, now).await;
+            }
         }
     }
 
@@ -339,14 +343,22 @@ impl<S: VideoSource> Pipeline<S> {
         self.notice(NoticeLevel::Warning, key, text, Some(sender));
     }
 
-    async fn request_youtube(&self, sender: Sender, video_id: VideoId, now: Instant) {
+    async fn request_youtube(
+        &self,
+        sender: Sender,
+        video_id: VideoId,
+        message: String,
+        now: Instant,
+    ) {
         // Stage 1: everything that needs no YouTube call.
         let admitted = {
             let mut inner = self.lock();
             let waiting = inner.queue.waiting_len();
-            inner.gatekeeper.admit(&sender, &video_id, waiting, now)
+            inner
+                .gatekeeper
+                .admit_with_message(&sender, &video_id, &message, waiting, now)
         };
-        let bare = Subject::bare(CommandSource::Youtube, video_id.as_str());
+        let bare = Subject::bare(CommandSource::Youtube, video_id.as_str()).with_message(&message);
         if let Err(denial) = admitted {
             self.deny(&sender, bare, denial);
             return;
@@ -379,10 +391,16 @@ impl<S: VideoSource> Pipeline<S> {
         };
 
         // Stage 2: rules that need the video's details, then queue it.
-        self.enqueue(&sender, details.into());
+        self.enqueue(&sender, details.into(), message);
     }
 
-    async fn request_tiktok(&self, sender: Sender, target: TiktokRef, now: Instant) {
+    async fn request_tiktok(
+        &self,
+        sender: Sender,
+        target: TiktokRef,
+        message: String,
+        now: Instant,
+    ) {
         // Stage 1: everything that needs no request to TikTok. A short code
         // stands in for the video here; it cannot be on the blacklist, which
         // is checked again once the video is known.
@@ -393,9 +411,11 @@ impl<S: VideoSource> Pipeline<S> {
         let admitted = {
             let mut inner = self.lock();
             let waiting = inner.queue.waiting_len();
-            inner.gatekeeper.admit(&sender, &key, waiting, now)
+            inner
+                .gatekeeper
+                .admit_with_message(&sender, &key, &message, waiting, now)
         };
-        let bare = Subject::bare(CommandSource::Tiktok, key);
+        let bare = Subject::bare(CommandSource::Tiktok, key).with_message(&message);
         if let Err(denial) = admitted {
             self.deny(&sender, bare, denial);
             return;
@@ -436,30 +456,39 @@ impl<S: VideoSource> Pipeline<S> {
             },
         };
 
-        self.enqueue(&sender, Media::Tiktok(details));
+        self.enqueue(&sender, Media::Tiktok(details), message);
     }
 
     /// Stage 2 for either source: the rules that need the video, then the
     /// queue. Starts the video when nothing is playing and it is approved. A
     /// request that is turned away is told to the moderators and logged.
-    fn enqueue(&self, sender: &Sender, media: Media) {
-        let subject = Subject::from(&media);
-        if let Err(denial) = self.try_enqueue(sender, media, &subject) {
+    fn enqueue(&self, sender: &Sender, media: Media, message: String) {
+        let subject = Subject::from(&media).with_message(&message);
+        if let Err(denial) = self.try_enqueue(sender, media, message, &subject) {
             self.deny(sender, subject, denial);
         }
     }
 
-    fn try_enqueue(&self, sender: &Sender, media: Media, subject: &Subject) -> Result<(), Denial> {
+    fn try_enqueue(
+        &self,
+        sender: &Sender,
+        media: Media,
+        message: String,
+        subject: &Subject,
+    ) -> Result<(), Denial> {
         let mut inner = self.lock();
         match &media {
             Media::Youtube(details) => inner.gatekeeper.vet(details)?,
             Media::Tiktok(details) => inner.gatekeeper.vet_tiktok(details)?,
         }
         let settings = inner.gatekeeper.settings().clone();
-        match inner
-            .queue
-            .submit(sender.clone(), media, SystemTime::now(), &settings)
-        {
+        match inner.queue.submit_with_message(
+            sender.clone(),
+            media,
+            message,
+            SystemTime::now(),
+            &settings,
+        ) {
             Ok(id) => {
                 inner.stats.received += 1;
                 let status = if inner.queue.is_pending(id) {
@@ -2266,6 +2295,72 @@ mod tests {
             FakeSource::default(),
         );
         assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn the_words_after_the_link_travel_with_the_request() {
+        let p = pipeline(&both_sources(|_| {}));
+        say(&p, sender(1, Role::Follower), &format!("!v {ID_A} halo ka")).await;
+        say(
+            &p,
+            sender(2, Role::Follower),
+            &format!("!vt {TT_ID} <b>hi</b>"),
+        )
+        .await;
+        say(&p, sender(3, Role::Follower), &format!("!v {ID_B}")).await;
+        let hello = p.hello();
+        let messages: Vec<&str> = hello
+            .queue
+            .pending
+            .iter()
+            .map(|item| item.message.as_str())
+            .collect();
+        assert_eq!(messages, ["halo ka", "<b>hi</b>", ""]);
+        let logged: Vec<&str> = hello
+            .history
+            .iter()
+            .map(|entry| entry.message.as_str())
+            .collect();
+        assert_eq!(logged, ["halo ka", "<b>hi</b>", ""]);
+
+        // It is still there when the request plays.
+        p.approve(ItemId(hello.queue.pending[0].id)).unwrap();
+        assert_eq!(p.hello().queue.now_playing.unwrap().message, "halo ka");
+    }
+
+    #[tokio::test]
+    async fn a_message_with_a_banned_word_refuses_the_request_and_costs_no_cooldown() {
+        let mut cfg = both_sources(|m| m.cooldown_secs = 60);
+        cfg.blacklist.title_words = vec!["bad word".to_owned()];
+        let p = pipeline(&cfg);
+        let mut rx = p.subscribe();
+        say(
+            &p,
+            sender(1, Role::Follower),
+            &format!("!v {ID_A} you BAD-word"),
+        )
+        .await;
+        assert!(p.hello().queue.pending.is_empty());
+        let events = drain_all(&mut rx);
+        let notice = events
+            .iter()
+            .find(|e| kinds(std::slice::from_ref(e)) == ["notice"])
+            .expect("the moderators are told");
+        assert_eq!(data(notice)["code"], "reject.blacklisted_message");
+        let entry = p.hello().history.pop().unwrap();
+        assert_eq!(entry.status, RequestStatus::Refused);
+
+        // The same viewer may ask again at once, without the word.
+        say(&p, sender(1, Role::Follower), &format!("!v {ID_A} nice")).await;
+        assert_eq!(p.hello().queue.pending.len(), 1);
+        // A TikTok request is held to the same words.
+        say(
+            &p,
+            sender(2, Role::Follower),
+            &format!("!vt {TT_ID} bad word"),
+        )
+        .await;
+        assert_eq!(p.hello().queue.pending.len(), 1);
     }
 
     #[tokio::test]

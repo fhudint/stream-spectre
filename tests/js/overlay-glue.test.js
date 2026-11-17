@@ -958,3 +958,9 @@ test('the clock shows the time and what is left, and nothing while the length is
   step();
   assert.equal(page.elements.left.textContent, '');
 });
+
+test('a message from the viewer is shown as plain text in place of the title', () => {
+  const page = playing({}, { message: 'halo <b>ka</b>', channel: 'Chan' });
+  assert.equal(page.elements.title.textContent, 'halo <b>ka</b>');
+  assert.equal(page.elements.channel.textContent, 'A <b>title</b>');
+});

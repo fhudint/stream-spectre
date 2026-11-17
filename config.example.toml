@@ -100,7 +100,7 @@ max_volume = 80
 # Anything listed here is rejected.
 video_ids = []       # YouTube video IDs, e.g. ["dQw4w9WgXcQ"]
 channels = []        # YouTube channel names
-title_words = []     # words that must not appear in a video title
+title_words = []     # words that must not appear in a video title or in a viewer's message
 
 [dashboard]
 # How many recent chat messages the dashboard shows right after it is opened or

@@ -250,6 +250,7 @@ mod tests {
             }),
             sender: Sender::new("u", "n", Role::Follower),
             requested_at: SystemTime::UNIX_EPOCH,
+            message: String::new(),
         };
         Event::Play {
             item: ItemView::from(&item),

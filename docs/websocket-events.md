@@ -166,9 +166,15 @@ The queue changed. `data` is the whole queue:
   "duration_secs": 213,
   "thumbnail_url": "https://i.ytimg.com/vi/dQw4w9WgXcQ/mqdefault.jpg",
   "requested_by": { "name": "Budi", "role": "subscriber" },
-  "requested_at_ms": 1700000000123
+  "requested_at_ms": 1700000000123,
+  "message": "halo ka"
 }
 ```
+
+`message` is what the viewer wrote after the link (`!yt dQw4w9WgXcQ halo ka`): plain
+text, control characters turned into spaces, at most 150 characters, `""` when
+they wrote nothing. The overlay shows it as the main line; always show it as
+text, never as markup.
 
 `id` is unique while the server runs. `source` is `"youtube"` or `"tiktok"`
 (an item from a server that predates TikTok has no `source`, which means
@@ -385,7 +391,8 @@ one entry of the request history; a client **replaces the entry with the same
     "requested_by": "Sari",
     "requested_at_ms": 1700000000000,
     "status": "waiting",
-    "reason": ""
+    "reason": "",
+    "message": "halo ka"
 } }
 ```
 

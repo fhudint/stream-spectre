@@ -96,4 +96,6 @@ pub struct QueueItem {
     pub media: Media,
     pub sender: Sender,
     pub requested_at: SystemTime,
+    /// What the viewer wrote after the link: plain text, possibly empty.
+    pub message: String,
 }

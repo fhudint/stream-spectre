@@ -51,6 +51,8 @@ pub struct ItemView {
     pub thumbnail_url: String,
     pub requested_by: SenderView,
     pub requested_at_ms: u64,
+    /// What the viewer wrote after the link; empty when nothing.
+    pub message: String,
 }
 
 impl From<&QueueItem> for ItemView {
@@ -74,6 +76,7 @@ impl From<&QueueItem> for ItemView {
                 role: item.sender.role,
             },
             requested_at_ms: unix_ms(item.requested_at),
+            message: item.message.clone(),
         }
     }
 }
@@ -382,6 +385,7 @@ mod tests {
             }),
             sender: Sender::new("u1", "Budi", Role::Subscriber),
             requested_at: UNIX_EPOCH + Duration::from_millis(1_700_000_000_123),
+            message: "halo ka".to_owned(),
         }
     }
 
@@ -395,7 +399,8 @@ mod tests {
             "duration_secs": 213,
             "thumbnail_url": "https://i.ytimg.com/vi/dQw4w9WgXcQ/mqdefault.jpg",
             "requested_by": {"name": "Budi", "role": "subscriber"},
-            "requested_at_ms": 1_700_000_000_123u64
+            "requested_at_ms": 1_700_000_000_123u64,
+            "message": "halo ka"
         })
     }
 

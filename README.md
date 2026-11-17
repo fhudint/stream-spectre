@@ -29,6 +29,10 @@ for what plays on your stream.
   The prefix and the command words are configurable, and you can have several
   (for example `!yt` and `!v` for the same thing), on the dashboard's Rules
   page or in `[command]`.
+- A viewer can add a few words after the link (`!yt dQw4w9WgXcQ halo ka`, up to
+  150 characters). The overlay shows them as the main line, with the video's
+  title under it, and the dashboard shows them on the request. A message with a
+  word from the blacklist's title words is refused, like a title with one.
 - TikTok videos too, with a command of their own (`!vt` in the example config,
   or any word you add on the Rules page with the source TikTok). After it a viewer sends a video
   ID (`!vt 7700124541145599252`), the code of a short link from the app

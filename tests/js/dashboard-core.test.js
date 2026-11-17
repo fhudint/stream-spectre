@@ -726,3 +726,16 @@ test('the look of the overlay is read from the settings, the first when there is
     assert.equal(core.overlayTheme(bad), 'obsidian', JSON.stringify(bad));
   }
 });
+
+test('a message in an item or a request is kept only when it is text', () => {
+  const item = { id: 1, video_id: 'dQw4w9WgXcQ' };
+  const queue = (message) => core.reduce(core.initialState(), { v: 1, seq: 1, type: 'hello', data: { queue: { pending: [{ ...item, message }], approved: [], now_playing: null }, history: [{ ...item, source: 'youtube', status: 'played', message }] } });
+  const good = queue('halo ka');
+  assert.equal(good.queue.pending[0].message, 'halo ka');
+  assert.equal(good.history[0].message, 'halo ka');
+  for (const bad of [5, null, {}, undefined]) {
+    const state = queue(bad);
+    assert.equal(state.queue.pending[0].message, '');
+    assert.equal(state.history[0].message, '');
+  }
+});

@@ -797,3 +797,19 @@ test('the clock says the time and what is left once the length is known', () => 
   assert.deepEqual(core.clockTexts(23, NaN), { time: '0:23', left: '' });
   assert.deepEqual(core.clockTexts(NaN, 45), { time: '', left: '' });
 });
+
+test('the viewer\'s message is the main line and the video\'s title goes to the small one', () => {
+  const t = setup();
+  t.controller.handle(envelope(1, 'play', { item: item(1, ID_A, { message: 'halo ka', channel: 'Chan' }), volume: 50 }));
+  const shown = t.calls.find((c) => c[0] === 'show')[1];
+  assert.equal(shown.title, 'halo ka');
+  assert.equal(shown.channel, 'Title 1');
+  // Without one, nothing changes: the title leads and the channel follows.
+  t.controller.handle(envelope(2, 'play', { item: item(2, ID_A, { message: '', channel: 'Chan' }), volume: 50 }));
+  const plain = t.calls.filter((c) => c[0] === 'show')[1][1];
+  assert.equal(plain.title, 'Title 2');
+  assert.equal(plain.channel, 'Chan');
+  // Anything that is not text is no message.
+  t.controller.handle(envelope(3, 'play', { item: item(3, ID_A, { message: 5 }), volume: 50 }));
+  assert.equal(t.calls.filter((c) => c[0] === 'show')[2][1].title, 'Title 3');
+});

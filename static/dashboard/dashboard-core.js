@@ -152,6 +152,8 @@
       duration_secs: Number.isFinite(item.duration_secs) ? item.duration_secs : 0,
       thumbnail_url: typeof item.thumbnail_url === 'string' ? item.thumbnail_url : '',
       requested_at_ms: wholeNumber(item.requested_at_ms),
+      // What the viewer wrote after the link.
+      message: typeof item.message === 'string' ? item.message : '',
       requested_by: {
         name: typeof by.name === 'string' ? by.name : '',
         role: typeof by.role === 'string' ? by.role : 'everyone',
@@ -217,6 +219,7 @@
       requested_at_ms: wholeNumber(entry.requested_at_ms),
       status: REQUEST_STATUSES.indexOf(entry.status) >= 0 ? entry.status : 'refused',
       reason: typeof entry.reason === 'string' ? entry.reason : '',
+      message: typeof entry.message === 'string' ? entry.message : '',
       // The same picture the queue shows; only YouTube has one.
       thumbnail_url:
         source === 'youtube' && YOUTUBE_ID.test(entry.video_id)

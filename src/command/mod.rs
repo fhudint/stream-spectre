@@ -5,6 +5,7 @@
 //! raw text is dropped.
 
 use crate::config::{CommandConfig, CommandEntry, CommandSource};
+use crate::text::sanitize_message;
 use crate::tiktok::{TiktokRef, extract_tiktok_ref};
 use crate::youtube::{VideoId, extract_video_id};
 
@@ -31,14 +32,15 @@ pub enum Parsed {
         source: CommandSource,
         reason: InvalidReason,
     },
-    /// A valid YouTube request.
-    Youtube(VideoId),
+    /// A valid YouTube request. `message` is what the viewer wrote after the
+    /// link, cleaned up and cut short; empty when they wrote nothing.
+    Youtube { id: VideoId, message: String },
     /// A valid TikTok request. A short code still has to be looked up.
-    Tiktok(TiktokRef),
+    Tiktok { target: TiktokRef, message: String },
 }
 
-/// Recognises `<prefix><name> <id or link>`, for example `!v dQw4w9WgXcQ`,
-/// for any of the configured names.
+/// Recognises `<prefix><name> <id or link> [message]`, for example
+/// `!v dQw4w9WgXcQ nice song`, for any of the configured names.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CommandParser {
     prefix: String,
@@ -67,7 +69,8 @@ impl CommandParser {
     /// - The prefix must match exactly; the command name is case-insensitive.
     /// - The name must be a whole word, so `!vid` is not `!v`, and `!vt` is
     ///   not `!v`.
-    /// - Only the first word after the name is used; the rest is ignored.
+    /// - The first word after the name is the video; what follows it is the
+    ///   viewer's message (plain text, see `sanitize_message`).
     /// - A command accepts only its own source. A link of the other source
     ///   is reported as such, so the sender can be pointed to the right
     ///   command; a bare ID is never taken for the other source.
@@ -89,19 +92,24 @@ impl CommandParser {
 
         let source = command.source;
         let invalid = |reason| Parsed::Invalid { source, reason };
-        let Some(argument) = rest.split_whitespace().next() else {
+        let (argument, message) = rest
+            .trim_start()
+            .split_once(char::is_whitespace)
+            .unwrap_or((rest.trim_start(), ""));
+        if argument.is_empty() {
             return invalid(InvalidReason::MissingArgument);
-        };
+        }
+        let message = sanitize_message(message);
         match source {
             CommandSource::Youtube => match extract_video_id(argument) {
-                Some(id) => Parsed::Youtube(id),
+                Some(id) => Parsed::Youtube { id, message },
                 None if is_link(argument) && extract_tiktok_ref(argument).is_some() => {
                     invalid(InvalidReason::WrongSource(CommandSource::Tiktok))
                 }
                 None => invalid(InvalidReason::InvalidLink),
             },
             CommandSource::Tiktok => match extract_tiktok_ref(argument) {
-                Some(target) => Parsed::Tiktok(target),
+                Some(target) => Parsed::Tiktok { target, message },
                 None if is_link(argument) && extract_video_id(argument).is_some() => {
                     invalid(InvalidReason::WrongSource(CommandSource::Youtube))
                 }
@@ -146,7 +154,14 @@ mod tests {
     }
 
     fn video(id: &str) -> Parsed {
-        Parsed::Youtube(VideoId::parse(id).unwrap())
+        video_with(id, "")
+    }
+
+    fn video_with(id: &str, message: &str) -> Parsed {
+        Parsed::Youtube {
+            id: VideoId::parse(id).unwrap(),
+            message: message.to_owned(),
+        }
     }
 
     #[test]
@@ -181,13 +196,34 @@ mod tests {
     }
 
     #[test]
-    fn only_the_first_word_after_the_name_counts() {
+    fn the_first_word_after_the_name_is_the_video_and_the_rest_is_the_message() {
         let p = default_parser();
-        assert_eq!(p.parse("!v dQw4w9WgXcQ please play this"), video(ID));
+        assert_eq!(
+            p.parse("!v dQw4w9WgXcQ please play this"),
+            video_with(ID, "please play this")
+        );
         assert_eq!(
             p.parse("!v please dQw4w9WgXcQ"),
             invalid(InvalidReason::InvalidLink)
         );
+        // Spaces and line breaks in it are tidied; markup stays plain text.
+        assert_eq!(
+            p.parse("!v  dQw4w9WgXcQ \t halo   ka\n<b>x</b> "),
+            video_with(ID, "halo   ka <b>x</b>")
+        );
+        assert_eq!(p.parse("!v dQw4w9WgXcQ   "), video(ID));
+    }
+
+    #[test]
+    fn a_long_message_is_cut_and_the_video_still_counts() {
+        let p = default_parser();
+        let long = "a".repeat(500);
+        match p.parse(&format!("!v {ID} {long}")) {
+            Parsed::Youtube { message, .. } => {
+                assert_eq!(message.chars().count(), crate::text::MAX_MESSAGE_CHARS);
+            }
+            other => panic!("{other:?}"),
+        }
     }
 
     #[test]
@@ -306,7 +342,10 @@ mod tests {
     fn a_tiktok_command_takes_an_id_a_code_or_a_link() {
         let p = mixed();
         let id = |parsed: Parsed| match parsed {
-            Parsed::Tiktok(TiktokRef::Video { id, account }) => Some((id.to_string(), account)),
+            Parsed::Tiktok {
+                target: TiktokRef::Video { id, account },
+                ..
+            } => Some((id.to_string(), account)),
             _ => None,
         };
         assert_eq!(
@@ -324,11 +363,20 @@ mod tests {
             Some((TT_ID.to_owned(), Some("cherlynn052".to_owned())))
         );
         match p.parse("!vt ZSpGELffb") {
-            Parsed::Tiktok(TiktokRef::Short(code)) => assert_eq!(code.as_str(), "ZSpGELffb"),
+            Parsed::Tiktok {
+                target: TiktokRef::Short(code),
+                ..
+            } => assert_eq!(code.as_str(), "ZSpGELffb"),
             other => panic!("{other:?}"),
         }
-        match p.parse("!vt https://vt.tiktok.com/ZSpGELffb/") {
-            Parsed::Tiktok(TiktokRef::Short(code)) => assert_eq!(code.as_str(), "ZSpGELffb"),
+        match p.parse("!vt https://vt.tiktok.com/ZSpGELffb/ halo ka") {
+            Parsed::Tiktok {
+                target: TiktokRef::Short(code),
+                message,
+            } => {
+                assert_eq!(code.as_str(), "ZSpGELffb");
+                assert_eq!(message, "halo ka");
+            }
             other => panic!("{other:?}"),
         }
     }
@@ -380,8 +428,11 @@ mod tests {
             tiktok_invalid(InvalidReason::MissingArgument)
         );
         // The words stay apart: `!v` is YouTube, `!vt` and `!tt` are TikTok.
-        assert!(matches!(p.parse(&format!("!v {ID}")), Parsed::Youtube(_)));
-        assert!(matches!(p.parse("!tt ZSpGELffb"), Parsed::Tiktok(_)));
+        assert!(matches!(
+            p.parse(&format!("!v {ID}")),
+            Parsed::Youtube { .. }
+        ));
+        assert!(matches!(p.parse("!tt ZSpGELffb"), Parsed::Tiktok { .. }));
         assert_eq!(p.parse("!vtt ZSpGELffb"), Parsed::NotACommand);
     }
 
@@ -405,7 +456,13 @@ mod tests {
         let long_arg = format!("!v {}", "a".repeat(100_000));
         assert_eq!(p.parse(&long_arg), invalid(InvalidReason::InvalidLink));
         let many_words = format!("!v {ID} {}", "word ".repeat(50_000));
-        assert_eq!(p.parse(&many_words), video(ID));
+        match p.parse(&many_words) {
+            Parsed::Youtube { id, message } => {
+                assert_eq!(id.as_str(), ID);
+                assert!(message.starts_with("word word") && message.chars().count() <= 150);
+            }
+            other => panic!("{other:?}"),
+        }
         assert_eq!(p.parse(&"!".repeat(100_000)), Parsed::NotACommand);
     }
 
@@ -477,7 +534,7 @@ mod tests {
                 .map(|_| PIECES[(rng.next() % PIECES.len() as u64) as usize])
                 .collect();
             let message = format!("{start}{body}");
-            if let Parsed::Youtube(id) = p.parse(&message) {
+            if let Parsed::Youtube { id, .. } = p.parse(&message) {
                 assert!(valid.is_match(id.as_str()), "{message:?} -> {id}");
                 videos += 1;
             }

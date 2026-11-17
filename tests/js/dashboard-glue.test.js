@@ -2469,3 +2469,22 @@ test('the server refusing a look is shown and the choice stays where it was', as
   await settle();
   assert.match(page.elements.error.textContent, /unknown variant/);
 });
+
+// --- what the viewer wrote after the link ---
+
+test('a viewer\'s message is shown as plain text in the waiting list, on the playing card and in the requests', async () => {
+  const words = 'halo <b>ka</b>';
+  const state = snapshot({
+    queue: { pending: [item(7, { message: words }), item(8)], approved: [], now_playing: item(3, { message: 'sip' }) },
+    history: [entry(1, { message: words }), entry(2)],
+  });
+  const page = await ready({ hash: '#requests', routes: { 'GET /api/state': () => ({ status: 200, body: state }) } });
+  const waitingRows = page.elements.pending.children;
+  assert.ok(waitingRows[0].textContent.includes(`“${words}”`));
+  assert.ok(!waitingRows[1].textContent.includes('“'), 'no message, no quote marks');
+  assert.ok(page.elements.now.textContent.includes('“sip”'));
+  const rows = page.elements.requests.children;
+  assert.ok(rows[1].textContent.includes(`“${words}”`));
+  assert.ok(!rows[0].textContent.includes('“'));
+  assert.equal(descendants(waitingRows[0]).filter((n) => n.tag === 'b').length, 0, 'never markup');
+});

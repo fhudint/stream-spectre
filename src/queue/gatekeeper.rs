@@ -21,6 +21,8 @@ pub enum Denial {
     BlacklistedVideo,
     BlacklistedChannel,
     BlacklistedWord,
+    /// The viewer's message has a banned word.
+    BlacklistedMessage,
     /// The sender must wait before submitting again.
     Cooldown {
         remaining: Duration,
@@ -39,6 +41,7 @@ impl Denial {
             Self::BlacklistedVideo => "reject.blacklisted_video",
             Self::BlacklistedChannel => "reject.blacklisted_channel",
             Self::BlacklistedWord => "reject.blacklisted_word",
+            Self::BlacklistedMessage => "reject.blacklisted_message",
             Self::Cooldown { .. } => "reject.cooldown",
             Self::Video(rejection) => rejection.i18n_key(),
         }
@@ -70,6 +73,7 @@ impl Denial {
             Self::BlacklistedVideo => i18n.t("reject.blacklisted_video").to_owned(),
             Self::BlacklistedChannel => i18n.t("reject.blacklisted_channel").to_owned(),
             Self::BlacklistedWord => i18n.t("reject.blacklisted_word").to_owned(),
+            Self::BlacklistedMessage => i18n.t("reject.blacklisted_message").to_owned(),
             Self::Cooldown { remaining } => {
                 // Round up so the viewer never retries too early.
                 let seconds = remaining.as_secs() + u64::from(remaining.subsec_nanos() > 0);
@@ -162,6 +166,24 @@ impl Gatekeeper {
         self.cooldowns
             .try_acquire(&sender.id, self.settings.cooldown(), now)
             .map_err(|remaining| Denial::Cooldown { remaining })
+    }
+
+    /// `admit` for a request that comes with a message: the sender's rights
+    /// are looked at first, then the words in the message, and only then the
+    /// rest, so a refused message does not start the cooldown.
+    pub fn admit_with_message(
+        &mut self,
+        sender: &Sender,
+        video: &(impl AsRef<str> + ?Sized),
+        message: &str,
+        waiting_in_queue: usize,
+        now: Instant,
+    ) -> Result<(), Denial> {
+        check_sender(&self.settings, sender)?;
+        if self.blacklist.check_message(message) {
+            return Err(Denial::BlacklistedMessage);
+        }
+        self.admit(sender, video, waiting_in_queue, now)
     }
 
     /// Gives the sender their cooldown back.

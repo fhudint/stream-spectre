@@ -254,6 +254,8 @@
    *             pause(), resume(),
    *             position() -> seconds into the video, or null when not playing }
    *   ui:     { show({ requestedBy, name, role, title, channel }), hide(),
+   *             (title is the main line: the viewer's message, else the video's
+   *             title; channel is the small line under it),
    *             setPaused(paused, label) (optional): the "Paused" notice,
    *             setTheme(name) (optional): the look of the overlay }
    *   send:   (message) => boolean, false when the socket is not open
@@ -316,12 +318,17 @@
       volume = clampVolume(requestedVolume, volume);
       player.play(item.video_id, volume, item.source === 'tiktok' ? 'tiktok' : 'youtube');
       var role = requester && typeof requester.role === 'string' && ROLE_NAME.test(requester.role) ? requester.role : '';
+      // What the viewer wrote is the main line; the video's own title moves to
+      // the small one. Without a message the title stays the main line.
+      var message = typeof item.message === 'string' ? item.message : '';
+      var videoTitle = typeof item.title === 'string' ? item.title : '';
+      var channel = typeof item.channel === 'string' ? item.channel : '';
       ui.show({
         requestedBy: format(text('overlay.requested_by') || DEFAULT_REQUESTED_BY, { name: name }),
         name: name,
         role: role && text('role.' + role) ? text('role.' + role) : '',
-        title: typeof item.title === 'string' ? item.title : '',
-        channel: typeof item.channel === 'string' ? item.channel : '',
+        title: message || videoTitle,
+        channel: message ? videoTitle : channel,
       });
       showPaused(); // a new video always plays: the notice goes away
     }

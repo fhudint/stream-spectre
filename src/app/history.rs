@@ -13,7 +13,7 @@ use super::events::unix_ms;
 use crate::chat::Sender;
 use crate::config::CommandSource;
 use crate::queue::{ItemId, Media};
-use crate::text::sanitize_text;
+use crate::text::{sanitize_message, sanitize_text};
 
 /// Entries kept. shortcut: a fixed size; make it a setting if people want
 /// longer memory.
@@ -70,6 +70,9 @@ pub struct HistoryEntry {
     /// Why a refused request was turned away, in the configured language.
     #[serde(default)]
     pub reason: String,
+    /// What the viewer wrote after the link; empty when nothing.
+    #[serde(default)]
+    pub message: String,
     /// The queue entry this belongs to, while the program that made it runs.
     #[serde(skip)]
     item: Option<ItemId>,
@@ -82,6 +85,7 @@ pub struct Subject {
     video_id: String,
     title: String,
     channel: String,
+    message: String,
 }
 
 impl Subject {
@@ -92,7 +96,14 @@ impl Subject {
             video_id: video_id.into(),
             title: String::new(),
             channel: String::new(),
+            message: String::new(),
         }
+    }
+
+    /// The same, with what the viewer wrote after the link.
+    pub fn with_message(mut self, message: &str) -> Self {
+        self.message = message.to_owned();
+        self
     }
 }
 
@@ -106,6 +117,7 @@ impl From<&Media> for Subject {
                 Media::Youtube(_) => media.channel(),
                 Media::Tiktok(video) => video.account.clone().unwrap_or_default(),
             },
+            message: String::new(),
         }
     }
 }
@@ -159,6 +171,7 @@ impl History {
             requested_at_ms: unix_ms(SystemTime::now()),
             status,
             reason: sanitize_text(&reason),
+            message: sanitize_message(&subject.message),
             item,
         };
         self.entries.push_back(entry.clone());

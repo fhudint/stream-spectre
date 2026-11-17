@@ -295,7 +295,7 @@ pub struct BlacklistConfig {
     pub video_ids: Vec<String>,
     /// YouTube channel names.
     pub channels: Vec<String>,
-    /// Words that must not appear in a video title.
+    /// Words that must not appear in a video title or in a viewer's message.
     pub title_words: Vec<String>,
 }
 
