@@ -127,6 +127,10 @@ function load({ search = '', protocol = 'http:', host = '127.0.0.1:8787', fetchB
       createElement: (tag) => {
         const element = new FakeElement(tag);
         element.tag = tag;
+        if (tag === 'iframe') {
+          // What the page sends to TikTok's player, with the origin it names.
+          element.contentWindow = { posted: [], postMessage(data, origin) { this.posted.push({ data: plain(data), origin }); } };
+        }
         return element;
       },
       head: { appendChild: (el) => log.scripts.push(el) },
@@ -146,11 +150,15 @@ function load({ search = '', protocol = 'http:', host = '127.0.0.1:8787', fetchB
     YT: { Player: FakePlayer, PlayerState: { ENDED: 0, PLAYING: 1 } },
   };
   sandbox.window = sandbox;
+  const windowListeners = {};
+  sandbox.addEventListener = (type, listener) => (windowListeners[type] ||= []).push(listener);
   vm.runInNewContext(source, sandbox);
 
   const socket = () => log.sockets.at(-1);
   const apiReady = () => sandbox.onYouTubeIframeAPIReady();
-  return { log, elements, sandbox, socket, apiReady, player: () => log.players.at(-1) };
+  // A message to the page from another window, as the browser delivers it.
+  const message = (event) => (windowListeners.message || []).forEach((listener) => listener(event));
+  return { log, elements, sandbox, socket, apiReady, message, player: () => log.players.at(-1) };
 }
 
 const envelope = (seq, type, data) => ({ v: 1, seq, ts: 0, type, data });
@@ -533,5 +541,111 @@ test('the frame is never given markup and carries no text of the viewers', () =>
   page.socket().receive(envelope(1, 'play', { item: tiktokItem(1, { title: '<img src=x onerror=alert(1)>' }), volume: 40 }));
   assert.equal(page.elements.title.textContent, '<img src=x onerror=alert(1)>');
   assert.ok(!frames(page)[0].src.includes('onerror'));
+});
+
+// --- TikTok's sound ---
+
+const TT_ORIGIN = 'https://www.tiktok.com';
+const fromPlayer = (page, type, value, extra = {}) =>
+  page.message({ origin: TT_ORIGIN, source: frames(page)[0].contentWindow, data: { 'x-tiktok-player': true, type, value }, ...extra });
+const posted = (page) => frames(page)[0].contentWindow.posted;
+
+test('the TikTok player is asked for sound, with the volume, once it speaks', () => {
+  const page = readyPage();
+  page.socket().receive(envelope(1, 'play', { item: tiktokItem(1), volume: 35 }));
+  assert.deepEqual(posted(page), [], 'nothing before the player says something');
+  fromPlayer(page, 'onCurrentTime', { currentTime: 0.2, duration: 23 });
+  assert.deepEqual(posted(page), [
+    { data: { 'x-tiktok-player': true, type: 'setVolume', value: 35 }, origin: TT_ORIGIN },
+    { data: { 'x-tiktok-player': true, type: 'unMute' }, origin: TT_ORIGIN },
+  ]);
+});
+
+test('commands go only to TikTok\'s origin, never to any origin', () => {
+  const page = readyPage();
+  page.socket().receive(envelope(1, 'play', { item: tiktokItem(1), volume: 35 }));
+  fromPlayer(page, 'onCurrentTime', {});
+  assert.ok(posted(page).length > 0);
+  assert.ok(posted(page).every((p) => p.origin === TT_ORIGIN));
+});
+
+test('when the browser refuses sound the video is muted and set playing again', () => {
+  const page = readyPage();
+  page.socket().receive(envelope(1, 'play', { item: tiktokItem(1), volume: 50 }));
+  fromPlayer(page, 'onCurrentTime', {});
+  fromPlayer(page, 'onMute', false);
+  fromPlayer(page, 'onStateChange', 2);
+  assert.deepEqual(posted(page).slice(2).map((p) => p.data.type), ['mute', 'play']);
+  const count = posted(page).length;
+  fromPlayer(page, 'onMute', true);
+  fromPlayer(page, 'onCurrentTime', {});
+  assert.equal(posted(page).length, count, 'it stays silent and is left alone');
+});
+
+test('a message from anywhere but the TikTok frame on screen is ignored', () => {
+  const page = readyPage();
+  page.socket().receive(envelope(1, 'play', { item: tiktokItem(1), volume: 50 }));
+  const data = { 'x-tiktok-player': true, type: 'onCurrentTime', value: {} };
+  page.message({ origin: 'https://evil.example', source: frames(page)[0].contentWindow, data });
+  page.message({ origin: TT_ORIGIN, source: {}, data });
+  page.message({ origin: TT_ORIGIN, source: null, data });
+  page.message({ origin: TT_ORIGIN, data });
+  assert.deepEqual(posted(page), []);
+});
+
+test('with no TikTok frame on screen its messages are ignored', () => {
+  const page = readyPage();
+  page.socket().receive(envelope(1, 'play', { item: tiktokItem(1), volume: 50 }));
+  const old = frames(page)[0].contentWindow;
+  page.socket().receive(envelope(2, 'play', { item: item(2), volume: 50 }));
+  page.message({ origin: TT_ORIGIN, source: old, data: { 'x-tiktok-player': true, type: 'onCurrentTime', value: {} } });
+  assert.deepEqual(old.posted, []);
+});
+
+test('a later TikTok video starts its sound over, and an old frame cannot answer for it', () => {
+  const page = readyPage();
+  page.socket().receive(envelope(1, 'play', { item: tiktokItem(1), volume: 50 }));
+  const first = frames(page)[0].contentWindow;
+  fromPlayer(page, 'onCurrentTime', {});
+  page.socket().receive(envelope(2, 'play', { item: tiktokItem(2, { video_id: '7219950637247728923' }), volume: 50 }));
+  const second = frames(page)[0].contentWindow;
+  assert.notEqual(first, second);
+  page.message({ origin: TT_ORIGIN, source: first, data: { 'x-tiktok-player': true, type: 'onCurrentTime', value: {} } });
+  assert.deepEqual(second.posted, [], 'the old frame is gone');
+  fromPlayer(page, 'onCurrentTime', {});
+  assert.deepEqual(second.posted.map((p) => p.data.type), ['setVolume', 'unMute']);
+});
+
+test('the volume from the dashboard reaches the TikTok player once it is unmuted', () => {
+  const page = readyPage();
+  page.socket().receive(envelope(1, 'play', { item: tiktokItem(1), volume: 50 }));
+  page.socket().receive(envelope(2, 'volume', { volume: 10 }));
+  assert.deepEqual(posted(page), [], 'not unmuted yet, so the player is left alone');
+  fromPlayer(page, 'onCurrentTime', {});
+  fromPlayer(page, 'onMute', false);
+  const before = posted(page).length;
+  page.socket().receive(envelope(3, 'volume', { volume: 70 }));
+  assert.deepEqual(posted(page).slice(before).map((p) => p.data), [{ 'x-tiktok-player': true, type: 'setVolume', value: 70 }]);
+});
+
+test('a volume change while YouTube plays does not touch TikTok', () => {
+  const page = readyPage();
+  page.socket().receive(envelope(1, 'play', { item: tiktokItem(1), volume: 50 }));
+  const old = frames(page)[0].contentWindow;
+  page.socket().receive(envelope(2, 'play', { item: item(2), volume: 50 }));
+  page.socket().receive(envelope(3, 'volume', { volume: 70 }));
+  assert.deepEqual(old.posted, []);
+});
+
+test('a video after a refused one gets its own try at sound', () => {
+  const page = readyPage();
+  page.socket().receive(envelope(1, 'play', { item: tiktokItem(1), volume: 50 }));
+  fromPlayer(page, 'onCurrentTime', {});
+  fromPlayer(page, 'onStateChange', 2); // refused: muted on purpose
+  assert.deepEqual(posted(page).slice(2).map((p) => p.data.type), ['mute', 'play']);
+
+  page.socket().receive(envelope(2, 'play', { item: tiktokItem(2, { video_id: '7219950637247728923' }), volume: 50 }));
+  fromPlayer(page, 'onCurrentTime', {});
+  assert.deepEqual(posted(page).map((p) => p.data.type), ['setVolume', 'unMute']);
 });
 

@@ -76,17 +76,28 @@ or in OBS yet.
   automatic approval. The same gates apply, and the blacklist takes TikTok IDs
   in `video_ids` and accounts in `channels`.
 - The overlay plays it in TikTok's embedded player (`player/v1/<id>`), in a
-  frame in the same stage. It cannot be paused from the dashboard, the volume
-  slider does not reach it, there is no progress, and it ends only when a
-  moderator skips it.
+  frame in the same stage. It cannot be paused from the dashboard, there is no
+  progress, and it ends only when a moderator skips it.
+- Sound. The player mutes every video it starts. Checked in a real browser
+  (Firefox, headless): the player takes commands by `postMessage`
+  (`setVolume` with 0 to 100, which also unmutes, `unMute`, `mute`, `play`) and
+  reports back (`onMute`, `onStateChange`, `onCurrentTime`, `onVolumeChange`).
+  The overlay asks for sound as soon as the player speaks and follows the
+  dashboard's volume. Where the browser allows sound (OBS) the video then plays
+  with sound at that volume; where it refuses (an ordinary tab) the video is
+  paused by the browser, so the overlay mutes it and sets it playing again.
+  Both outcomes were checked by switching Firefox's autoplay setting; OBS
+  itself has been confirmed only for the muted start, not yet for the fix.
 
 **Still open**
 - Whether the embedded player works in OBS as it does in a browser (autoplay
   with sound, no error like YouTube's 150 for an IP address origin).
-- Whether TikTok's player reports "ended" and errors to the page. It is
-  believed to have a `postMessage` API (*unverified*); using it would let a
-  video end by itself, allow pause and volume, and catch videos that fail to
-  load.
+- Using more of what the player reports. `onCurrentTime` carries the position
+  and the **length** (`{"currentTime": 7.28, "duration": 23.3}`), `onStateChange`
+  carries the state (2 is paused; the value for "ended" has not been seen).
+  That could let a video end by itself, show progress, enforce a maximum length
+  and allow pause. Not built; the value for "ended" and the behaviour at the end
+  of a video need a trial first.
 - A preview of the video inside the dashboard, so a moderator can look before
   approving, since there is no title or thumbnail.
 - A length limit for TikTok, which needs the length from somewhere.

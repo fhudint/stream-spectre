@@ -303,9 +303,14 @@ trust, not across the internet.
   without a developer account, so there is no title, thumbnail or length: the
   queue shows the account (when the link had it) and the ID, the maximum length
   cannot be enforced, and they always wait for a moderator even with automatic
-  approval. Nothing in TikTok's player reports back, so a TikTok video stays on
-  screen until a moderator presses skip. It cannot be paused from the dashboard
-  and the volume slider does not change it. A private, deleted or region-locked
+  approval. The overlay does not use what TikTok's player reports back about
+  the end of a video, so a TikTok video stays on screen until a moderator
+  presses skip. It cannot be paused from the dashboard. TikTok's player starts
+  every video muted, so the overlay asks it for sound (with the volume of the
+  dashboard's slider): in OBS that works, in an ordinary browser tab the browser
+  usually refuses sound without a click and the video plays silently. If a
+  TikTok video has no sound in OBS, check that "Control audio via OBS" is on for
+  the browser source. A private, deleted or region-locked
   video cannot be told from a good one beforehand and shows TikTok's own
   message on screen until it is skipped. A short link is opened with one request
   to TikTok's own server, which only the code is sent to.

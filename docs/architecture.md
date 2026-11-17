@@ -136,7 +136,11 @@ cooldown, blacklist), but a TikTok entry has no length, age or embedding check
 and so never skips the approval queue (`Media::can_auto_approve`). The overlay
 shows YouTube in its IFrame player and TikTok in a frame of TikTok's embedded
 player, in the same stage; the frame is replaced or removed with the next
-video. TikTok's player reports nothing used here, so those entries end by skip.
+video. TikTok's player mutes every video it starts; the overlay talks to it by
+`postMessage` (only to and from TikTok's origin and the frame on screen) to ask
+for sound and to set the volume, and mutes it and sets it playing again when the
+browser refuses sound (`createTiktokSound` in `overlay-core.js`). Nothing else it
+reports is used, so those entries end by skip.
 
 **One event stream, versioned.** Everything the pages show comes from the
 events described in [`websocket-events.md`](websocket-events.md). A client

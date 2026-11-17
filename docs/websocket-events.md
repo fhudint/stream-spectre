@@ -177,9 +177,11 @@ otherwise the ID; `channel` is `"TikTok"`; `duration_secs` is `0`, meaning not
 known; `thumbnail_url` is an empty string. Such an item always waits for a
 moderator, even when automatic approval is on, because nothing about it
 (length, age, whether it can be embedded) has been checked. The overlay shows
-it in TikTok's own embedded player; nothing in that player reports back, so it
-ends only when a moderator skips it (`ended` is never sent for it, and it has
-no `progress`, no pause, and its volume is not set by the dashboard).
+it in TikTok's own embedded player. The overlay does not use what that player
+reports about the end of a video, so it ends only when a moderator skips it
+(`ended` is never sent for it, and it has no `progress` and no pause). The
+player starts muted: the overlay asks it for sound and sets its volume from
+`volume`, as for YouTube.
 `title`, `channel` and `requested_by.name` are text written by other people:
 show them as plain text (`textContent`), never as HTML.
 `role` is one of `everyone`, `follower`, `subscriber`, `moderator`.

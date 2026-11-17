@@ -75,6 +75,86 @@
     return cleaned || 'unknown';
   }
 
+  /* Sound for TikTok's embedded player.
+   *
+   * The player starts every video muted (it does so itself, so that a browser
+   * allows autoplay). It takes commands and reports by `postMessage`, always
+   * with `"x-tiktok-player": true`: `setVolume` (0 to 100, which also
+   * unmutes), `unMute`, `mute` and `play` as commands; `onMute`,
+   * `onStateChange` (2 is paused) and `onCurrentTime` among its reports.
+   *
+   * This asks the player for sound as soon as it speaks, and again a few
+   * times if it stays muted. If the browser refuses sound without a click, it
+   * pauses the video right after; then the player is muted and set playing
+   * again, so the picture goes on, silent. OBS lets pages play sound, so there
+   * the first ask is enough.
+   *
+   * deps: post(command), volume() -> 0..100, now() -> milliseconds.
+   */
+  var TIKTOK_PAUSED = 2;
+  var TIKTOK_MAX_ASKS = 6;
+  /* A pause this soon after asking for sound is the browser refusing. */
+  var TIKTOK_REFUSAL_MS = 3000;
+
+  function createTiktokSound(deps) {
+    var muted;
+    var asks;
+    var askedAt;
+    var silent; // the browser refused sound: stay muted
+
+    function begin() {
+      muted = null;
+      asks = 0;
+      askedAt = null;
+      silent = false;
+    }
+
+    function ask() {
+      asks += 1;
+      askedAt = deps.now();
+      deps.post({ type: 'setVolume', value: deps.volume() });
+      deps.post({ type: 'unMute' });
+    }
+
+    function wantsAsking() {
+      return !silent && muted !== false && asks < TIKTOK_MAX_ASKS;
+    }
+
+    begin();
+    return {
+      begin: begin,
+
+      /* One message from the player; anything else is ignored. */
+      handle: function (data) {
+        if (!data || typeof data !== 'object' || data['x-tiktok-player'] !== true) return;
+        if (typeof data.type !== 'string') return;
+        if (data.type === 'onMute') muted = data.value === true;
+        if (
+          data.type === 'onStateChange' &&
+          data.value === TIKTOK_PAUSED &&
+          !silent &&
+          askedAt !== null &&
+          deps.now() - askedAt <= TIKTOK_REFUSAL_MS
+        ) {
+          silent = true;
+          deps.post({ type: 'mute' });
+          deps.post({ type: 'play' });
+          return;
+        }
+        if (wantsAsking()) ask();
+      },
+
+      /* The volume changed while the video plays. */
+      setVolume: function () {
+        if (!silent && muted === false) deps.post({ type: 'setVolume', value: deps.volume() });
+      },
+
+      state: function () {
+        return { muted: muted, asks: asks, silent: silent };
+      },
+    };
+  }
+
   /* deps:
    *   player: { play(videoId, volume, source), stop(), setVolume(volume),
    *             pause(), resume(),
@@ -234,6 +314,7 @@
   return {
     PROTOCOL_VERSION: PROTOCOL_VERSION,
     createController: createController,
+    createTiktokSound: createTiktokSound,
     format: format,
     isVideoId: isVideoId,
     isVideoRef: isVideoRef,

@@ -9,6 +9,7 @@
   'use strict';
 
   var core = window.OverlayCore;
+  var TIKTOK_ORIGIN = 'https://www.tiktok.com';
   var params = new URLSearchParams(location.search);
   var token = params.get('token') || '';
 
@@ -53,10 +54,37 @@
     var playing = false;
     var wantPaused = false; // a moderator paused this video
     var tiktokOn = false; // the TikTok frame is what is on screen
+    var tiktokFrame = null;
+    var sound = core.createTiktokSound({
+      post: postTiktok,
+      volume: function () {
+        return volume;
+      },
+      now: function () {
+        return Date.now();
+      },
+    });
+
+    /* A command for TikTok's player, sent to that origin only. */
+    function postTiktok(command) {
+      if (!tiktokFrame || !tiktokFrame.contentWindow) return;
+      tiktokFrame.contentWindow.postMessage(
+        Object.assign({ 'x-tiktok-player': true }, command),
+        TIKTOK_ORIGIN
+      );
+    }
+
+    /* Only what the TikTok frame on screen says is listened to. */
+    window.addEventListener('message', function (event) {
+      if (!tiktokFrame || event.origin !== TIKTOK_ORIGIN) return;
+      if (event.source !== tiktokFrame.contentWindow) return;
+      sound.handle(event.data);
+    });
 
     /* TikTok's embedded player: one frame per video, removed afterwards. The
-     * ID is digits only (checked by overlay-core). It reports nothing back
-     * that is used, so a TikTok video ends when a moderator skips it. */
+     * ID is digits only (checked by overlay-core). Its sound is asked for as
+     * described at `createTiktokSound`. Nothing else it reports is used, so a
+     * TikTok video ends when a moderator skips it. */
     function showTiktok(videoId) {
       hideTiktok();
       var frame = document.createElement('iframe');
@@ -68,12 +96,15 @@
       frame.setAttribute('allowfullscreen', '');
       frame.setAttribute('referrerpolicy', 'strict-origin-when-cross-origin');
       tiktokHost.appendChild(frame);
+      tiktokFrame = frame;
+      sound.begin();
       stage.classList.add('tiktok');
       tiktokOn = true;
     }
 
     function hideTiktok() {
       tiktokHost.replaceChildren();
+      tiktokFrame = null;
       stage.classList.remove('tiktok');
       tiktokOn = false;
     }
@@ -181,6 +212,7 @@
       setVolume: function (requestedVolume) {
         volume = requestedVolume;
         if (ready) yt.setVolume(requestedVolume);
+        if (tiktokOn) sound.setVolume();
       },
     };
   }

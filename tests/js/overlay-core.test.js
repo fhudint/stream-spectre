@@ -518,3 +518,112 @@ test('an ID that does not fit its source is reported and never played', () => {
   ]);
 });
 
+// --- sound of TikTok's player ---
+
+function tiktokSound(volume = 50) {
+  const posts = [];
+  let now = 1000;
+  let level = volume;
+  const sound = core.createTiktokSound({ post: (c) => posts.push(c), volume: () => level, now: () => now });
+  const say = (type, value) => sound.handle({ 'x-tiktok-player': true, type, value });
+  return { sound, posts, say, tick: (ms) => { now += ms; }, setLevel: (v) => { level = v; } };
+}
+const ASK = (value) => [{ type: 'setVolume', value }, { type: 'unMute' }];
+
+test('the player is asked for sound with the volume as soon as it speaks', () => {
+  const { say, posts } = tiktokSound(35);
+  assert.deepEqual(posts, [], 'nothing before the player says something');
+  say('onCurrentTime', { currentTime: 0.1, duration: 23 });
+  assert.deepEqual(posts, ASK(35));
+});
+
+test('it keeps asking while the player stays muted, at most six times', () => {
+  const { say, posts, sound } = tiktokSound();
+  for (let i = 0; i < 20; i += 1) say(i % 2 ? 'onMute' : 'onCurrentTime', i % 2 ? true : { currentTime: i });
+  assert.equal(posts.length, 6 * 2);
+  assert.equal(sound.state().asks, 6);
+});
+
+test('once the player says it is unmuted, nothing more is asked', () => {
+  const { say, posts } = tiktokSound();
+  say('onCurrentTime', {});
+  say('onMute', false);
+  const asked = posts.length;
+  for (let i = 0; i < 5; i += 1) say('onCurrentTime', { currentTime: i });
+  say('onVolumeChange', 50);
+  assert.equal(posts.length, asked);
+});
+
+test('a pause right after asking is the browser refusing sound: mute and play again', () => {
+  const { say, posts, sound, tick } = tiktokSound();
+  say('onCurrentTime', {});
+  tick(120);
+  say('onMute', false);
+  say('onStateChange', 2);
+  assert.deepEqual(posts.slice(2), [{ type: 'mute' }, { type: 'play' }]);
+  assert.equal(sound.state().silent, true);
+  // From then on it stays muted and quiet: no more asking, whatever it reports.
+  const count = posts.length;
+  say('onMute', true);
+  say('onCurrentTime', {});
+  say('onStateChange', 2);
+  sound.setVolume();
+  assert.equal(posts.length, count);
+});
+
+test('a pause long after asking is not a refusal', () => {
+  const { say, posts, tick } = tiktokSound();
+  say('onCurrentTime', {});
+  say('onMute', false);
+  tick(10000); // the video ran, perhaps to its end
+  say('onStateChange', 2);
+  assert.equal(posts.length, 2, 'only the first ask');
+});
+
+test('a pause before sound was ever asked for is left alone', () => {
+  const { say, posts } = tiktokSound();
+  say('onStateChange', 2);
+  // It is the player speaking, so sound is asked for, but nothing is muted.
+  assert.deepEqual(posts, ASK(50));
+});
+
+test('what is not the player speaking is ignored', () => {
+  const { sound, posts } = tiktokSound();
+  for (const data of [null, undefined, 'onMute', 5, [], {}, { type: 'onMute' }, { 'x-tiktok-player': false, type: 'onMute' }, { 'x-tiktok-player': 'true', type: 'onMute' }, { 'x-tiktok-player': true }, { 'x-tiktok-player': true, type: 5 }]) {
+    sound.handle(data);
+  }
+  assert.deepEqual(posts, []);
+  assert.equal(sound.state().asks, 0);
+});
+
+test('a volume change reaches the player only while it is unmuted and not refused', () => {
+  const { say, posts, sound, setLevel, tick } = tiktokSound(50);
+  sound.setVolume();
+  assert.deepEqual(posts, [], 'not known to be unmuted yet');
+  say('onCurrentTime', {});
+  say('onMute', false);
+  posts.length = 0;
+  setLevel(20);
+  sound.setVolume();
+  assert.deepEqual(posts, [{ type: 'setVolume', value: 20 }]);
+
+  tick(50);
+  say('onStateChange', 2); // refused
+  posts.length = 0;
+  sound.setVolume();
+  assert.deepEqual(posts, [], 'it is muted on purpose now');
+});
+
+test('each video starts over', () => {
+  const { say, posts, sound, tick } = tiktokSound();
+  say('onCurrentTime', {});
+  tick(10);
+  say('onStateChange', 2);
+  assert.equal(sound.state().silent, true);
+  sound.begin();
+  assert.deepEqual(sound.state(), { muted: null, asks: 0, silent: false });
+  posts.length = 0;
+  say('onCurrentTime', {});
+  assert.deepEqual(posts, ASK(50));
+});
+
