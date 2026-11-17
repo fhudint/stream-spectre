@@ -98,7 +98,11 @@
    * again, so the picture goes on, silent. OBS lets pages play sound, so there
    * the first ask is enough.
    *
-   * deps: post(command), volume() -> 0..100, now() -> milliseconds.
+   * A pause the moderators asked for also makes the player report state 2;
+   * `paused()` tells that apart from the browser refusing.
+   *
+   * deps: post(command), volume() -> 0..100, now() -> milliseconds,
+   * paused() -> whether a moderator paused the video (optional).
    */
   var TIKTOK_ENDED = 0;
   var TIKTOK_PAUSED = 2;
@@ -189,6 +193,7 @@
         if (
           data.type === 'onStateChange' &&
           data.value === TIKTOK_PAUSED &&
+          !(deps.paused && deps.paused()) &&
           !silent &&
           !atTheEnd() &&
           askedAt !== null &&
@@ -362,7 +367,11 @@
         if (!current || reported || typeof player.position !== 'function') return;
         var seconds = player.position();
         if (typeof seconds !== 'number' || !isFinite(seconds) || seconds < 0) return;
-        send({ type: 'progress', item_id: current.id, position_secs: Math.floor(seconds) });
+        var message = { type: 'progress', item_id: current.id, position_secs: Math.floor(seconds) };
+        // A TikTok video's length is only known to its player.
+        var length = typeof player.duration === 'function' ? player.duration() : null;
+        if (typeof length === 'number' && isFinite(length) && length > 0) message.duration_secs = Math.ceil(length);
+        send(message);
       },
 
       /* The socket (re)connected. */

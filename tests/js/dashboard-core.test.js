@@ -448,7 +448,14 @@ test('playback reports are kept, checked, and dropped by a new hello', () => {
   let state = core.reduce(core.initialState(), hello(1, { queue: { pending: [], approved: [], now_playing: item(7) } }));
   assert.equal(state.playback, null);
   state = core.reduce(state, envelope(2, 'playback', { item_id: 7, position_secs: 42 }));
-  assert.deepEqual(state.playback, { item_id: 7, position_secs: 42 });
+  assert.deepEqual(state.playback, { item_id: 7, position_secs: 42, duration_secs: 0 });
+  state = core.reduce(state, envelope(3, 'playback', { item_id: 7, position_secs: 43, duration_secs: 213 }));
+  assert.deepEqual(state.playback, { item_id: 7, position_secs: 43, duration_secs: 213 });
+  // A length that is not a whole number above zero is no length.
+  for (const odd of [0, -4, 1.5, '20', null]) {
+    state = core.reduce(state, envelope(state.seq + 1, 'playback', { item_id: 7, position_secs: 44, duration_secs: odd }));
+    assert.equal(state.playback.duration_secs, 0, String(odd));
+  }
   const before = state.playback;
   for (const bad of [{ item_id: '7', position_secs: 1 }, { item_id: 7, position_secs: -1 }, { item_id: 7, position_secs: 1.5 }, { item_id: 7 }, null]) {
     state = core.reduce(state, envelope(state.seq + 1, 'playback', bad));
@@ -687,14 +694,24 @@ test('the commands are shown the way viewers type them', () => {
   assert.equal(chips[0], 'dashboard.rules.commands{"list":"!v !vt"}');
 });
 
-test('a video of unknown length has no position, whatever the overlay reports', () => {
-  const state = (source, duration) => ({
+test('a TikTok video has a position once the overlay has told its length, the server\'s length wins otherwise', () => {
+  const state = (source, duration, playback) => ({
     queue: { now_playing: { id: 3, source, duration_secs: duration } },
-    playback: { item_id: 3, position_secs: 40 },
+    playback: { item_id: 3, position_secs: 40, duration_secs: 0, ...playback },
   });
   assert.equal(core.playbackPosition(state('youtube', 213)), 40);
   assert.equal(core.playbackPosition(state('youtube', 30)), 30, 'never past its length');
+  assert.equal(core.playbackDuration(state('youtube', 213)), 213);
+  // TikTok: nothing until its player has said how long the video is.
   assert.equal(core.playbackPosition(state('tiktok', 0)), 0);
-  assert.equal(core.playbackPosition(state('tiktok', 213)), 0, 'even if a length were sent');
+  assert.equal(core.playbackDuration(state('tiktok', 0)), 0);
+  assert.equal(core.playbackPosition(state('tiktok', 0, { duration_secs: 60 })), 40);
+  assert.equal(core.playbackPosition(state('tiktok', 0, { duration_secs: 15 })), 15, 'never past its length');
+  assert.equal(core.playbackDuration(state('tiktok', 0, { duration_secs: 15 })), 15);
+  // The server's length is not replaced by a report's.
+  assert.equal(core.playbackDuration(state('youtube', 213, { duration_secs: 15 })), 213);
+  // A length told for another video is not this one's.
+  assert.equal(core.playbackDuration(state('tiktok', 0, { item_id: 4, duration_secs: 15 })), 0);
+  assert.equal(core.playbackDuration({ queue: { now_playing: null }, playback: null }), 0);
 });
 

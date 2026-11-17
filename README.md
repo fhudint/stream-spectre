@@ -358,8 +358,9 @@ trust, not across the internet.
   (TikTok Shop or affiliate videos, the yellow basket) cannot be played in a
   browser at the moment, only in TikTok's own app**, so they end up skipped by
   that timeout; nothing tells them apart beforehand, and a moderator can reject
-  one that shows the basket when it is waiting. A video cannot be paused from
-  the dashboard. TikTok's player starts
+  one that shows the basket when it is waiting. A TikTok video can be paused
+  from the dashboard like a YouTube one, and its progress bar appears as soon
+  as its player has told how long it is. TikTok's player starts
   every video muted, so the overlay asks it for sound (with the volume of the
   dashboard's slider): in OBS that works, in an ordinary browser tab the browser
   usually refuses sound without a click and the video plays silently. If a

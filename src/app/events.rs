@@ -298,10 +298,13 @@ pub enum Event {
         item_id: u64,
         paused: bool,
     },
-    /// How far the video that is playing has got (dashboard).
+    /// How far the video that is playing has got, and how long it is
+    /// (dashboard). The length of a TikTok video is the one its player told
+    /// the overlay.
     Playback {
         item_id: u64,
         position_secs: u64,
+        duration_secs: u64,
     },
 }
 
@@ -327,8 +330,15 @@ pub enum OverlayMessage {
     Ended { item_id: u64 },
     /// The YouTube player reported an error for this video.
     PlayerError { item_id: u64, code: String },
-    /// How far the video has got, about once a second while it plays.
-    Progress { item_id: u64, position_secs: u64 },
+    /// How far the video has got, about once a second while it plays. For a
+    /// TikTok video, whose length only its player knows, it also says how long
+    /// the video is.
+    Progress {
+        item_id: u64,
+        position_secs: u64,
+        #[serde(default)]
+        duration_secs: Option<u64>,
+    },
 }
 
 #[cfg(test)]
@@ -732,7 +742,17 @@ mod tests {
             parse(r#"{"type":"progress","item_id":7,"position_secs":23}"#).unwrap(),
             OverlayMessage::Progress {
                 item_id: 7,
-                position_secs: 23
+                position_secs: 23,
+                duration_secs: None
+            }
+        );
+        assert_eq!(
+            parse(r#"{"type":"progress","item_id":7,"position_secs":3,"duration_secs":15}"#)
+                .unwrap(),
+            OverlayMessage::Progress {
+                item_id: 7,
+                position_secs: 3,
+                duration_secs: Some(15)
             }
         );
         // Extra fields from newer overlays are ignored.
@@ -762,9 +782,10 @@ mod tests {
         assert_eq!(
             to_json(&Event::Playback {
                 item_id: 7,
-                position_secs: 23
+                position_secs: 23,
+                duration_secs: 213
             }),
-            json!({"type": "playback", "data": {"item_id": 7, "position_secs": 23}})
+            json!({"type": "playback", "data": {"item_id": 7, "position_secs": 23, "duration_secs": 213}})
         );
     }
 

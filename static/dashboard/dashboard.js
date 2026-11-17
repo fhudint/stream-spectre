@@ -537,7 +537,6 @@
       text: tf('dashboard.now.caption', { name: item.requested_by.name }),
     });
     picture.children.push(caption);
-    var unknown = core.hasUnknownLength(item);
     var progress = h('progress', { attrs: { max: String(Math.max(1, item.duration_secs)), value: '0' } });
     var elapsed = h('span');
     var remaining = h('span');
@@ -548,10 +547,7 @@
     ]);
     var badge = h('span', { className: 'badge-paused hidden', text: t('dashboard.now.paused') });
     var pause = button('dashboard.action.pause', 'pause', togglePause);
-    // TikTok's player cannot be paused from here.
-    if (unknown) pause.classList.add('hidden');
     nowRefs = {
-      unknown: unknown,
       id: item.id,
       progress: progress,
       elapsed: elapsed,
@@ -582,9 +578,7 @@
               ')',
           }),
         ]),
-        unknown
-          ? h('p', { className: 'dim small', text: t('dashboard.now.manual_end') })
-          : h('div', { className: 'progress' }, [progress, h('div', { className: 'times' }, [elapsed, remaining])]),
+        h('div', { className: 'progress' }, [progress, h('div', { className: 'times' }, [elapsed, remaining])]),
         h('div', { className: 'actions' }, [
           pause,
           button('dashboard.action.skip', 'skip', function () {
@@ -604,16 +598,23 @@
       return;
     }
     if (!nowRefs || nowRefs.id !== item.id) buildNow(item);
-    if (!nowRefs.unknown) {
-      var position = core.playbackPosition(state);
-      nowRefs.progress.setAttribute('value', String(position));
+    // A TikTok video has a length once its player has told the overlay; until
+    // then there is a bar with nothing written under it.
+    var position = core.playbackPosition(state);
+    var duration = core.playbackDuration(state);
+    nowRefs.progress.setAttribute('max', String(Math.max(1, duration)));
+    nowRefs.progress.setAttribute('value', String(position));
+    if (duration > 0) {
       nowRefs.elapsed.textContent = tf('dashboard.now.elapsed', {
         position: core.formatDuration(position),
-        duration: core.formatDuration(item.duration_secs),
+        duration: core.formatDuration(duration),
       });
       nowRefs.remaining.textContent = tf('dashboard.now.remaining', {
-        time: core.formatWaiting(Math.max(0, item.duration_secs - position), timeTemplates()),
+        time: core.formatWaiting(Math.max(0, duration - position), timeTemplates()),
       });
+    } else {
+      nowRefs.elapsed.textContent = '';
+      nowRefs.remaining.textContent = '';
     }
     // Paused: say so, and the button offers to go on.
     nowRefs.badge.classList[state.paused ? 'remove' : 'add']('hidden');
@@ -628,7 +629,6 @@
 
   /* Pauses the video that is playing, or goes on if it is paused. */
   function togglePause() {
-    if (core.hasUnknownLength(state.queue.now_playing)) return;
     act('PUT', '/api/playback/pause', { paused: !state.paused }, function (result) {
       adopt(result.data);
     });

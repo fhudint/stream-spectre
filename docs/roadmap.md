@@ -76,8 +76,10 @@ or in OBS yet.
   automatic approval. The same gates apply, and the blacklist takes TikTok IDs
   in `video_ids` and accounts in `channels`.
 - The overlay plays it in TikTok's embedded player (`player/v1/<id>`), in a
-  frame in the same stage. It cannot be paused from the dashboard and there is
-  no progress. It ends when the player says so (`onStateChange` 0), and a video
+  frame in the same stage. It can be paused and resumed from the dashboard (the
+  player takes `pause` and `play`, checked in Firefox), and its player reports
+  the position and the length, so the dashboard shows a progress bar once the
+  length is known. It ends when the player says so (`onStateChange` 0), and a video
   the player cannot play (`onPlayerError`) is skipped with a notice. Checked in
   Firefox with a 23 second video, and with a video that does not exist
   (1001 INVALID_VIDEO); not yet in OBS. A video that has not started within 15

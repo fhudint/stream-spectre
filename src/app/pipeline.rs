@@ -28,6 +28,9 @@ use crate::youtube::{Rejection, VideoId, VideoLookup, VideoSource, YoutubeError}
 /// Events kept for slow clients before they are told they lagged.
 const BUS_CAPACITY: usize = 256;
 
+/// The longest length believed when an overlay reports one: ten hours.
+const MAX_LEARNED_DURATION_SECS: u64 = 10 * 60 * 60;
+
 /// Longest player error code accepted from the overlay.
 const MAX_ERROR_CODE_LEN: usize = 16;
 
@@ -114,8 +117,11 @@ struct Inner {
     /// another video starts or the screen empties.
     playback_paused: bool,
     stats: StatsView,
-    /// The last playback position published, to skip repeats.
-    progress: Option<(ItemId, u64)>,
+    /// The last playback position and length published, to skip repeats.
+    progress: Option<(ItemId, u64, u64)>,
+    /// The length of the video that is playing when only its player knows it
+    /// (TikTok), as the overlay last reported it.
+    learned_duration: Option<(ItemId, u64)>,
 }
 
 /// What came of a request to pause or resume the playing video.
@@ -123,9 +129,6 @@ struct Inner {
 pub enum PauseOutcome {
     Done,
     NothingPlaying,
-    /// The playing video is one whose player cannot be paused from outside
-    /// (TikTok).
-    Unsupported,
 }
 
 /// Connects chat, YouTube lookups, moderation and the play queue, and
@@ -195,6 +198,7 @@ impl<S: VideoSource> Pipeline<S> {
                     ..StatsView::default()
                 },
                 progress: None,
+                learned_duration: None,
             }),
         })
     }
@@ -680,19 +684,15 @@ impl<S: VideoSource> Pipeline<S> {
         Ok(())
     }
 
-    /// Pauses (`paused`) or resumes the video that is playing. Changes
-    /// nothing when no video is playing, and when it is a TikTok video, whose
-    /// player cannot be paused from outside. Saying what is already so changes
-    /// nothing and publishes nothing. A video that starts later always begins
-    /// playing.
+    /// Pauses (`paused`) or resumes the video that is playing, whichever
+    /// player it is in. Changes nothing when no video is playing. Saying what
+    /// is already so changes nothing and publishes nothing. A video that
+    /// starts later always begins playing.
     pub fn set_playback_paused(&self, paused: bool) -> PauseOutcome {
         let mut inner = self.lock();
         let Some(item) = inner.queue.now_playing() else {
             return PauseOutcome::NothingPlaying;
         };
-        if paused && item.media.source() != CommandSource::Youtube {
-            return PauseOutcome::Unsupported;
-        }
         let item_id = item.id.0;
         if inner.playback_paused != paused {
             inner.playback_paused = paused;
@@ -741,27 +741,47 @@ impl<S: VideoSource> Pipeline<S> {
         Ok(())
     }
 
-    /// The overlay reports how far `id` has got. Reports for a video that is
-    /// not playing are errors and change nothing; repeats of the last position
-    /// are dropped. The position is limited to the video's length.
-    pub fn player_progress(&self, id: ItemId, position_secs: u64) -> Result<(), QueueError> {
+    /// The overlay reports how far `id` has got, and for a video whose length
+    /// only its player knows (TikTok) how long it is. Reports for a video that
+    /// is not playing are errors and change nothing; repeats of the last
+    /// position are dropped. The position is limited to the video's length.
+    /// Until a length is known there is no position to show.
+    pub fn player_progress(
+        &self,
+        id: ItemId,
+        position_secs: u64,
+        reported_duration_secs: Option<u64>,
+    ) -> Result<(), QueueError> {
         let mut inner = self.lock();
-        let duration = match inner.queue.now_playing() {
+        let known = match inner.queue.now_playing() {
             Some(item) if item.id == id => item.media.duration_secs(),
             _ => return Err(QueueError::NotPlaying(id)),
         };
-        // A video of unknown length has no position to show.
-        let Some(duration) = duration else {
-            return Ok(());
+        let duration = match known {
+            Some(duration) => duration,
+            None => {
+                // A report is a number from a browser: it is only believed
+                // within what a video can be.
+                if let Some(reported) = reported_duration_secs
+                    .filter(|seconds| (1..=MAX_LEARNED_DURATION_SECS).contains(seconds))
+                {
+                    inner.learned_duration = Some((id, reported));
+                }
+                match inner.learned_duration {
+                    Some((learned_for, duration)) if learned_for == id => duration,
+                    _ => return Ok(()),
+                }
+            }
         };
         let position_secs = position_secs.min(duration);
-        if inner.progress == Some((id, position_secs)) {
+        if inner.progress == Some((id, position_secs, duration)) {
             return Ok(());
         }
-        inner.progress = Some((id, position_secs));
+        inner.progress = Some((id, position_secs, duration));
         self.bus.publish(Event::Playback {
             item_id: id.0,
             position_secs,
+            duration_secs: duration,
         });
         Ok(())
     }
@@ -2319,18 +2339,18 @@ mod tests {
         let id = playing(&p).await;
         let mut rx = p.subscribe();
 
-        p.player_progress(id, 12).unwrap();
+        p.player_progress(id, 12, None).unwrap();
         let events = drain_all(&mut rx);
         assert_eq!(kinds(&events), vec!["playback"]);
         assert_eq!(
             data(&events[0]),
-            serde_json::json!({"item_id": id.0, "position_secs": 12})
+            serde_json::json!({"item_id": id.0, "position_secs": 12, "duration_secs": 200})
         );
 
         // The same second again is not repeated; the next one is published.
-        p.player_progress(id, 12).unwrap();
+        p.player_progress(id, 12, None).unwrap();
         assert!(drain_all(&mut rx).is_empty());
-        p.player_progress(id, 13).unwrap();
+        p.player_progress(id, 13, None).unwrap();
         assert_eq!(kinds(&drain_all(&mut rx)), vec!["playback"]);
     }
 
@@ -2340,7 +2360,7 @@ mod tests {
         let id = playing(&p).await;
         let mut rx = p.subscribe();
         // The fake video is 200 seconds long.
-        p.player_progress(id, u64::MAX).unwrap();
+        p.player_progress(id, u64::MAX, None).unwrap();
         let events = drain_all(&mut rx);
         assert_eq!(data(&events[0])["position_secs"], 200);
     }
@@ -2352,11 +2372,11 @@ mod tests {
         let waiting = ItemId(pending_ids(&p)[0]);
         let mut rx = p.subscribe();
         assert_eq!(
-            p.player_progress(waiting, 1),
+            p.player_progress(waiting, 1, None),
             Err(QueueError::NotPlaying(waiting))
         );
         assert_eq!(
-            p.player_progress(ItemId(999), 1),
+            p.player_progress(ItemId(999), 1, None),
             Err(QueueError::NotPlaying(ItemId(999)))
         );
         assert!(drain_all(&mut rx).is_empty());
@@ -2364,7 +2384,7 @@ mod tests {
         // After it was skipped, a late report is refused too.
         p.approve(waiting).unwrap();
         assert!(p.skip());
-        assert!(p.player_progress(waiting, 5).is_err());
+        assert!(p.player_progress(waiting, 5, None).is_err());
     }
 
     // --- pausing the video that is playing ---
@@ -3490,28 +3510,81 @@ mod tests {
         assert!(drain(&mut rx).is_empty());
     }
 
-    #[tokio::test]
-    async fn a_tiktok_video_has_no_progress_and_cannot_be_paused() {
-        let p = pipeline(&both_sources(|_| {}));
-        say(&p, sender(1, Role::Follower), &format!("!vt {TT_ID}")).await;
+    /// Starts a TikTok video from `!vt` and returns its queue ID.
+    async fn playing_tiktok(p: &Pipeline<FakeSource>) -> ItemId {
+        say(p, sender(1, Role::Follower), &format!("!vt {TT_ID}")).await;
         let id = ItemId(p.hello().queue.pending[0].id);
         p.approve(id).unwrap();
         assert_eq!(
             p.hello().queue.now_playing.unwrap().source,
             CommandSource::Tiktok
         );
+        id
+    }
 
+    #[tokio::test]
+    async fn a_tiktok_video_has_a_position_once_its_player_has_told_the_length() {
+        let p = pipeline(&both_sources(|_| {}));
+        let id = playing_tiktok(&p).await;
         let mut rx = p.subscribe();
-        // The overlay has no position to report; a stray one is quietly kept out.
-        p.player_progress(id, 5).unwrap();
+
+        // No length yet: nothing to show, and a stray report is quietly kept out.
+        p.player_progress(id, 5, None).unwrap();
         assert_eq!(
-            p.player_progress(ItemId(id.0 + 1), 5),
+            p.player_progress(ItemId(id.0 + 1), 5, Some(15)),
             Err(QueueError::NotPlaying(ItemId(id.0 + 1)))
         );
-        assert_eq!(p.set_playback_paused(true), PauseOutcome::Unsupported);
-        // Resuming something that is not paused is harmless.
-        assert_eq!(p.set_playback_paused(false), PauseOutcome::Done);
         assert!(drain_all(&mut rx).is_empty());
+
+        // What a browser says about the length is only believed within reason.
+        for absurd in [0, 10 * 60 * 60 + 1, u64::MAX] {
+            p.player_progress(id, 5, Some(absurd)).unwrap();
+        }
+        assert!(drain_all(&mut rx).is_empty());
+
+        p.player_progress(id, 3, Some(15)).unwrap();
+        let events = drain_all(&mut rx);
+        assert_eq!(
+            data(&events[0]),
+            serde_json::json!({"item_id": id.0, "position_secs": 3, "duration_secs": 15})
+        );
+        // The length is kept: later reports need not repeat it, and the
+        // position never passes it.
+        p.player_progress(id, 99, None).unwrap();
+        assert_eq!(data(&drain_all(&mut rx)[0])["position_secs"], 15);
+        // A stray length is not taken once it is known to be nonsense.
+        p.player_progress(id, 4, Some(0)).unwrap();
+        assert_eq!(data(&drain_all(&mut rx)[0])["duration_secs"], 15);
+    }
+
+    #[tokio::test]
+    async fn the_length_learned_for_one_tiktok_video_does_not_carry_to_the_next() {
+        let p = pipeline(&both_sources(|_| {}));
+        let first = playing_tiktok(&p).await;
+        p.player_progress(first, 1, Some(15)).unwrap();
+        say(&p, sender(2, Role::Follower), &format!("!vt {TT_SHORT_ID}")).await;
+        p.skip();
+        let second = ItemId(p.hello().queue.pending[0].id);
+        p.approve(second).unwrap();
+        let mut rx = p.subscribe();
+        p.player_progress(second, 2, None).unwrap();
+        assert!(
+            drain_all(&mut rx).is_empty(),
+            "the 15 seconds were the other video's"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_tiktok_video_can_be_paused_and_resumed() {
+        let p = pipeline(&both_sources(|_| {}));
+        let id = playing_tiktok(&p).await;
+        let mut rx = p.subscribe();
+        assert_eq!(p.set_playback_paused(true), PauseOutcome::Done);
+        assert!(p.hello().playback_paused);
+        let events = drain_all(&mut rx);
+        assert_eq!(kinds(&events), vec!["playback_paused"]);
+        assert_eq!(data(&events[0])["item_id"], id.0);
+        assert_eq!(p.set_playback_paused(false), PauseOutcome::Done);
         assert!(!p.hello().playback_paused);
     }
 

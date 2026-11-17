@@ -216,9 +216,10 @@ fn handle_overlay_message<S: VideoSource + 'static>(state: &ServerState<S>, text
         OverlayMessage::Progress {
             item_id,
             position_secs,
+            duration_secs,
         } => state
             .pipeline
-            .player_progress(ItemId(item_id), position_secs),
+            .player_progress(ItemId(item_id), position_secs, duration_secs),
     };
     if let Err(error) = result {
         tracing::debug!(%error, "ignored a stale overlay report");

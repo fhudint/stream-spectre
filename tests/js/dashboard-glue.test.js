@@ -2349,29 +2349,37 @@ test('a TikTok request in a list shows its account, ID and source instead of a l
   assert.equal(buttons(row, 'reject').length, 1);
 });
 
-test('the playing card of a TikTok video has no progress and no pause button, and says to skip it', async () => {
+test('the playing card of a TikTok video has a bar and a pause button, and the length once its player has told it', async () => {
   const body = withTiktok({ now_playing: ttItem(3), approved: [item(9)] });
   const page = await ready({ routes: { 'GET /api/state': () => ({ status: 200, body }) } });
   const card = page.elements.now;
-  assert.ok(!descendants(card).some((n) => n.tag === 'progress'));
-  assert.match(card.textContent, /The length of a TikTok video is not shown\. It moves on by itself when it ends; skip it to go sooner\./);
+  const bar = () => descendants(page.elements.now).find((n) => n.tag === 'progress');
+  assert.ok(bar(), 'the bar is there from the start');
   assert.match(card.textContent, /@cherlynn052/);
-  assert.ok(!/0:00 of/.test(card.textContent), 'no elapsed time');
-  assert.ok(pauseButton(page).hidden, 'the pause button is not offered');
-  assert.equal(buttons(card, 'skip').length, 1, 'skipping is how it ends');
+  assert.ok(!/0:00 of/.test(card.textContent), 'nothing written under it until the length is known');
+  assert.ok(!pauseButton(page).hidden, 'it can be paused');
+  assert.equal(buttons(card, 'skip').length, 1);
   assert.match(card.textContent, /Next: Title 9/);
 
-  // A progress report cannot make a bar appear.
-  page.socket().receive(envelope(6, 'playback', { item_id: 3, position_secs: 40 }));
-  assert.ok(!descendants(page.elements.now).some((n) => n.tag === 'progress'));
+  page.socket().receive(envelope(6, 'playback', { item_id: 3, position_secs: 5, duration_secs: 15 }));
+  assert.equal(bar().attrs.max, '15');
+  assert.equal(bar().attrs.value, '5');
+  assert.match(page.elements.now.textContent, /0:05 of 0:15/);
+  assert.match(page.elements.now.textContent, /10 s left/);
+  page.socket().receive(envelope(7, 'playback', { item_id: 3, position_secs: 400, duration_secs: 15 }));
+  assert.equal(bar().attrs.value, '15', 'never past the end');
 });
 
-test('the pause key does nothing while a TikTok video plays', async () => {
+test('a TikTok video is paused from the dashboard and by the key', async () => {
   const body = withTiktok({ now_playing: ttItem(3) });
   const page = await ready({ routes: { 'GET /api/state': () => ({ status: 200, body }) } });
+  page.table['PUT /api/playback/pause'] = { status: 200, body: { ...body, seq: 9, playback_paused: true } };
+  buttons(page.elements.now, 'pause')[0].fire('click');
+  await settle();
   page.press('p');
   await settle();
-  assert.equal(pauseCalls(page).length, 0);
+  assert.equal(pauseCalls(page).length, 2);
+  assert.deepEqual(pauseCalls(page)[0].body, { paused: true });
   // Skip still works from the keyboard.
   page.table['POST /api/skip'] = { status: 200, body: { skipped: true } };
   page.press('s');

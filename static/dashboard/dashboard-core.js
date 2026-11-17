@@ -359,7 +359,12 @@
         break;
       case 'playback':
         if (Number.isInteger(data.item_id) && Number.isInteger(data.position_secs) && data.position_secs >= 0) {
-          next.playback = { item_id: data.item_id, position_secs: data.position_secs };
+          next.playback = {
+            item_id: data.item_id,
+            position_secs: data.position_secs,
+            // 0 from a server that does not say; the item's own length counts then.
+            duration_secs: Number.isInteger(data.duration_secs) && data.duration_secs > 0 ? data.duration_secs : 0,
+          };
         }
         break;
       case 'notice':
@@ -380,21 +385,32 @@
     return next;
   }
 
-  /* Whether nobody knows how long the video is, so it has to be skipped by
-   * hand when it is over. That is so for every TikTok video. */
+  /* Whether the server has no length for the video, so a list has none to
+   * show. That is so for every TikTok video; once it plays, its player tells. */
   function hasUnknownLength(item) {
     return !!item && item.source === 'tiktok';
   }
 
+  /* How long the video that is playing is, in seconds, or 0 when not known
+   * (yet): the length the server has for it, else what the overlay's player
+   * told for this very video, which is how a TikTok video gets one. */
+  function playbackDuration(state) {
+    var playing = state.queue.now_playing;
+    if (!playing) return 0;
+    if (playing.duration_secs > 0) return playing.duration_secs;
+    var playback = state.playback;
+    return playback && playback.item_id === playing.id && playback.duration_secs > 0 ? playback.duration_secs : 0;
+  }
+
   /* How far the video that is playing has got, in seconds. Zero until the
-   * overlay has reported for this very video, and never past its length. */
+   * overlay has reported for this very video and its length is known, and
+   * never past that length. */
   function playbackPosition(state) {
     var playing = state.queue.now_playing;
     var playback = state.playback;
     if (!playing || !playback || playback.item_id !== playing.id) return 0;
-    // A video of unknown length has no position to show.
-    if (hasUnknownLength(playing)) return 0;
-    return Math.min(playback.position_secs, playing.duration_secs);
+    var duration = playbackDuration(state);
+    return duration > 0 ? Math.min(playback.position_secs, duration) : 0;
   }
 
   /* Whole seconds a request has waited, or null when its time is not known.
@@ -767,6 +783,7 @@
     formatDuration: formatDuration,
     thumbnailUrl: thumbnailUrl,
     playbackPosition: playbackPosition,
+    playbackDuration: playbackDuration,
     hasUnknownLength: hasUnknownLength,
     blacklistChoices: blacklistChoices,
     videoLink: videoLink,

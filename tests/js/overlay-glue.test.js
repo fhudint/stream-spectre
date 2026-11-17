@@ -511,20 +511,66 @@ test('skip and stop take the TikTok frame away', () => {
   }
 });
 
-test('a TikTok video reports no progress and is not paused or resumed from here', () => {
+test('a TikTok video is paused and resumed in its own player, not in YouTube\'s', () => {
   const page = readyPage();
-  page.log.position = 12;
   page.socket().receive(envelope(1, 'play', { item: tiktokItem(1), volume: 40 }));
-  const sent = page.socket().sent.length;
-  page.log.intervals[0].fn();
-  assert.equal(page.socket().sent.length, sent, 'no progress report');
-
   const before = page.player().calls.length;
   page.socket().receive(envelope(2, 'playback_paused', { item_id: 1, paused: true }));
   page.socket().receive(envelope(3, 'playback_paused', { item_id: 1, paused: false }));
-  const pausing = plain(page.player().calls.slice(before)).map((c) => c[0]);
-  assert.ok(!pausing.includes('pauseVideo') && !pausing.includes('playVideo'), pausing.join());
+  const touched = plain(page.player().calls.slice(before)).map((c) => c[0]);
+  assert.ok(!touched.includes('pauseVideo') && !touched.includes('playVideo'), touched.join());
+  assert.deepEqual(posted(page).map((p) => p.data.type), ['pause', 'play']);
+  assert.ok(posted(page).every((p) => p.origin === TT_ORIGIN && p.data['x-tiktok-player'] === true));
   assert.equal(frames(page).length, 1, 'still there');
+});
+
+test('a TikTok video reports its position and its length once its player has said them', () => {
+  const page = readyPage();
+  page.log.position = 12; // YouTube's clock is not the one that counts
+  page.socket().receive(envelope(1, 'play', { item: tiktokItem(1), volume: 40 }));
+  const sent = page.socket().sent.length;
+  page.log.intervals[0].fn();
+  assert.equal(page.socket().sent.length, sent, 'nothing to report before the player speaks');
+
+  fromPlayer(page, 'onCurrentTime', { currentTime: 5.4, duration: 15.04 });
+  page.log.intervals[0].fn();
+  assert.deepEqual(page.socket().sent.at(-1), { type: 'progress', item_id: 1, position_secs: 5, duration_secs: 16 });
+
+  // A YouTube video does not say a length: the server knows it.
+  page.socket().receive(envelope(2, 'play', { item: item(2), volume: 40 }));
+  page.log.position = 7;
+  page.player().options.events.onStateChange({ data: 1 });
+  page.log.intervals[0].fn();
+  assert.deepEqual(page.socket().sent.at(-1), { type: 'progress', item_id: 2, position_secs: 7 });
+});
+
+test('a TikTok video paused before its player is ready is paused as soon as it plays', () => {
+  const page = readyPage();
+  // What the page told the player about playing; the sound commands are left out.
+  const told = () => posted(page).map((p) => p.data.type).filter((type) => type === 'pause' || type === 'play');
+  page.socket().receive(envelope(1, 'play', { item: tiktokItem(1), volume: 40 }));
+  page.socket().receive(envelope(2, 'playback_paused', { item_id: 1, paused: true }));
+  assert.deepEqual(told(), ['pause'], 'sent at once, though the player drops it');
+  fromPlayer(page, 'onStateChange', 3); // buffering: nothing yet
+  assert.deepEqual(told(), ['pause']);
+  fromPlayer(page, 'onStateChange', 1); // it plays after all
+  assert.deepEqual(told(), ['pause', 'pause']);
+
+  // Resumed, it is let play.
+  page.socket().receive(envelope(3, 'playback_paused', { item_id: 1, paused: false }));
+  fromPlayer(page, 'onStateChange', 1);
+  assert.deepEqual(told(), ['pause', 'pause', 'play']);
+});
+
+test('the pause a moderator asks for is not mistaken for the browser refusing sound', () => {
+  const page = readyPage();
+  page.socket().receive(envelope(1, 'play', { item: tiktokItem(1), volume: 50 }));
+  fromPlayer(page, 'onCurrentTime', { currentTime: 0.2, duration: 15 }); // sound asked for
+  page.socket().receive(envelope(2, 'playback_paused', { item_id: 1, paused: true }));
+  fromPlayer(page, 'onStateChange', 2); // the player says it paused, a moment after asking
+  const types = posted(page).map((p) => p.data.type);
+  assert.ok(!types.includes('mute'), types.join());
+  assert.ok(!types.slice(types.indexOf('pause') + 1).includes('play'), 'and it is not set playing again');
 });
 
 test('a reload in the middle of a TikTok video shows it again', () => {

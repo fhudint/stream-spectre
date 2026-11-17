@@ -1058,7 +1058,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_tiktok_video_plays_but_cannot_be_paused() {
+    async fn a_tiktok_video_plays_and_can_be_paused() {
         let server = start(None).await;
         server
             .pipeline
@@ -1083,14 +1083,13 @@ mod tests {
                 .json(&body)
                 .send()
         };
-        let refused = put(json!({"paused": true})).await.unwrap();
-        assert_eq!(refused.status(), 409);
-        assert_eq!(
-            refused.json::<Value>().await.unwrap()["code"],
-            "pause_unsupported"
-        );
-        // Resuming is always fine, even if there is nothing to resume.
+        // A TikTok video pauses like a YouTube one, and the overlay is told.
+        assert_eq!(put(json!({"paused": true})).await.unwrap().status(), 200);
+        let paused = next_json(&mut overlay).await;
+        assert_eq!(paused["type"], "playback_paused");
+        assert_eq!(paused["data"], json!({"item_id": 1, "paused": true}));
         assert_eq!(put(json!({"paused": false})).await.unwrap().status(), 200);
+        assert_eq!(next_json(&mut overlay).await["data"]["paused"], false);
 
         // The overlay may report the video as ended; it moves on.
         overlay
@@ -1530,7 +1529,10 @@ mod tests {
             .unwrap();
         let event = next_json(&mut dashboard).await;
         assert_eq!(event["type"], "playback");
-        assert_eq!(event["data"], json!({"item_id": 1, "position_secs": 7}));
+        assert_eq!(
+            event["data"],
+            json!({"item_id": 1, "position_secs": 7, "duration_secs": 100})
+        );
         expect_silence(&mut overlay).await;
 
         // A report for another video is dropped.

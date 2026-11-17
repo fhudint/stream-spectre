@@ -73,6 +73,10 @@
       now: function () {
         return Date.now();
       },
+      // A pause from a moderator is not the browser refusing sound.
+      paused: function () {
+        return wantPaused;
+      },
     });
 
     /* A command for TikTok's player, sent to that origin only. */
@@ -90,6 +94,11 @@
       if (event.source !== tiktokFrame.contentWindow) return;
       sound.handle(event.data);
       var data = event.data;
+      // The player drops commands until it plays, so a video that was paused
+      // before that is paused as soon as it does.
+      if (wantPaused && data && data.type === 'onStateChange' && data.value === 1) {
+        postTiktok({ type: 'pause' });
+      }
       if (data && data.type === 'onCurrentTime' && data.value && typeof data.value === 'object') {
         tiktokClock = { position: data.value.currentTime, duration: data.value.duration };
       }
@@ -222,13 +231,19 @@
         }
       },
       pause: function () {
-        if (tiktokOn) return; // its player cannot be paused from here
         wantPaused = true;
+        if (tiktokOn) {
+          postTiktok({ type: 'pause' });
+          return;
+        }
         if (ready && typeof yt.pauseVideo === 'function') yt.pauseVideo();
       },
       resume: function () {
         wantPaused = false;
-        if (tiktokOn) return;
+        if (tiktokOn) {
+          postTiktok({ type: 'play' });
+          return;
+        }
         if (ready && typeof yt.playVideo === 'function') yt.playVideo();
       },
       stop: function () {
@@ -247,10 +262,17 @@
         if (!ready || typeof yt.getCurrentTime !== 'function' || typeof yt.getDuration !== 'function') return 0;
         return core.progressPercent(yt.getCurrentTime(), yt.getDuration());
       },
-      /* Seconds into the video while it plays, otherwise null. */
+      /* Seconds into the video while it plays, otherwise null. For TikTok it
+       * is what its player last said. */
       position: function () {
+        if (tiktokOn) return tiktokClock ? tiktokClock.position : null;
         if (!ready || !playing || typeof yt.getCurrentTime !== 'function') return null;
         return yt.getCurrentTime();
+      },
+      /* How long the video is, when only its player can say (TikTok);
+       * otherwise null: the server knows the length of a YouTube video. */
+      duration: function () {
+        return tiktokOn && tiktokClock ? tiktokClock.duration : null;
       },
       setVolume: function (requestedVolume) {
         volume = requestedVolume;

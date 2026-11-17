@@ -117,14 +117,17 @@ decided (`StatsView`; at any moment `received = approved + rejected + waiting`)
 and sends them as `stats_updated`. The overlay reports the playback position
 once a second as `progress`; the server checks that it belongs to the video
 that is playing, limits it to the video's length, drops repeats and sends it on
-to the dashboards as `playback`. Neither is sent to the overlay, which only
+to the dashboards as `playback`. A TikTok video has no length in the queue, so
+its `progress` also carries the length its player told the overlay; the server
+believes it within bounds, keeps it for that video and sends it with each
+`playback`. Neither is sent to the overlay, which only
 gets the events that change what is on screen. The dashboard page counts
 waiting times itself, but on the server's clock (taken from the `ts` of the
 events it receives), so a moderator's wrong clock does not show.
 
 **A moderator can pause the video that is playing.** The pipeline keeps one
 flag, `playback_paused`, and publishes `playback_paused` when it changes; the
-overlay tells its YouTube player to pause or play. The flag is cleared whenever
+overlay tells its player (YouTube's, or TikTok's through `postMessage`) to pause or play. The flag is cleared whenever
 another video starts or the screen empties (`play_next_or_stop`), so a pause
 never carries over to the next video, and it is in `hello` so an overlay that
 reloads in the middle of a pause stays paused.

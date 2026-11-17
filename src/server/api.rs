@@ -218,8 +218,7 @@ pub async fn chat_connection<S: VideoSource + 'static>(
 }
 
 /// `PUT /api/playback/pause` with `{"paused": true|false}`: pauses or resumes
-/// the video that is playing. `409` when nothing is playing, or when it is a
-/// TikTok video (`pause_unsupported`): its player cannot be paused from outside.
+/// the video that is playing, YouTube or TikTok. `409` when nothing is playing.
 pub async fn pause_playback<S: VideoSource + 'static>(
     State(state): State<ServerState<S>>,
     Json(body): Json<Value>,
@@ -236,11 +235,6 @@ pub async fn pause_playback<S: VideoSource + 'static>(
         PauseOutcome::NothingPlaying => {
             Err(ApiError::new(StatusCode::CONFLICT, "no video is playing").coded("nothing_playing"))
         }
-        PauseOutcome::Unsupported => Err(ApiError::new(
-            StatusCode::CONFLICT,
-            "this video cannot be paused",
-        )
-        .coded("pause_unsupported")),
     }
 }
 

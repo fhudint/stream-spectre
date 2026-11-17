@@ -22,7 +22,7 @@ of truth; this page describes them for people writing clients.
 | `PATCH /api/commands` | Change the chat commands: `{"prefix": "!", "commands": [{"name": "v", "source": "youtube"}, {"name": "vt", "source": "tiktok"}]}`. `source` is `youtube` or `tiktok`. Either field may be left out; `commands` is always the whole list. Takes effect for the next chat message. `400` for an empty list, more than 8, a name used twice (capitals do not count), a name with anything but ASCII letters, digits and `_`, an unknown source, or a prefix that is empty, longer than 4 or has spaces. Answers the new state. |
 | `PATCH /api/chat/tiktok` | Body `{"username": "name", "enabled": true}`, either or both: set the TikTok username (an empty string stops reading chat) and switch the chat on or off; the chat follows without a restart. Letters, digits, `_` and `.`, at most 64; a leading `@` and spaces are dropped. Answers the new state. |
 | `PATCH /api/chat/youtube` | Body `{"video": "link or ID", "enabled": true}`, either or both: set the YouTube live whose chat is read (a link or an 11-character ID, kept as the ID; an empty string stops reading chat) and switch the chat on or off. Something that is not a video is refused. Answers the new state. |
-| `PUT /api/playback/pause` | Body `{"paused": true or false}`: pauses or resumes the video that is playing. Answers the new state. `409` with `"code": "nothing_playing"` when no video is playing, or `"code": "pause_unsupported"` when asked to pause a TikTok video (its player cannot be paused from outside; resuming is always accepted). |
+| `PUT /api/playback/pause` | Body `{"paused": true or false}`: pauses or resumes the video that is playing. Answers the new state. Works for YouTube and TikTok videos alike. `409` with `"code": "nothing_playing"` when no video is playing. |
 | `PUT /api/chat/connection` | Body `{"connected": true or false}`: disconnects the chat (`false`) or connects it again (`true`), for as long as the program runs; not saved. Answers the new state. |
 | `GET /api/account` | What is set, never the secrets: `{"youtube_key": {"set", "source": "none"/"environment"/"saved", "last4"}, "dashboard_token": {"set"}, "editable"}`. `last4` is the key's last four characters, or `null` (no key, or one too short to show any part of). `editable` is false for a connection that does not come from the computer the program runs on. |
 | `PUT /api/account/youtube-key` | Body `{"key": "..."}`. Checks the key with one YouTube request (1 quota unit), saves it in the secrets file and starts using it at once. Answers like `GET /api/account` plus `"checked": "valid"` or `"quota_exhausted"` (the key is real but today's quota is used up). Errors carry a `code`: `key_empty`, `key_bad_format` (400), `key_rejected` (400, YouTube refused it), `cannot_check` (502, could not reach YouTube), `not_saved` (500), `loopback_only` (403). The key is never sent back. |
@@ -189,8 +189,11 @@ video the player has not started playing within 15 seconds gets `player_error`
 with the code `timeout` (TikTok does not play videos with a product link in a
 browser, and says nothing then). A video that runs but never says it is over
 stays until a moderator skips it. A TikTok
-item has no `progress` and no pause. The player starts muted: the overlay asks
-it for sound and sets its volume from `volume`, as for YouTube.
+item can be paused and resumed (the overlay sends the player `pause` and `play`).
+Its `duration_secs` stays `0`: the length is only known to the player, which tells
+the overlay, which tells the server in `progress` (see [`playback`](#playback)).
+The player starts muted: the overlay asks it for sound and sets its volume from
+`volume`, as for YouTube.
 `title`, `channel` and `requested_by.name` are text written by other people:
 show them as plain text (`textContent`), never as HTML.
 `role` is one of `everyone`, `follower`, `subscriber`, `moderator`.
@@ -409,14 +412,16 @@ a video is paused the overlay sends no `progress`.
 How far the video that is playing has got (dashboard only).
 
 ```json
-{ "type": "playback", "data": { "item_id": 7, "position_secs": 23 } }
+{ "type": "playback", "data": { "item_id": 7, "position_secs": 23, "duration_secs": 213 } }
 ```
 
 The overlay reports its position about once a second while a video plays (see
 [Messages from the overlay](#messages-from-the-overlay)); the server passes it
-on. `position_secs` never exceeds the video's `duration_secs`, a repeat of the
-last position is not sent again, and a report for a video that is not the one
-playing is dropped. A dashboard that opens in the middle of a video learns the
+on. `duration_secs` is the length of the video: the one in the queue item, or for
+a TikTok video (whose item has `0`) the length its player told the overlay. Until
+a TikTok video's length is known, no `playback` is sent for it. `position_secs`
+never exceeds `duration_secs`, a repeat of the last position and length is not
+sent again, and a report for a video that is not the one playing is dropped. A dashboard that opens in the middle of a video learns the
 position from the next event; `hello` does not carry it.
 
 ### `chat_status`
@@ -456,7 +461,7 @@ The overlay sends JSON text messages with a `type`:
 | `{"type":"player_ready"}` | The page loaded and is listening. |
 | `{"type":"ended","item_id":7}` | The video finished. The server then plays the next one or sends `stop`. |
 | `{"type":"player_error","item_id":7,"code":"150"}` | The YouTube player could not play the video. `code` is the player's error code (at most 16 characters of `A-Z a-z 0-9 _ - .`; anything else is dropped). |
-| `{"type":"progress","item_id":7,"position_secs":23}` | How far the video has got, in whole seconds, about once a second while it plays (not while it loads, is paused or buffers). The server publishes it as [`playback`](#playback). |
+| `{"type":"progress","item_id":7,"position_secs":23}` | How far the video has got, in whole seconds, about once a second while it plays (not while it loads, is paused or buffers). For a TikTok video it also carries `"duration_secs": 15`, the length its player told (a whole number of seconds, rounded up; it is only believed from 1 second to 10 hours). The server publishes it as [`playback`](#playback). |
 
 An `ended`, `player_error` or `progress` for a video that is not the one
 playing (for example a late message after a skip) is ignored.
