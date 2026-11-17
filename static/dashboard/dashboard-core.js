@@ -31,6 +31,8 @@
   /* The IDs the server takes into the blacklist. */
   var YOUTUBE_ID = /^[A-Za-z0-9_-]{11}$/;
   var TIKTOK_ID = /^[0-9]{15,20}$/;
+  var TIKTOK_ACCOUNT = /^[A-Za-z0-9_.]{1,64}$/;
+  var TIKTOK_SHORT_CODE = /^[A-Za-z0-9]{6,12}$/;
   /* The pages of the dashboard, in the order of the menu. */
   var VIEWS = ['queue', 'requests', 'blacklist', 'rules', 'overlay', 'settings', 'account'];
   /* The ones with an entry in the side menu. The account page is reached from
@@ -521,6 +523,22 @@
     return choices;
   }
 
+  /* Where to look at a request's video in a browser, to see why it will not
+   * play or to check it again, or '' when there is nothing to open: a YouTube
+   * watch page, a TikTok video page (with the account when it is known, and
+   * any name otherwise: TikTok shows the right video), or a TikTok short link
+   * for a request that was turned away before the link was opened. */
+  function videoLink(item) {
+    if (item.source !== 'tiktok') {
+      return YOUTUBE_ID.test(item.video_id) ? 'https://www.youtube.com/watch?v=' + item.video_id : '';
+    }
+    if (TIKTOK_ID.test(item.video_id)) {
+      var account = channelName(item);
+      return 'https://www.tiktok.com/@' + (TIKTOK_ACCOUNT.test(account) ? account : '_') + '/video/' + item.video_id;
+    }
+    return TIKTOK_SHORT_CODE.test(item.video_id) ? 'https://vt.tiktok.com/' + item.video_id + '/' : '';
+  }
+
   /* Which page the address bar asks for; the queue when it asks for nothing
    * known (a `#token=...` fragment, for one). */
   function parseView(hash) {
@@ -727,6 +745,7 @@
     playbackPosition: playbackPosition,
     hasUnknownLength: hasUnknownLength,
     blacklistChoices: blacklistChoices,
+    videoLink: videoLink,
     waitingSeconds: waitingSeconds,
     oldestWaiting: oldestWaiting,
     formatWaiting: formatWaiting,

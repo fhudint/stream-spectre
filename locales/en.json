@@ -211,5 +211,7 @@
   "dashboard.action.blacklist_channel": "Blacklist channel",
   "dashboard.action.blacklist_account": "Blacklist account",
   "dashboard.blacklist.listed": "Blacklisted",
-  "dashboard.blacklist.added": "Added to the blacklist"
+  "dashboard.blacklist.added": "Added to the blacklist",
+  "dashboard.action.copy_link": "Copy link",
+  "dashboard.requests.link_copied": "Link copied"
 }

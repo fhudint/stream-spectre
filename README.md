@@ -188,6 +188,11 @@ dashboard remembers). Each page has its own address (`#queue`, `#requests`,
 bottom and the queue page shows the waiting requests, the chat and the notices
 as three tabs.
 
+On the **Requests** page, **Copy link** puts a link to the video on the
+clipboard (YouTube's watch page, TikTok's video page, or the short link when the
+request was turned away before it was opened), to open it and see why it does
+not play or to check it again.
+
 Next to a waiting or approved request, and on every row of the **Requests**
 page, **Blacklist video** adds the video's ID to the blacklist and **Blacklist
 channel** (**account** for TikTok) adds its channel. On the queue page the

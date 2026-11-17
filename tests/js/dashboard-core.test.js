@@ -393,6 +393,21 @@ test('what can be blacklisted: the video when its ID is acceptable, the channel 
   assert.equal(core.blacklistChoices(request(1), undefined).length, 2, 'before the settings are known');
 });
 
+test('a request links to its video: YouTube, TikTok with or without the account, or a short link', () => {
+  const link = (extra) => core.videoLink({ source: 'youtube', video_id: 'dQw4w9WgXcQ', title: '', channel: '', ...extra });
+  assert.equal(link({}), 'https://www.youtube.com/watch?v=dQw4w9WgXcQ');
+  const tiktok = { source: 'tiktok', video_id: '7700124541145599252' };
+  assert.equal(link({ ...tiktok, title: '@cher.lynn_05' }), 'https://www.tiktok.com/@cher.lynn_05/video/7700124541145599252');
+  // Account unknown, or not a name we would put in an address: any name opens the right video.
+  assert.equal(link({ ...tiktok, title: tiktok.video_id }), 'https://www.tiktok.com/@_/video/7700124541145599252');
+  assert.equal(link({ ...tiktok, title: '@a/../b?x=1' }), 'https://www.tiktok.com/@_/video/7700124541145599252');
+  // Turned away before the short link was opened: the code is all there is.
+  assert.equal(link({ source: 'tiktok', video_id: 'ZSpGELffb' }), 'https://vt.tiktok.com/ZSpGELffb/');
+  for (const bad of [{ video_id: '<x>' }, { video_id: 'short' }, { video_id: 'a/b/c/d/e' }, { source: 'tiktok', video_id: '../x' }, { source: 'tiktok', video_id: 'abc' }]) {
+    assert.equal(link(bad), '', JSON.stringify(bad));
+  }
+});
+
 test('a request shows its time today, and the date too on another day', () => {
   const at = new Date(2026, 0, 5, 19, 51, 24).getTime();
   const sameDay = new Date(2026, 0, 5, 23, 0, 0).getTime();

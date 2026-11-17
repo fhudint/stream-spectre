@@ -490,9 +490,9 @@ kbd { padding: 1px 6px; border-radius: 4px; background: var(--button); color: va
   #pending { max-height: min(60vh, 560px); overflow-y: auto; }
 }
 
-/* The requests page has room for both blacklist buttons on one line. */
+/* The requests page has room for its three small buttons on one line. */
 @media (min-width: 900px) {
-  #requests > .row { grid-template-columns: 96px minmax(0, 1fr) 190px 240px; }
+  #requests > .row { grid-template-columns: 96px minmax(0, 1fr) 190px 330px; }
 }
 .rows > .row.selected { background: var(--row); }
 .rows > .row.selected button.primary { outline: 2px solid var(--text); outline-offset: 2px; }

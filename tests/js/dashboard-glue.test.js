@@ -719,6 +719,31 @@ test('an empty history says so, and a live event adds a request or changes its s
   assert.match(rows[1].textContent, /Playing now/);
 });
 
+test('a request has a button that copies a link to its video', async () => {
+  const history = [
+    entry(1),
+    entry(2, { source: 'tiktok', video_id: '7700124541145599252', title: '@cherlynn052', channel: 'cherlynn052' }),
+    entry(3, { status: 'refused', source: 'tiktok', video_id: 'ZSpGELffb', title: '', channel: '' }),
+    entry(4, { video_id: '<x>' }),
+  ];
+  const page = await ready({ hash: '#requests', routes: withHistory(history) });
+  const rows = page.elements.requests.children; // newest first
+  assert.deepEqual(buttons(rows[0], 'copy'), [], 'nothing to open for an ID that is not one');
+  const copy = (row) => buttons(row, 'copy')[0];
+  assert.equal(copy(rows[1]).textContent, 'Copy link');
+
+  copy(rows[2]).fire('click');
+  await settle();
+  assert.equal(page.log.clipboard, 'https://www.tiktok.com/@cherlynn052/video/7700124541145599252');
+  assert.equal(page.elements.flash.textContent, 'Link copied');
+  copy(rows[1]).fire('click');
+  await settle();
+  assert.equal(page.log.clipboard, 'https://vt.tiktok.com/ZSpGELffb/');
+  copy(rows[3]).fire('click');
+  await settle();
+  assert.equal(page.log.clipboard, `https://www.youtube.com/watch?v=${ITEM_ID}`);
+});
+
 test('the requests are drawn when the page is opened, not for every message while it is not shown', async () => {
   const page = await ready({ routes: withHistory([entry(1)]) });
   assert.equal(page.elements.requests.children.length, 0);

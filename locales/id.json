@@ -211,5 +211,7 @@
   "dashboard.action.blacklist_channel": "Blacklist kanal",
   "dashboard.action.blacklist_account": "Blacklist akun",
   "dashboard.blacklist.listed": "Sudah di daftar hitam",
-  "dashboard.blacklist.added": "Masuk ke daftar hitam"
+  "dashboard.blacklist.added": "Masuk ke daftar hitam",
+  "dashboard.action.copy_link": "Salin link",
+  "dashboard.requests.link_copied": "Link disalin"
 }

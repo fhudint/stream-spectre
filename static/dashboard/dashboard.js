@@ -692,6 +692,18 @@
     });
   }
 
+  /* The small button that copies a link to the video, to open it and see why
+   * it does not play. None when there is no link to give. */
+  function linkButton(entry) {
+    var link = core.videoLink(entry);
+    if (!link) return [];
+    var node = button('dashboard.action.copy_link', 'copy', function () {
+      copyText(link, 'dashboard.requests.link_copied');
+    });
+    node.className = 'small';
+    return [node];
+  }
+
   /* One request in the history: what it was, who sent it, what became of it,
    * and the buttons to blacklist it. */
   function historyRow(entry) {
@@ -724,7 +736,7 @@
           h('span', { className: 'who-meta', text: core.formatWhen(entry.requested_at_ms, Date.now()) }),
         ]),
       ]),
-      h('div', { className: 'actions' }, blacklistButtons(entry, false)),
+      h('div', { className: 'actions' }, linkButton(entry).concat(blacklistButtons(entry, false))),
     ]);
   }
 
@@ -1310,21 +1322,25 @@
     }
   }
 
-  function copyOverlay() {
-    var url = core.overlayUrl(location.protocol, location.host, token);
+  /* Copies `text`, and says `copiedKey` when it worked. */
+  function copyText(text, copiedKey) {
     var done = function () {
       clearError();
-      flash(t('dashboard.overlay.copied'));
+      flash(t(copiedKey));
     };
     var fallback = function () {
-      if (copyByHand(url)) done();
+      if (copyByHand(text)) done();
       else showError(t('dashboard.overlay.copy_failed'));
     };
     if (typeof navigator !== 'undefined' && navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(url).then(done, fallback);
+      navigator.clipboard.writeText(text).then(done, fallback);
     } else {
       fallback();
     }
+  }
+
+  function copyOverlay() {
+    copyText(core.overlayUrl(location.protocol, location.host, token), 'dashboard.overlay.copied');
   }
 
   $('copy-overlay').addEventListener('click', copyOverlay);
