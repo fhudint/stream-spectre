@@ -13,6 +13,7 @@ pub mod platform;
 pub mod queue;
 pub mod server;
 pub mod text;
+pub mod tiktok;
 pub mod youtube;
 
 /// Application name, taken from `Cargo.toml`.

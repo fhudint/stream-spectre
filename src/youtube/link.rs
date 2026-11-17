@@ -22,9 +22,7 @@ const LONG_HOSTS: [&str; 3] = ["youtube.com", "www.youtube.com", "m.youtube.com"
 /// extra path segments, and IDs that fail validation. The result is always a
 /// validated `VideoId`; the input text is never reused.
 pub fn extract_video_id(token: &str) -> Option<VideoId> {
-    // Control characters and backslashes are silently dropped or rewritten by
-    // URL parsers, so refuse them instead of guessing what was meant.
-    if token.len() > MAX_TOKEN_LEN || token.chars().any(|c| c.is_control() || c == '\\') {
+    if !is_safe_token(token) {
         return None;
     }
     if let Ok(id) = VideoId::parse(token) {
@@ -65,8 +63,16 @@ pub fn extract_video_id(token: &str) -> Option<VideoId> {
     None
 }
 
+/// Whether a chat token is fit to be looked at as a link. Control characters
+/// and backslashes are silently dropped or rewritten by URL parsers, so they
+/// are refused instead of guessing what was meant; so is anything long enough
+/// to be an attack on the parser rather than a link.
+pub(crate) fn is_safe_token(token: &str) -> bool {
+    token.len() <= MAX_TOKEN_LEN && !token.chars().any(|c| c.is_control() || c == '\\')
+}
+
 /// Parses the token as an `https` URL, adding the scheme when it is missing.
-fn parse_url(token: &str) -> Option<Url> {
+pub(crate) fn parse_url(token: &str) -> Option<Url> {
     let rest = strip_web_scheme(token)?;
     // A host starts with a letter or digit; this also rejects "//host/..."
     // and "@host/...", which URL parsers would otherwise normalise.

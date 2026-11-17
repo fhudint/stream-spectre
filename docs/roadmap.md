@@ -14,19 +14,70 @@ same way YouTube videos do.
 hands on a validated `VideoId`; the overlay plays it with the YouTube IFrame
 player; the queue, moderation and events all assume a YouTube video.
 
+**What was checked** (2026-11-17, with `curl`, public links only)
+- A link from the web (`tiktok.com/@name/video/<19 digits>?...`) carries the
+  video ID in its path. The query string can be dropped.
+- A link from the app (`vt.tiktok.com/<code>/`) carries no ID. Asking for it
+  without following redirects gave `301` with `Location:
+  https://www.tiktok.com/@name/video/<id>?...`, so the ID and the account name
+  come from that one header. A made-up code gave `302` to the home page, which
+  has no `/video/` in it.
+- oEmbed (`tiktok.com/oembed?url=...`) answered 200 for both kinds of link, but
+  only with an `<iframe>` pointing at `tiktok.com/player/v1/<id>` and the ID
+  (`embed_product_id`). **No title, author, thumbnail or duration.** For a short
+  link it also resolves the ID. For a made-up short code it answered 400.
+- oEmbed answered 200 for a video ID that does not exist
+  (`7000000000000000001`), so it cannot tell whether a video exists.
+- `tiktok.com/player/v1/<id>` answered 200 with no `X-Frame-Options` and no
+  `frame-ancestors`, so the headers do not stop it from being shown in an
+  iframe on another origin.
+
 **Open questions**
-- How does the overlay play a TikTok video? TikTok offers an embeddable player
-  and an oEmbed endpoint (*unverified*: what each returns, whether the player
-  reports "ended" and errors back to the page, and whether it needs a
-  non-IP origin like YouTube's did).
-- What can be known before approval? oEmbed gives a title, author and
-  thumbnail but, as far as is known, not a duration, so the maximum-duration
-  rule may not be enforceable up front (*unverified*).
-- Short links (`vm.tiktok.com/...`) need a redirect to find the video ID.
-  Following redirects for text a stranger typed is a security risk (SSRF): it
-  must be limited to TikTok's own hosts, with a small redirect limit.
+- Does the player report "ended" and errors back to the page? TikTok is
+  believed to have a `postMessage` API for the embed player (*unverified*: its
+  page is a JavaScript shell, so `curl` cannot show it; it needs a real browser
+  or OBS). Without an "ended" signal the overlay would have to move on by a
+  timer or by the skip button. Does it need a non-IP origin like YouTube's did
+  (*unverified*)?
+- With no duration known before approval, the maximum-duration rule cannot be
+  enforced up front for TikTok. Manual approval, by someone who can see the
+  video in a preview, is the only filter, so the default for TikTok should stay
+  manual.
+- With no title or thumbnail, a queue card can show only the account name and
+  the ID. A preview inside the dashboard (the same embed in an iframe) may be
+  the way to let a moderator look before approving.
+- A video that is private, deleted or blocked in a country cannot be told apart
+  from a good one before it plays, so the overlay needs to skip a video that
+  fails to load.
+- Short links need one request to TikTok's own host. It is a security risk
+  (SSRF) for text a stranger typed, so it must be limited: only
+  `vt.tiktok.com` and `vm.tiktok.com`, a code checked by a regex, `https` only,
+  redirects not followed (read `Location` and check its host and path), a short
+  timeout, and the result cached.
 - Copyright and platform rules for re-playing other people's TikToks on stream
   need the same warning as YouTube, and probably a stricter default.
+
+**Built so far (not wired in).** `src/tiktok/` has the parser and the
+short-link resolver, tested but not yet used by the pipeline, the queue or the
+overlay.
+- What a viewer types after the command: a bare video ID
+  (`7700124541145599252`), a bare short code (`ZSpGELffb`, case kept), a web
+  link (`tiktok.com/@name/video/<id>`, also `www.` and `m.`), or a short link
+  (`vt.tiktok.com/<code>`, `vm.`). Anything else, other hosts and shapes
+  included, is refused. A YouTube ID made only of letters and digits also looks
+  like a code; it is asked of TikTok, leads nowhere and costs one cached
+  request.
+- The resolver builds the address itself from a validated code
+  (`https://vt.tiktok.com/<code>/`), never follows a redirect, reads and checks
+  `Location` (https, TikTok's own host, a video path, an account name of
+  letters, digits, `_` and `.`), never reads the body, has a 5 second timeout,
+  and caches (24 hours for a video, 5 minutes for a code that leads nowhere;
+  failures are not cached; simultaneous lookups share one request). Checked
+  once against the real service with the two codes above.
+
+**Next.** A `VideoRef` and a `source` on queue items and events, the TikTok
+source for a command in `[command]`, and the overlay player. The player is the
+risky part and needs a trial in a browser or OBS.
 
 **Shape of the change (a sketch).** A `VideoRef` that is either a YouTube or a
 TikTok video, a second lookup implementation behind the existing `VideoSource`
