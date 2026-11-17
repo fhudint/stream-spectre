@@ -11,7 +11,8 @@ CLAUDE.md
 config.toml
 config.settings.toml
 config.secrets.toml
-demo-videos.json
+demo-videos*.json
+!demo-videos.example.json
 
 # Output tools lokal
 graphify-out/
