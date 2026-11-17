@@ -22,6 +22,7 @@
   var tiktokHost = document.getElementById('tiktok');
   var requester = document.getElementById('requester');
   var title = document.getElementById('title');
+  var barFill = document.getElementById('bar-fill');
 
   var ui = {
     show: function (info) {
@@ -55,6 +56,7 @@
     var wantPaused = false; // a moderator paused this video
     var tiktokOn = false; // the TikTok frame is what is on screen
     var tiktokTimer = null; // gives up on a TikTok video that never starts
+    var tiktokClock = null; // { position, duration } as TikTok's player last said
     var tiktokFrame = null;
     var sound = core.createTiktokSound({
       post: postTiktok,
@@ -80,6 +82,10 @@
       if (!tiktokFrame || event.origin !== TIKTOK_ORIGIN) return;
       if (event.source !== tiktokFrame.contentWindow) return;
       sound.handle(event.data);
+      var data = event.data;
+      if (data && data.type === 'onCurrentTime' && data.value && typeof data.value === 'object') {
+        tiktokClock = { position: data.value.currentTime, duration: data.value.duration };
+      }
       if (core.tiktokStarted(event.data)) stopTiktokTimer();
       var outcome = core.tiktokOutcome(event.data);
       if (outcome === null) return;
@@ -107,6 +113,7 @@
       frame.setAttribute('referrerpolicy', 'strict-origin-when-cross-origin');
       tiktokHost.appendChild(frame);
       tiktokFrame = frame;
+      tiktokClock = null;
       tiktokTimer = setTimeout(function () {
         tiktokTimer = null;
         if (tiktokFrame === frame) callbacks.onError('timeout');
@@ -224,6 +231,15 @@
         hideTiktok();
         if (ready) yt.stopVideo();
       },
+      /* How much of the video is done, 0 to 100 (0 when not known), for the
+       * line under it. Unlike `position` it also tells while paused. */
+      percent: function () {
+        if (tiktokOn) {
+          return tiktokClock ? core.progressPercent(tiktokClock.position, tiktokClock.duration) : 0;
+        }
+        if (!ready || typeof yt.getCurrentTime !== 'function' || typeof yt.getDuration !== 'function') return 0;
+        return core.progressPercent(yt.getCurrentTime(), yt.getDuration());
+      },
       /* Seconds into the video while it plays, otherwise null. */
       position: function () {
         if (!ready || !playing || typeof yt.getCurrentTime !== 'function') return null;
@@ -295,4 +311,8 @@
 
   connect();
   setInterval(controller.tick, 1000);
+  // The line under the video moves smoothly between these steps (see the CSS).
+  setInterval(function () {
+    barFill.style.width = player.percent().toFixed(1) + '%';
+  }, 250);
 })();

@@ -14,19 +14,39 @@ body {
   position: relative;
   width: 100%;
   height: 100%;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6em;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-size: clamp(12px, 3.2vmin, 28px);
 }
 
 #root.hidden {
   visibility: hidden;
 }
 
+/* The video with its progress line under it, in one rounded piece. */
+#frame {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border-radius: 0.8em;
+  overflow: hidden;
+  background: #000;
+}
+
 #stage {
-  position: absolute;
-  inset: 0;
+  position: relative;
+  flex: 1;
+  min-height: 0;
   background: #000;
 }
 
 #player {
+  position: absolute;
+  inset: 0;
   width: 100%;
   height: 100%;
   border: 0;
@@ -35,6 +55,8 @@ body {
 /* TikTok's player is a plain frame of its own, shown instead of YouTube's. */
 #tiktok {
   display: none;
+  position: absolute;
+  inset: 0;
   width: 100%;
   height: 100%;
 }
@@ -53,33 +75,50 @@ body {
   display: block;
 }
 
+/* How far the video has got. */
+#bar {
+  flex: none;
+  height: clamp(4px, 0.5vmin, 10px);
+  background: #0a1233;
+}
+
+#bar-fill {
+  width: 0;
+  height: 100%;
+  background: #2f6bff;
+  transition: width 0.3s linear;
+}
+
+/* Who asked for it and what it is, in a card under the video. */
 #caption {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  padding: 0.4em 0.8em;
+  flex: none;
+  padding: 0.6em 0.9em;
   display: flex;
   flex-direction: column;
-  gap: 0.1em;
-  background: linear-gradient(to top, rgba(0, 0, 0, 0.75), rgba(0, 0, 0, 0));
+  gap: 0.15em;
+  border: 2px solid rgba(255, 255, 255, 0.55);
+  border-radius: 0.8em;
+  background: rgba(32, 32, 32, 0.92);
   color: #fff;
-  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  font-size: clamp(12px, 3.2vmin, 28px);
-  line-height: 1.25;
-  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9);
+  line-height: 1.3;
   pointer-events: none;
 }
 
 #requester {
-  font-weight: 600;
+  font-weight: 700;
+  color: #5cc8ff;
 }
 
 #title {
-  opacity: 0.85;
-  white-space: nowrap;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
   overflow: hidden;
-  text-overflow: ellipsis;
+  overflow-wrap: anywhere;
+}
+
+#caption:has(#requester:empty):has(#title:empty) {
+  display: none;
 }
 
 #requester:empty,

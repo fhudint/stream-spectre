@@ -169,7 +169,11 @@ page (see below): a live has a new link each time.
    otherwise.
 4. Tick **Control audio via OBS** if you want the video's sound in the audio
    mixer. The volume is set from the dashboard.
-5. Move and resize the source in your scene.
+5. Move and resize the source in your scene. The overlay fills the source: the
+   video in a rounded frame with a thin progress line under it, and a card under
+   that with who asked for it and the title (for a TikTok video, its account).
+   A tall source (for example 9:16) suits TikTok videos; the video takes
+   whatever room the card leaves.
 
 Open <http://localhost:8787/dashboard/> in a normal browser (for you or your
 moderators) to approve, reject and skip requests, and to change the settings

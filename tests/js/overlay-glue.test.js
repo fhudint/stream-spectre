@@ -50,7 +50,7 @@ class FakeElement {
 }
 
 function load({ search = '', protocol = 'http:', host = '127.0.0.1:8787', fetchBody = {}, fetchOk = true } = {}) {
-  const log = { sockets: [], timeouts: [], intervals: [], fetches: [], scripts: [], players: [], position: 0 };
+  const log = { sockets: [], timeouts: [], intervals: [], fetches: [], scripts: [], players: [], position: 0, duration: 200 };
 
   class FakeWebSocket {
     static OPEN = 1;
@@ -89,6 +89,9 @@ function load({ search = '', protocol = 'http:', host = '127.0.0.1:8787', fetchB
     getCurrentTime() {
       return log.position;
     }
+    getDuration() {
+      return log.duration;
+    }
     loadVideoById(videoId) {
       this.calls.push(['loadVideoById', videoId]);
     }
@@ -109,7 +112,9 @@ function load({ search = '', protocol = 'http:', host = '127.0.0.1:8787', fetchB
     title: new FakeElement('title'),
     stage: new FakeElement('stage'),
     tiktok: new FakeElement('tiktok'),
+    'bar-fill': new FakeElement('bar-fill'),
   };
+  elements['bar-fill'].style = {};
 
   const sandbox = {
     OverlayCore: core,
@@ -339,7 +344,7 @@ test('a report made while the socket is down goes out after the reconnect', () =
 
 test('progress is reported once a second, but only while the video is playing', () => {
   const page = load();
-  assert.deepEqual(page.log.intervals.map((i) => i.delay), [1000]);
+  assert.deepEqual(page.log.intervals.map((i) => i.delay), [1000, 250], "the second one moves the line under the video");
   const tick = page.log.intervals[0].fn;
   page.apiReady();
   page.player().options.events.onReady();
@@ -667,6 +672,40 @@ test('when TikTok\'s player says the video is over, the server is told', () => {
   fromPlayer(page, 'onStateChange', 0);
   fromPlayer(page, 'onPlayerError', { errorCode: 1001 });
   assert.equal(reports(page).length, 1);
+});
+
+// --- the line under the video ---
+
+const barStep = (page) => {
+  page.log.intervals.find((i) => i.delay === 250).fn();
+  return page.elements['bar-fill'].style.width;
+};
+
+test('the line under a YouTube video follows how much of it is done, also while paused', () => {
+  const page = readyPage();
+  page.socket().receive(envelope(1, 'play', { item: item(1), volume: 50 }));
+  assert.equal(barStep(page), '0.0%', 'nothing yet');
+  page.log.position = 50;
+  assert.equal(barStep(page), '25.0%');
+  page.socket().receive(envelope(2, 'playback_paused', { item_id: 1, paused: true }));
+  assert.equal(barStep(page), '25.0%', 'a pause does not empty it');
+  page.log.duration = 0; // the length is not known yet
+  assert.equal(barStep(page), '0.0%');
+});
+
+test('the line under a TikTok video follows what its player says, and starts over with the next one', () => {
+  const page = readyPage();
+  page.socket().receive(envelope(1, 'play', { item: tiktokItem(4), volume: 50 }));
+  assert.equal(barStep(page), '0.0%');
+  fromPlayer(page, 'onCurrentTime', { currentTime: 5, duration: 20 });
+  assert.equal(barStep(page), '25.0%', 'not the YouTube player position, which is 0');
+  fromPlayer(page, 'onCurrentTime', { currentTime: 25, duration: 20 });
+  assert.equal(barStep(page), '100.0%', 'never past the end');
+  fromPlayer(page, 'onCurrentTime', 'nonsense');
+  assert.equal(barStep(page), '100.0%', 'what is not a time changes nothing');
+
+  page.socket().receive(envelope(2, 'play', { item: tiktokItem(5, { video_id: '7219950637247728923' }), volume: 50 }));
+  assert.equal(barStep(page), '0.0%', 'the next video starts empty');
 });
 
 // --- a TikTok video that never starts ---

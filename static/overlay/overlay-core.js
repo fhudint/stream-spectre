@@ -69,6 +69,14 @@
     return Math.min(100, Math.max(0, Math.round(value)));
   }
 
+  /* How much of a video is done, as a percentage from 0 to 100, for the line
+   * under it. 0 while the length or the position is not known. */
+  function progressPercent(position, duration) {
+    if (typeof position !== 'number' || typeof duration !== 'number') return 0;
+    if (!isFinite(position) || !isFinite(duration) || duration <= 0 || position <= 0) return 0;
+    return Math.min(100, (position / duration) * 100);
+  }
+
   /* Error codes come from the player; keep a short safe token. */
   function sanitizeCode(code) {
     var cleaned = String(code).replace(/[^A-Za-z0-9_.-]/g, '').slice(0, 16);
@@ -365,6 +373,7 @@
     createController: createController,
     createTiktokSound: createTiktokSound,
     tiktokOutcome: tiktokOutcome,
+    progressPercent: progressPercent,
     tiktokStarted: tiktokStarted,
     TIKTOK_START_MS: TIKTOK_START_MS,
     format: format,

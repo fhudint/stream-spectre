@@ -649,6 +649,15 @@ test('TikTok\'s player says a video is over with state 0, and fails with onPlaye
   assert.equal(say('onStateChange', 0, 'true'), null);
 });
 
+test('how much of a video is done is a percentage that is 0 when it cannot be told', () => {
+  assert.equal(core.progressPercent(50, 200), 25);
+  assert.equal(core.progressPercent(200, 200), 100);
+  assert.equal(core.progressPercent(250, 200), 100, 'never past the end');
+  for (const [position, duration] of [[0, 200], [-5, 200], [50, 0], [50, -1], [NaN, 200], [50, Infinity], ['5', 20], [5, '20'], [undefined, 20], [null, null]]) {
+    assert.equal(core.progressPercent(position, duration), 0, `${position} of ${duration}`);
+  }
+});
+
 test('a TikTok video has started once it plays or its clock ticks, and not before', () => {
   const say = (type, value, flag = true) => core.tiktokStarted({ 'x-tiktok-player': flag, type, value });
   assert.equal(say('onStateChange', 1), true);
