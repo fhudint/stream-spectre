@@ -322,8 +322,14 @@ trust, not across the internet.
   approval. TikTok's player tells the overlay when a video ends and when it
   cannot be played (it does not exist, is private or is removed), and then the
   queue moves on, with a notice for the moderators in the second case. If the
-  player says neither, the video stays until a moderator presses skip. It
-  cannot be paused from the dashboard. TikTok's player starts
+  player has not started a video within 15 seconds, the overlay gives up on it
+  and skips it with a notice (code `timeout`); a video that runs but never says
+  it is over stays until a moderator presses skip. **Videos with a product link
+  (TikTok Shop or affiliate videos, the yellow basket) cannot be played in a
+  browser at the moment, only in TikTok's own app**, so they end up skipped by
+  that timeout; nothing tells them apart beforehand, and a moderator can reject
+  one that shows the basket when it is waiting. A video cannot be paused from
+  the dashboard. TikTok's player starts
   every video muted, so the overlay asks it for sound (with the volume of the
   dashboard's slider): in OBS that works, in an ordinary browser tab the browser
   usually refuses sound without a click and the video plays silently. If a

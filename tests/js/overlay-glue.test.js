@@ -143,6 +143,9 @@ function load({ search = '', protocol = 'http:', host = '127.0.0.1:8787', fetchB
       log.timeouts.push({ fn, delay });
       return log.timeouts.length;
     },
+    clearTimeout: (id) => {
+      if (log.timeouts[id - 1]) log.timeouts[id - 1].cleared = true;
+    },
     setInterval: (fn, delay) => {
       log.intervals.push({ fn, delay });
       return log.intervals.length;
@@ -664,6 +667,45 @@ test('when TikTok\'s player says the video is over, the server is told', () => {
   fromPlayer(page, 'onStateChange', 0);
   fromPlayer(page, 'onPlayerError', { errorCode: 1001 });
   assert.equal(reports(page).length, 1);
+});
+
+// --- a TikTok video that never starts ---
+
+const startTimers = (page) => page.log.timeouts.filter((t) => t.delay === 15000);
+
+test('a TikTok video that never starts is reported as failed after 15 seconds', () => {
+  const page = readyPage();
+  page.socket().receive(envelope(1, 'play', { item: tiktokItem(4), volume: 50 }));
+  const [timer, ...others] = startTimers(page);
+  assert.equal(others.length, 0);
+  fromPlayer(page, 'onPlayerReady', {}); // ready is not playing
+  assert.ok(!timer.cleared);
+  assert.deepEqual(reports(page), []);
+
+  timer.fn();
+  assert.deepEqual(reports(page), [{ type: 'player_error', item_id: 4, code: 'timeout' }]);
+});
+
+test('a TikTok video that plays, or fails, or is replaced, is not timed out', () => {
+  for (const signal of [['onStateChange', 1], ['onCurrentTime', {}], ['onPlayerError', { errorCode: 1001 }], ['onStateChange', 0]]) {
+    const page = readyPage();
+    page.socket().receive(envelope(1, 'play', { item: tiktokItem(4), volume: 50 }));
+    fromPlayer(page, ...signal);
+    assert.ok(startTimers(page)[0].cleared, signal.join(' '));
+  }
+  const page = readyPage();
+  page.socket().receive(envelope(1, 'play', { item: tiktokItem(4), volume: 50 }));
+  page.socket().receive(envelope(2, 'play', { item: tiktokItem(5, { video_id: '7219950637247728923' }), volume: 50 }));
+  const [first, second] = startTimers(page);
+  assert.ok(first.cleared && !second.cleared, 'a new video starts its own count');
+  page.socket().receive(envelope(3, 'skip', { item_id: 5, reason: 'moderator' }));
+  assert.ok(second.cleared, 'skipping takes the count away');
+});
+
+test('YouTube videos have no start timer', () => {
+  const page = readyPage();
+  page.socket().receive(envelope(1, 'play', { item: item(1), volume: 50 }));
+  assert.equal(startTimers(page).length, 0);
 });
 
 test('the pause TikTok sends just before the end does not stop the video from ending', () => {

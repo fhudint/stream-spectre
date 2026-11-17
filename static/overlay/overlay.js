@@ -54,6 +54,7 @@
     var playing = false;
     var wantPaused = false; // a moderator paused this video
     var tiktokOn = false; // the TikTok frame is what is on screen
+    var tiktokTimer = null; // gives up on a TikTok video that never starts
     var tiktokFrame = null;
     var sound = core.createTiktokSound({
       post: postTiktok,
@@ -79,8 +80,10 @@
       if (!tiktokFrame || event.origin !== TIKTOK_ORIGIN) return;
       if (event.source !== tiktokFrame.contentWindow) return;
       sound.handle(event.data);
+      if (core.tiktokStarted(event.data)) stopTiktokTimer();
       var outcome = core.tiktokOutcome(event.data);
       if (outcome === null) return;
+      stopTiktokTimer();
       if (outcome.ended) callbacks.onEnded();
       else callbacks.onError(outcome.code);
     });
@@ -88,8 +91,10 @@
     /* TikTok's embedded player: one frame per video, removed afterwards. The
      * ID is digits only (checked by overlay-core). Its sound is asked for as
      * described at `createTiktokSound`. It says when the video ends and when
-     * it cannot be played (`tiktokOutcome`); a video that says neither stays
-     * until a moderator skips it. */
+     * it cannot be played (`tiktokOutcome`). A video that has not started
+     * after `TIKTOK_START_MS` is reported as failed (code `timeout`), so it
+     * does not hold the screen; once it runs, only a moderator skipping it
+     * ends a video that never says it is over. */
     function showTiktok(videoId) {
       hideTiktok();
       var frame = document.createElement('iframe');
@@ -102,12 +107,22 @@
       frame.setAttribute('referrerpolicy', 'strict-origin-when-cross-origin');
       tiktokHost.appendChild(frame);
       tiktokFrame = frame;
+      tiktokTimer = setTimeout(function () {
+        tiktokTimer = null;
+        if (tiktokFrame === frame) callbacks.onError('timeout');
+      }, core.TIKTOK_START_MS);
       sound.begin();
       stage.classList.add('tiktok');
       tiktokOn = true;
     }
 
+    function stopTiktokTimer() {
+      if (tiktokTimer !== null) clearTimeout(tiktokTimer);
+      tiktokTimer = null;
+    }
+
     function hideTiktok() {
+      stopTiktokTimer();
       tiktokHost.replaceChildren();
       tiktokFrame = null;
       stage.classList.remove('tiktok');

@@ -80,8 +80,11 @@ or in OBS yet.
   no progress. It ends when the player says so (`onStateChange` 0), and a video
   the player cannot play (`onPlayerError`) is skipped with a notice. Checked in
   Firefox with a 23 second video, and with a video that does not exist
-  (1001 INVALID_VIDEO); not yet in OBS. A video whose player says neither stays
-  until a moderator skips it.
+  (1001 INVALID_VIDEO); not yet in OBS. A video that has not started within 15
+  seconds is skipped as a failure (`timeout`): the player does not play videos
+  with a product link (affiliate, the yellow basket) in a browser and stays
+  silent. A video that runs but never says it is over stays until a moderator
+  skips it.
 - Sound. The player mutes every video it starts. Checked in a real browser
   (Firefox, headless): the player takes commands by `postMessage`
   (`setVolume` with 0 to 100, which also unmutes, `unMute`, `mute`, `play`) and

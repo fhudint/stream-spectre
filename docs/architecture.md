@@ -142,7 +142,10 @@ for sound and to set the volume, and mutes it and sets it playing again when the
 browser refuses sound (`createTiktokSound` in `overlay-core.js`). It also tells
 when the video ends (state 0) and when it cannot be played (`onPlayerError`);
 the overlay turns those into the same `ended` and `player_error` reports as
-for YouTube (`tiktokOutcome`). Nothing else it reports is used.
+for YouTube (`tiktokOutcome`). A video that has not started (state 1 or a
+clock tick, `tiktokStarted`) within 15 seconds is reported as `player_error`
+with the code `timeout`, so a video the player stays silent about does not hold
+the screen. Nothing else it reports is used.
 
 **One event stream, versioned.** Everything the pages show comes from the
 events described in [`websocket-events.md`](websocket-events.md). A client

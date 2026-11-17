@@ -649,6 +649,19 @@ test('TikTok\'s player says a video is over with state 0, and fails with onPlaye
   assert.equal(say('onStateChange', 0, 'true'), null);
 });
 
+test('a TikTok video has started once it plays or its clock ticks, and not before', () => {
+  const say = (type, value, flag = true) => core.tiktokStarted({ 'x-tiktok-player': flag, type, value });
+  assert.equal(say('onStateChange', 1), true);
+  assert.equal(say('onCurrentTime', { currentTime: 0.2, duration: 23 }), true);
+  // Ready, paused, buffering, muted or ended is not yet playing.
+  for (const [type, value] of [['onPlayerReady', 1], ['onStateChange', 2], ['onStateChange', 3], ['onStateChange', 0], ['onMute', true], ['onPlayerError', {}]]) {
+    assert.equal(say(type, value), false, type + value);
+  }
+  for (const data of [null, undefined, 'onCurrentTime', 1, [], {}, { type: 'onCurrentTime' }]) assert.equal(core.tiktokStarted(data), false, JSON.stringify(data));
+  assert.equal(say('onCurrentTime', {}, false), false);
+  assert.equal(core.TIKTOK_START_MS, 15000);
+});
+
 test('the pause at the very end of a short video is not the browser refusing sound', () => {
   const { say, posts, tick, sound } = tiktokSound();
   say('onCurrentTime', { currentTime: 0.1, duration: 2 });

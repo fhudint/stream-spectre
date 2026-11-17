@@ -119,6 +119,19 @@
     return null;
   }
 
+  /* How long TikTok's player gets to start a video before the overlay gives
+   * up on it. A video it never starts (one with a product link, for example,
+   * which TikTok only plays in its own app) says nothing at all. */
+  var TIKTOK_START_MS = 15000;
+  var TIKTOK_PLAYING = 1;
+
+  /* Whether a message from TikTok's player shows that the video is running:
+   * it is playing (state 1), or its clock ticks (`onCurrentTime`). */
+  function tiktokStarted(data) {
+    if (!data || typeof data !== 'object' || data['x-tiktok-player'] !== true) return false;
+    return (data.type === 'onStateChange' && data.value === TIKTOK_PLAYING) || data.type === 'onCurrentTime';
+  }
+
   function createTiktokSound(deps) {
     var muted;
     var asks;
@@ -352,6 +365,8 @@
     createController: createController,
     createTiktokSound: createTiktokSound,
     tiktokOutcome: tiktokOutcome,
+    tiktokStarted: tiktokStarted,
+    TIKTOK_START_MS: TIKTOK_START_MS,
     format: format,
     isVideoId: isVideoId,
     isVideoRef: isVideoRef,

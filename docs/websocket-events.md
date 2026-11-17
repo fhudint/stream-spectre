@@ -183,8 +183,11 @@ moderator, even when automatic approval is on, because nothing about it
 it in TikTok's own embedded player. That player tells the overlay when the video
 ends (state 0), and the overlay sends `ended`; when it cannot play a video
 (`onPlayerError`, for example 1001 for one that does not exist) the overlay
-sends `player_error` with that code, and the video is skipped with a notice. If
-the player says neither, the video stays until a moderator skips it. A TikTok
+sends `player_error` with that code, and the video is skipped with a notice. A
+video the player has not started playing within 15 seconds gets `player_error`
+with the code `timeout` (TikTok does not play videos with a product link in a
+browser, and says nothing then). A video that runs but never says it is over
+stays until a moderator skips it. A TikTok
 item has no `progress` and no pause. The player starts muted: the overlay asks
 it for sound and sets its volume from `volume`, as for YouTube.
 `title`, `channel` and `requested_by.name` are text written by other people:

@@ -1,10 +1,10 @@
-# Instruksi lokal untuk Claude Code (tidak di-push ke GitHub)
+# Local instructions for Claude Code (not pushed to GitHub)
 CLAUDE.md
 
 # Build
 /target
 
-# Rahasia dan konfigurasi lokal
+# Secrets and local configuration
 .env
 .env.*
 !.env.example
@@ -15,5 +15,5 @@ config.secrets.toml
 demo-videos*.json
 !demo-videos.example.json
 
-# Output tools lokal
+# Output of local tools
 graphify-out/
