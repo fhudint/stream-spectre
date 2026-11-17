@@ -2488,3 +2488,24 @@ test('a viewer\'s message is shown as plain text in the waiting list, on the pla
   assert.ok(!rows[0].textContent.includes('“'));
   assert.equal(descendants(waitingRows[0]).filter((n) => n.tag === 'b').length, 0, 'never markup');
 });
+
+// --- roles are named as the chat they come from names them ---
+
+test('a YouTube viewer is shown as a viewer or a member, a TikTok one as a follower or a subscriber', async () => {
+  const state = snapshot({
+    queue: {
+      pending: [
+        item(7, { requested_by: { name: 'Yt', role: 'subscriber', source: 'youtube' } }),
+        item(8, { requested_by: { name: 'Tt', role: 'subscriber', source: 'tiktok' } }),
+        item(10, { requested_by: { name: 'Yv', role: 'follower', source: 'youtube' } }),
+      ],
+      approved: [],
+      now_playing: null,
+    },
+  });
+  const page = await ready({ routes: { 'GET /api/state': () => ({ status: 200, body: state }) } });
+  const rows = page.elements.pending.children;
+  assert.match(rows[0].textContent, /Member/);
+  assert.match(rows[1].textContent, /Subscriber/);
+  assert.match(rows[2].textContent, /Viewer/);
+});

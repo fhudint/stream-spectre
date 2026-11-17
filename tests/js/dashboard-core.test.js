@@ -250,7 +250,7 @@ test('chat messages are appended in order, with the flags kept', () => {
   state = core.reduce(state, envelope(2, 'chat_message', line('hi')));
   state = core.reduce(state, envelope(3, 'chat_message', line('!v dQw4w9WgXcQ', { command: true, skipped: 4, role: 'moderator' })));
   assert.deepEqual(state.messages[1], {
-    name: 'Budi', role: 'moderator', text: '!v dQw4w9WgXcQ', at_ms: 0, command: true, skipped: 4,
+    name: 'Budi', role: 'moderator', source: 'tiktok', text: '!v dQw4w9WgXcQ', at_ms: 0, command: true, skipped: 4,
   });
   assert.equal(state.seq, 3);
 });
@@ -273,7 +273,7 @@ test('chat lines are capped at the newest ones', () => {
 test('chat lines are sanitized and junk is ignored', () => {
   let state = core.reduce(core.initialState(), hello(1));
   state = core.reduce(state, envelope(2, 'chat_message', { name: 7, role: {}, text: 'ok', command: 'yes', skipped: -3 }));
-  assert.deepEqual(state.messages[0], { name: '', role: 'everyone', text: 'ok', at_ms: 0, command: false, skipped: 0 });
+  assert.deepEqual(state.messages[0], { name: '', role: 'everyone', source: 'tiktok', text: 'ok', at_ms: 0, command: false, skipped: 0 });
   state = core.reduce(state, envelope(3, 'chat_message', { name: 'x' }));
   state = core.reduce(state, envelope(4, 'chat_message', 'text'));
   state = core.reduce(state, envelope(5, 'chat_message', { name: 'x', text: 5 }));
@@ -738,4 +738,15 @@ test('a message in an item or a request is kept only when it is text', () => {
     assert.equal(state.queue.pending[0].message, '');
     assert.equal(state.history[0].message, '');
   }
+});
+
+test('a role is named as the chat it was said in names it', () => {
+  assert.equal(core.roleKey('follower', 'youtube'), 'role.youtube.follower');
+  assert.equal(core.roleKey('subscriber', 'youtube'), 'role.youtube.subscriber');
+  assert.equal(core.roleKey('moderator', 'youtube'), 'role.youtube.moderator');
+  assert.equal(core.roleKey('follower', 'tiktok'), 'role.follower');
+  assert.equal(core.roleKey('everyone', 'youtube'), 'role.everyone', 'a role YouTube does not rename');
+  assert.equal(core.roleKey('follower', undefined), 'role.follower');
+  const line = core.reduce(core.initialState(), { v: 1, seq: 1, type: 'hello', data: { chat_log: [{ name: 'a', text: 'x', role: 'subscriber', source: 'youtube' }, { name: 'b', text: 'y', source: 'weird' }] } }).messages;
+  assert.deepEqual(line.map((l) => l.source), ['youtube', 'tiktok']);
 });

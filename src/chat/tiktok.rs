@@ -22,6 +22,7 @@ use super::connection::{
 use super::role::Role;
 use super::sender::Sender;
 use super::source::{ChatMessage, ChatStatus};
+use crate::config::ChatSourceKind;
 use crate::text::sanitize_text;
 
 /// Longest chat message kept, in characters. TikTok allows far fewer; this
@@ -152,6 +153,7 @@ fn map_chat(message: &WebcastChatMessage, streamer: &str) -> Option<ChatMessage>
             id,
             name: sanitize_text(&name),
             role,
+            source: ChatSourceKind::Tiktok,
             gifter_level,
             fan_club_level,
         },

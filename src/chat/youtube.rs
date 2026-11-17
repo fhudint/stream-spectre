@@ -26,6 +26,7 @@ use super::connection::{
 use super::role::Role;
 use super::sender::Sender;
 use super::source::ChatMessage;
+use crate::config::ChatSourceKind;
 use crate::text::sanitize_text;
 use crate::youtube::VideoId;
 
@@ -155,6 +156,8 @@ struct WatchStart {
     key: String,
     version: String,
     continuation: String,
+    /// The channel's name and the live's title, to show instead of the ID.
+    label: Option<String>,
 }
 
 pub struct YoutubeFeed {
@@ -173,6 +176,10 @@ pub struct YoutubeFeed {
 }
 
 impl ChatFeed for YoutubeFeed {
+    fn label(&self) -> Option<String> {
+        self.start.label.clone()
+    }
+
     async fn next(&mut self) -> FeedItem {
         loop {
             if let Some(message) = self.pending.pop_front() {
@@ -364,7 +371,43 @@ fn parse_watch_page(page: &str) -> Result<WatchStart, ConnectError> {
         key,
         version,
         continuation,
+        label: watch_label(&data),
     })
+}
+
+/// The most characters of the channel's name and the live's title together.
+const MAX_LABEL_CHARS: usize = 70;
+
+/// What the page says about the video, as `Channel · Title` when that is not
+/// too long and just the channel's name when it is; `None` when the page does
+/// not say who the channel is.
+fn watch_label(data: &Value) -> Option<String> {
+    let contents = data
+        .pointer("/contents/twoColumnWatchNextResults/results/results/contents")?
+        .as_array()?;
+    let text_of = |renderer: &str, path: &str| {
+        contents.iter().find_map(|entry| {
+            let runs = entry.get(renderer)?.pointer(path)?.as_array()?;
+            let joined: String = runs.iter().map(run_text).collect();
+            let tidy = sanitize_text(&joined)
+                .split_whitespace()
+                .collect::<Vec<_>>()
+                .join(" ");
+            (!tidy.is_empty()).then_some(tidy)
+        })
+    };
+    let channel = text_of(
+        "videoSecondaryInfoRenderer",
+        "/owner/videoOwnerRenderer/title/runs",
+    )?;
+    let channel: String = channel.chars().take(MAX_LABEL_CHARS).collect();
+    let title = text_of("videoPrimaryInfoRenderer", "/title/runs");
+    match title {
+        Some(title) if channel.chars().count() + 3 + title.chars().count() <= MAX_LABEL_CHARS => {
+            Some(format!("{channel} \u{b7} {title}"))
+        }
+        _ => Some(channel),
+    }
 }
 
 /// The text between `marker` and the next double quote.
@@ -461,7 +504,8 @@ fn map_message(renderer: &Value) -> Option<(String, ChatMessage)> {
         id,
         ChatMessage {
             // The prefix keeps a YouTube channel apart from any other platform.
-            sender: Sender::new(format!("youtube:{channel}"), name, role_of(badges)),
+            sender: Sender::new(format!("youtube:{channel}"), name, role_of(badges))
+                .on(ChatSourceKind::Youtube),
             text,
         },
     ))
@@ -554,6 +598,52 @@ mod tests {
     // --- the page ---
 
     #[test]
+    fn the_channel_and_the_title_name_the_live_when_they_fit_and_the_channel_when_not() {
+        let page = |channel: &str, title_runs: Value| {
+            let chat = live_chat();
+            let mut data = json!({"contents": {"twoColumnWatchNextResults": {
+                "conversationBar": {"liveChatRenderer": chat},
+                "results": {"results": {"contents": [
+                    {"videoPrimaryInfoRenderer": {"title": {"runs": title_runs}}},
+                    {"videoSecondaryInfoRenderer": {"owner": {"videoOwnerRenderer": {"title": {"runs": [{"text": channel}]}}}}}
+                ]}}
+            }}});
+            data["x"] = json!(0);
+            format!(
+                r#"<script>{{"INNERTUBE_API_KEY":"AIzaSyFakeFakeFakeFakeFakeFakeFake12345","INNERTUBE_CLIENT_VERSION":"2.20261116.00.00"}}</script><script>var ytInitialData = {data};</script>"#
+            )
+        };
+        let label =
+            |channel: &str, title: Value| parse_watch_page(&page(channel, title)).unwrap().label;
+
+        let runs = json!([{"text": "DAY 1 - MARI KITA MULAI "}, {"text": "#MANDATHON"}, {"text": "  "}, {"text": "#mediashareon"}]);
+        assert_eq!(
+            label("Amanda Puspita", runs),
+            Some(
+                "Amanda Puspita \u{b7} DAY 1 - MARI KITA MULAI #MANDATHON #mediashareon".to_owned()
+            )
+        );
+        let long = json!([{"text": "x".repeat(80)}]);
+        assert_eq!(
+            label("Amanda Puspita", long),
+            Some("Amanda Puspita".to_owned())
+        );
+        // No title at all: the channel alone.
+        assert_eq!(label("Amanda", json!([])), Some("Amanda".to_owned()));
+        // Text is cleaned like every other text from other people.
+        assert_eq!(
+            label("Be\nta", json!([{"text": "t\u{7}"}])),
+            Some("Be ta \u{b7} t".to_owned())
+        );
+    }
+
+    #[test]
+    fn a_page_that_does_not_name_the_channel_has_no_label() {
+        let start = parse_watch_page(&watch_page(Some(live_chat()))).unwrap();
+        assert_eq!(start.label, None);
+    }
+
+    #[test]
     fn the_watch_page_of_a_live_video_gives_what_polling_needs() {
         let start = parse_watch_page(&watch_page(Some(live_chat()))).unwrap();
         assert_eq!(start.continuation, "FIRST");
@@ -609,6 +699,7 @@ mod tests {
             Some(("NEXT".to_owned(), Duration::from_secs(10)))
         );
         assert_eq!(poll.messages[0].1.sender.id, "youtube:UCaaa");
+        assert_eq!(poll.messages[0].1.sender.source, ChatSourceKind::Youtube);
         assert_eq!(poll.messages[0].1.sender.name, "Sari");
     }
 

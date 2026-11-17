@@ -165,11 +165,18 @@ The queue changed. `data` is the whole queue:
   "channel": "Channel name",
   "duration_secs": 213,
   "thumbnail_url": "https://i.ytimg.com/vi/dQw4w9WgXcQ/mqdefault.jpg",
-  "requested_by": { "name": "Budi", "role": "subscriber" },
+  "requested_by": { "name": "Budi", "role": "subscriber", "source": "tiktok" },
   "requested_at_ms": 1700000000123,
   "message": "halo ka"
 }
 ```
+
+`requested_by.source` is the chat the viewer wrote in (`"tiktok"` or `"youtube"`; a
+client that finds none means TikTok). The role keeps its meaning but not its
+name: in a YouTube chat `follower` is an ordinary viewer, `subscriber` a paying
+member of the channel and `moderator` a moderator or the owner; clients show
+them that way (`role.youtube.*` in the language files). `chat_message` carries the
+same `source`.
 
 `message` is what the viewer wrote after the link (`!yt dQw4w9WgXcQ halo ka`): plain
 text, control characters turned into spaces, at most 150 characters, `""` when

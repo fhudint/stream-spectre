@@ -528,6 +528,7 @@ impl<S: VideoSource> Pipeline<S> {
         let line = ChatLineView {
             name: sanitize_text(&sender.name),
             role: sender.role,
+            source: sender.source,
             text,
             at_ms: unix_ms(SystemTime::now()),
             command,
@@ -2295,6 +2296,21 @@ mod tests {
             FakeSource::default(),
         );
         assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn which_chat_a_viewer_wrote_in_goes_with_their_lines_and_requests() {
+        let p = default_pipeline();
+        let youtube = sender(1, Role::Subscriber).on(ChatSourceKind::Youtube);
+        say(&p, youtube, &format!("!v {ID_A}")).await;
+        say(&p, sender(2, Role::Follower), "hi").await;
+        let hello = p.hello();
+        assert_eq!(
+            hello.queue.pending[0].requested_by.source,
+            ChatSourceKind::Youtube
+        );
+        let sources: Vec<_> = hello.chat_log.iter().map(|line| line.source).collect();
+        assert_eq!(sources, [ChatSourceKind::Youtube, ChatSourceKind::Tiktok]);
     }
 
     #[tokio::test]

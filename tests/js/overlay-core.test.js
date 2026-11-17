@@ -813,3 +813,13 @@ test('the viewer\'s message is the main line and the video\'s title goes to the 
   t.controller.handle(envelope(3, 'play', { item: item(3, ID_A, { message: 5 }), volume: 50 }));
   assert.equal(t.calls.filter((c) => c[0] === 'show')[2][1].title, 'Title 3');
 });
+
+test('a YouTube viewer\'s role is named the way YouTube chat names it, falling back to the common name', () => {
+  const t = setup({ texts: { 'role.follower': 'Follower', 'role.subscriber': 'Subscriber', 'role.youtube.subscriber': 'Member' } });
+  const play = (id, source, role) => t.controller.handle(envelope(id, 'play', { item: item(id, ID_A, { requested_by: { name: 'x', role, source } }), volume: 50 }));
+  play(1, 'youtube', 'subscriber');
+  play(2, 'youtube', 'follower'); // YouTube has no word of its own here: the common one
+  play(3, 'tiktok', 'subscriber');
+  const roles = t.calls.filter((c) => c[0] === 'show').map((c) => c[1].role);
+  assert.deepEqual(roles, ['Member', 'Follower', 'Subscriber']);
+});

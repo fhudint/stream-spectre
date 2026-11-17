@@ -346,7 +346,7 @@
   }
 
   function metaText(item) {
-    var role = t('role.' + item.requested_by.role);
+    var role = t(core.roleKey(item.requested_by.role, item.requested_by.source));
     var seconds = core.waitingSeconds(item, nowMs());
     if (seconds === null) return role;
     return tf('dashboard.row.meta', { role: role, time: core.formatWaiting(seconds, timeTemplates()) });
@@ -583,7 +583,7 @@
             text:
               tf('dashboard.item.requested_by', { name: item.requested_by.name }) +
               ' (' +
-              t('role.' + item.requested_by.role) +
+              t(core.roleKey(item.requested_by.role, item.requested_by.source)) +
               ')',
           }),
         ]),
@@ -842,7 +842,7 @@
     if (commandsOnly && !line.command) return;
     var main = [h('span', { className: 'chat-name name-' + core.tintIndex(line.name), text: line.name })];
     if (line.role !== 'everyone') {
-      main.push(h('span', { className: 'chat-role', text: t('role.' + line.role) }));
+      main.push(h('span', { className: 'chat-role', text: t(core.roleKey(line.role, line.source)) }));
     }
     main.push(h('span', { className: line.command ? 'chat-text chat-cmd' : 'chat-text', text: line.text }));
     box.appendChild(

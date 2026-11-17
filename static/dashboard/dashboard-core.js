@@ -157,6 +157,7 @@
       requested_by: {
         name: typeof by.name === 'string' ? by.name : '',
         role: typeof by.role === 'string' ? by.role : 'everyone',
+        source: by.source === 'youtube' ? 'youtube' : 'tiktok',
       },
     };
   }
@@ -192,6 +193,7 @@
     return {
       name: typeof line.name === 'string' ? line.name : '',
       role: typeof line.role === 'string' ? line.role : 'everyone',
+      source: line.source === 'youtube' ? 'youtube' : 'tiktok',
       text: line.text,
       at_ms: wholeNumber(line.at_ms),
       command: line.command === true,
@@ -653,7 +655,15 @@
   }
 
   /* The looks of the overlay, as the server names them. */
+  var YOUTUBE_ROLES = ['follower', 'subscriber', 'moderator'];
   var OVERLAY_THEMES = ['obsidian', 'kertas', 'brutal', 'terminal', 'permen', 'pixel', 'komik', 'garis', 'struk', 'pesan'];
+
+  /* The key of a role's name for someone who wrote in the chat of `source`:
+   * a YouTube chat has its own words (a viewer, a paying member), the rest use
+   * the common ones. */
+  function roleKey(role, source) {
+    return source === 'youtube' && YOUTUBE_ROLES.indexOf(role) >= 0 ? 'role.youtube.' + role : 'role.' + role;
+  }
 
   /* The look the settings say the mediashare overlay has; the first when they say none. */
   function overlayTheme(settings) {
@@ -816,6 +826,7 @@
     overlayUrl: overlayUrl,
     OVERLAY_THEMES: OVERLAY_THEMES,
     overlayTheme: overlayTheme,
+    roleKey: roleKey,
     initialState: initialState,
     reduce: reduce,
     diffSettings: diffSettings,

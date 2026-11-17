@@ -30,6 +30,8 @@ pub fn unix_ms(time: SystemTime) -> u64 {
 pub struct SenderView {
     pub name: String,
     pub role: Role,
+    /// Which chat they wrote in: a role has another name in each.
+    pub source: ChatSourceKind,
 }
 
 /// A queue entry as clients see it.
@@ -74,6 +76,7 @@ impl From<&QueueItem> for ItemView {
             requested_by: SenderView {
                 name: item.sender.name.clone(),
                 role: item.sender.role,
+                source: item.sender.source,
             },
             requested_at_ms: unix_ms(item.requested_at),
             message: item.message.clone(),
@@ -107,6 +110,8 @@ impl From<&QueueSnapshot> for QueueView {
 pub struct ChatLineView {
     pub name: String,
     pub role: Role,
+    /// Which chat the message is from.
+    pub source: ChatSourceKind,
     pub text: String,
     /// When the message arrived, in milliseconds since the Unix epoch.
     pub at_ms: u64,
@@ -398,7 +403,7 @@ mod tests {
             "channel": "Chan",
             "duration_secs": 213,
             "thumbnail_url": "https://i.ytimg.com/vi/dQw4w9WgXcQ/mqdefault.jpg",
-            "requested_by": {"name": "Budi", "role": "subscriber"},
+            "requested_by": {"name": "Budi", "role": "subscriber", "source": "tiktok"},
             "requested_at_ms": 1_700_000_000_123u64,
             "message": "halo ka"
         })
@@ -572,6 +577,7 @@ mod tests {
         let line = ChatLineView {
             name: "Budi".to_owned(),
             role: Role::Follower,
+            source: ChatSourceKind::Tiktok,
             text: "!v dQw4w9WgXcQ".to_owned(),
             at_ms: 1_700_000_000_123,
             command: true,
@@ -582,6 +588,7 @@ mod tests {
             json!({"type": "chat_message", "data": {
                 "name": "Budi",
                 "role": "follower",
+                "source": "tiktok",
                 "text": "!v dQw4w9WgXcQ",
                 "at_ms": 1_700_000_000_123u64,
                 "command": true,
@@ -630,6 +637,7 @@ mod tests {
             chat_log: vec![ChatLineView {
                 name: "Sari".to_owned(),
                 role: Role::Everyone,
+                source: ChatSourceKind::Tiktok,
                 text: "hi".to_owned(),
                 at_ms: 1,
                 command: false,
@@ -701,6 +709,7 @@ mod tests {
             chat_log: vec![ChatLineView {
                 name: "Secret Viewer".to_owned(),
                 role: Role::Follower,
+                source: ChatSourceKind::Tiktok,
                 text: "secret comment".to_owned(),
                 at_ms: 1,
                 command: false,

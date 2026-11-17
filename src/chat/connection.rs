@@ -49,6 +49,12 @@ pub enum FeedItem {
 /// An established connection.
 pub trait ChatFeed: Send {
     fn next(&mut self) -> impl Future<Output = FeedItem> + Send;
+
+    /// A name for the channel that is nicer to read than its ID, when the
+    /// connection learned one (for YouTube, the channel and the live's title).
+    fn label(&self) -> Option<String> {
+        None
+    }
 }
 
 /// Knows how to open connections to one channel.
@@ -146,12 +152,14 @@ impl<C: ChatConnector> ChatSource for ReconnectingSource<C> {
                 }
                 State::Idle => match self.connector.connect().await {
                     Ok(feed) => {
+                        let channel = feed
+                            .label()
+                            .unwrap_or_else(|| self.connector.channel().to_owned());
                         self.state = State::Connected {
                             feed,
                             since: Instant::now(),
                         };
                         tracing::info!(channel = self.connector.channel(), "chat connected");
-                        let channel = self.connector.channel().to_owned();
                         if let Some(event) = self.announce(ChatStatus::Connected { channel }) {
                             return Some(event);
                         }
@@ -286,9 +294,14 @@ mod tests {
 
     struct FakeFeed {
         steps: VecDeque<Step>,
+        label: Option<String>,
     }
 
     impl ChatFeed for FakeFeed {
+        fn label(&self) -> Option<String> {
+            self.label.clone()
+        }
+
         async fn next(&mut self) -> FeedItem {
             loop {
                 match self.steps.pop_front() {
@@ -303,6 +316,7 @@ mod tests {
     struct FakeConnector {
         script: VecDeque<Result<Vec<Step>, ConnectError>>,
         attempts: usize,
+        label: Option<String>,
     }
 
     impl FakeConnector {
@@ -310,6 +324,7 @@ mod tests {
             Self {
                 script: script.into(),
                 attempts: 0,
+                label: None,
             }
         }
     }
@@ -326,6 +341,7 @@ mod tests {
             match self.script.pop_front() {
                 Some(Ok(steps)) => Ok(FakeFeed {
                     steps: steps.into(),
+                    label: self.label.clone(),
                 }),
                 Some(Err(error)) => Err(error),
                 None => Err(network()),
@@ -388,6 +404,20 @@ mod tests {
         assert_eq!(events[2].1, BASE_DELAY);
         assert_eq!(events[3].0, ChatEvent::Message(message("again")));
         assert_eq!(source.connector.attempts, 2);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_name_the_connection_learned_is_shown_in_place_of_the_channel() {
+        let mut connector = FakeConnector::new(vec![Ok(vec![])]);
+        connector.label = Some("Amanda \u{b7} Live".to_owned());
+        let mut source = ReconnectingSource::new(connector);
+        let events = take(&mut source, 1).await;
+        assert_eq!(
+            events[0].0,
+            ChatEvent::Status(ChatStatus::Connected {
+                channel: "Amanda \u{b7} Live".to_owned()
+            })
+        );
     }
 
     #[tokio::test(start_paused = true)]

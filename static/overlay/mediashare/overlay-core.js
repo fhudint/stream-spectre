@@ -267,6 +267,13 @@
     var send = deps.send;
     var text = deps.text || function () { return undefined; };
 
+    /* A role's name as that chat calls it (YouTube has its own words), or ''
+     * when there is none. */
+    function roleName(role, source) {
+      if (!role) return '';
+      return (source === 'youtube' && text('role.youtube.' + role)) || text('role.' + role) || '';
+    }
+
     var lastSeq = 0;
     var volume = 50;
     var current = null; // { id } of the video that should be on screen
@@ -326,7 +333,7 @@
       ui.show({
         requestedBy: format(text('overlay.requested_by') || DEFAULT_REQUESTED_BY, { name: name }),
         name: name,
-        role: role && text('role.' + role) ? text('role.' + role) : '',
+        role: roleName(role, requester && requester.source),
         title: message || videoTitle,
         channel: message ? videoTitle : channel,
       });
