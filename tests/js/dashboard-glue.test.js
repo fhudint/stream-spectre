@@ -118,10 +118,12 @@ const snapshot = (extra = {}) => ({
   seq: 5,
   settings: {
     moderation: {
-      mode: 'manual', min_role: 'follower', youtube_min_role: 'follower', min_gifter_level: 0, min_fan_club_level: 0,
-      cooldown_secs: 60, max_duration_secs: 600, max_queue_len: 20, volume: 50, max_volume: 80,
+      mode: 'manual', tiktok_min_role: 'follower', youtube_min_role: 'viewer', youtube_superchat_bypass: false,
+      min_gifter_level: 0, min_fan_club_level: 0,
+      cooldown_secs: 60, max_duration_secs: 600, max_queue_len: 20, youtube_max_waiting: 0, tiktok_max_waiting: 0,
+      allow_live: false, allow_shorts: true, allowed_categories: [], volume: 50, max_volume: 80,
     },
-    blacklist: { video_ids: ['aaaaaaaaaaa'], channels: [], title_words: [] },
+    blacklist: { video_ids: ['aaaaaaaaaaa'], channels: [], title_words: [], senders: [] },
     dashboard: { chat_history: 20 },
     command: { prefix: '!', commands: [{ name: 'v', source: 'youtube' }] },
     chat: { tiktok: { username: 'streamer' } },
@@ -585,7 +587,12 @@ test('the settings form lists every setting with the current values', async () =
   }
   const m = snapshot().settings.moderation;
   assert.equal(page.elements['setting-mode'].value, 'manual');
-  assert.equal(page.elements['setting-min_role'].value, 'follower');
+  assert.equal(page.elements['setting-tiktok_min_role'].value, 'follower');
+  assert.equal(page.elements['setting-youtube_min_role'].value, 'viewer');
+  assert.equal(page.elements['setting-youtube_auto_approve'].value, '', 'not set: nobody');
+  assert.equal(page.elements['setting-youtube_cooldown_secs'].value, '', 'not set: the general one');
+  assert.equal(page.elements['setting-allow_shorts'].checked, true);
+  assert.equal(page.elements['setting-allow_live'].checked, false);
   assert.equal(page.elements['setting-cooldown_secs'].value, String(m.cooldown_secs));
   assert.equal(page.elements['setting-max_volume'].value, '80');
   const mode = descendants(page.elements['settings-form']).find((n) => n.attrs.id === 'setting-mode');
@@ -664,9 +671,23 @@ test('the blacklist form shows the lists and saves them cleaned up', async () =>
   await settle();
 
   const patch = page.log.requests.find((r) => r.path === '/api/blacklist');
-  assert.deepEqual(patch.body, { video_ids: ['aaaaaaaaaaa'], channels: ['Bad', 'Other'], title_words: [] });
+  assert.deepEqual(patch.body, { video_ids: ['aaaaaaaaaaa'], channels: ['Bad', 'Other'], title_words: [], senders: [] });
   assert.equal(page.elements.flash.textContent, 'Blacklist saved');
   assert.equal(page.elements['blacklist-channels'].value, 'Bad\nOther');
+});
+
+test('blocked viewers are a list of their own on the blacklist page', async () => {
+  const body = snapshot();
+  body.settings.blacklist.senders = ['Bad Viewer', 'youtube:UC1'];
+  const page = await ready({ routes: { 'GET /api/state': () => ({ status: 200, body }) } });
+  assert.equal(page.elements['blacklist-senders'].value, 'Bad Viewer\nyoutube:UC1');
+  const updated = snapshot();
+  updated.settings.blacklist.senders = ['Bad Viewer', 'youtube:UC1', 'Third'];
+  page.table['PATCH /api/blacklist'] = { status: 200, body: updated };
+  page.elements['blacklist-senders'].value = 'Bad Viewer\nyoutube:UC1\n Third \n';
+  page.elements['blacklist-form'].fire('submit');
+  await settle();
+  assert.deepEqual(page.log.requests.find((r) => r.path === '/api/blacklist').body.senders, ['Bad Viewer', 'youtube:UC1', 'Third']);
 });
 
 const entry = (id, extra = {}) => ({
@@ -1165,15 +1186,16 @@ test('without a start time the session line is left empty', async () => {
 test('the active rules are listed from the settings and follow changes', async () => {
   const page = await ready();
   const chips = () => page.elements['rules-chips'].children.map((c) => c.textContent);
-  assert.deepEqual(chips(), ['Commands !v', 'Follower and above', '60 s cooldown', 'Max. 10:00', 'Queue of 20', '1 blocked']);
+  assert.deepEqual(chips(), ['Commands !v', 'YouTube: everyone', 'TikTok: Follower and above', '60 s cooldown', 'Max. 10:00', 'Queue of 20', '1 blocked']);
 
   const next = snapshot().settings;
   next.moderation.mode = 'auto';
-  next.moderation.min_role = 'everyone';
+  next.moderation.tiktok_min_role = 'everyone';
+  next.moderation.youtube_min_role = 'member';
   next.moderation.cooldown_secs = 0;
-  next.blacklist = { video_ids: [], channels: [], title_words: [] };
+  next.blacklist = { video_ids: [], channels: [], title_words: [], senders: [] };
   page.socket().receive(envelope(6, 'settings_updated', next));
-  assert.deepEqual(chips(), ['Commands !v', 'Anyone may submit', 'Automatic approval', 'No cooldown', 'Max. 10:00', 'Queue of 20']);
+  assert.deepEqual(chips(), ['Commands !v', 'YouTube: Member and above', 'TikTok: everyone', 'Automatic approval', 'No cooldown', 'Max. 10:00', 'Queue of 20']);
 });
 
 test('the top bar shows the name chosen on the profile, with its first letter, and not the chat channel', async () => {
@@ -2492,10 +2514,10 @@ test('the overlay page offers every look, marks the current one and saves a choi
     body.settings.overlay = { mediashare: { theme } };
     return body;
   };
-  const page = await ready({ routes: { 'GET /api/state': () => ({ status: 200, body: withTheme('kertas') }) } });
+  const page = await ready({ routes: { 'GET /api/state': () => ({ status: 200, body: withTheme('paper') }) } });
   const inputs = themeInputs(page);
   assert.deepEqual(inputs.map((i) => i.attrs.value), core.OVERLAY_THEMES);
-  assert.deepEqual(inputs.filter((i) => i.checked).map((i) => i.attrs.value), ['kertas']);
+  assert.deepEqual(inputs.filter((i) => i.checked).map((i) => i.attrs.value), ['paper']);
   const names = descendants(page.elements.themes).filter((n) => n.classes.has('theme-name')).map((n) => n.textContent);
   assert.equal(names[0], 'Obsidian');
   assert.equal(names[1], 'Paper');
@@ -2517,7 +2539,7 @@ test('a server that sends no look shows the first one', async () => {
 test('the server refusing a look is shown and the choice stays where it was', async () => {
   const page = await ready();
   page.table['PATCH /api/overlay/mediashare'] = { status: 400, body: { error: 'unknown variant' } };
-  themeInputs(page).find((i) => i.attrs.value === 'komik').fire('change');
+  themeInputs(page).find((i) => i.attrs.value === 'comic').fire('change');
   await settle();
   assert.match(page.elements.error.textContent, /unknown variant/);
 });
@@ -2529,14 +2551,14 @@ const checkedIn = (page, box) => pickerInputs(page, box).filter((i) => i.checked
 
 test('each chat overlay has its own address, its own looks and its own choice', async () => {
   const body = snapshot();
-  body.settings.overlay = { mediashare: { theme: 'pixel' }, chat_panel: { theme: 'ticker' }, chat_float: { theme: 'catatan' } };
+  body.settings.overlay = { mediashare: { theme: 'pixel' }, chat_panel: { theme: 'ticker' }, chat_float: { theme: 'notes' } };
   const page = await ready({ stored: 'tok en', routes: { 'GET /api/state': () => ({ status: 200, body }) } });
   assert.equal(page.elements['chat-panel-shown'].textContent, 'localhost:8787/overlay/chat/panel/');
   assert.equal(page.elements['chat-float-shown'].textContent, 'localhost:8787/overlay/chat/float/');
   assert.deepEqual(pickerInputs(page, 'chat-panel-themes').map((i) => i.attrs.value), core.CHAT_PANEL_THEMES);
   assert.deepEqual(pickerInputs(page, 'chat-float-themes').map((i) => i.attrs.value), core.CHAT_FLOAT_THEMES);
   assert.deepEqual(checkedIn(page, 'chat-panel-themes'), ['ticker']);
-  assert.deepEqual(checkedIn(page, 'chat-float-themes'), ['catatan']);
+  assert.deepEqual(checkedIn(page, 'chat-float-themes'), ['notes']);
   assert.deepEqual(checkedIn(page, 'themes'), ['pixel'], 'the mediashare overlay keeps its own');
   const groups = new Set(['themes', 'chat-panel-themes', 'chat-float-themes'].map((box) => pickerInputs(page, box)[0].attrs.name));
   assert.equal(groups.size, 3, 'three groups of radio buttons');
@@ -2547,23 +2569,23 @@ test('each chat overlay has its own address, its own looks and its own choice', 
   assert.equal(page.log.clipboard, 'http://localhost:8787/overlay/chat/float/?token=tok%20en');
 
   const updated = snapshot();
-  updated.settings.overlay = { mediashare: { theme: 'pixel' }, chat_panel: { theme: 'ticker' }, chat_float: { theme: 'komik' } };
+  updated.settings.overlay = { mediashare: { theme: 'pixel' }, chat_panel: { theme: 'ticker' }, chat_float: { theme: 'comic' } };
   page.table['PATCH /api/overlay/chat/float'] = { status: 200, body: updated };
-  pickerInputs(page, 'chat-float-themes').find((i) => i.attrs.value === 'komik').fire('change');
+  pickerInputs(page, 'chat-float-themes').find((i) => i.attrs.value === 'comic').fire('change');
   await settle();
   const patch = page.log.requests.find((r) => r.path === '/api/overlay/chat/float');
   assert.equal(patch.method, 'PATCH');
-  assert.deepEqual(patch.body, { theme: 'komik' });
-  assert.deepEqual(checkedIn(page, 'chat-float-themes'), ['komik']);
+  assert.deepEqual(patch.body, { theme: 'comic' });
+  assert.deepEqual(checkedIn(page, 'chat-float-themes'), ['comic']);
   assert.ok(!page.log.requests.some((r) => r.path === '/api/overlay/mediashare' || r.path === '/api/overlay/chat/panel'));
 
   const panel = snapshot();
-  panel.settings.overlay = { mediashare: { theme: 'pixel' }, chat_panel: { theme: 'kertas' }, chat_float: { theme: 'komik' } };
+  panel.settings.overlay = { mediashare: { theme: 'pixel' }, chat_panel: { theme: 'paper' }, chat_float: { theme: 'comic' } };
   page.table['PATCH /api/overlay/chat/panel'] = { status: 200, body: panel };
-  pickerInputs(page, 'chat-panel-themes').find((i) => i.attrs.value === 'kertas').fire('change');
+  pickerInputs(page, 'chat-panel-themes').find((i) => i.attrs.value === 'paper').fire('change');
   await settle();
-  assert.deepEqual(page.log.requests.find((r) => r.path === '/api/overlay/chat/panel').body, { theme: 'kertas' });
-  assert.deepEqual(checkedIn(page, 'chat-panel-themes'), ['kertas']);
+  assert.deepEqual(page.log.requests.find((r) => r.path === '/api/overlay/chat/panel').body, { theme: 'paper' });
+  assert.deepEqual(checkedIn(page, 'chat-panel-themes'), ['paper']);
 });
 
 // --- the tabs of the Rules and Overlay pages ---
@@ -2577,10 +2599,14 @@ test('the rules are on three tabs, each with the rules of its own, and one Save 
   assert.deepEqual(selected(page, 'rtab-', core.RULES_TABS), ['general']);
   assert.deepEqual(shownIn(page, panels), ['rules-general', 'rules-commands'], 'the chat commands are general');
 
-  const inside = (id) => descendants(page.elements[id]).filter((n) => n.attrs.id && n.attrs.id.startsWith('setting-')).map((n) => n.attrs.id.slice(8));
-  assert.deepEqual(inside('rules-general'), ['mode', 'cooldown_secs', 'max_duration_secs', 'max_queue_len', 'max_volume']);
-  assert.deepEqual(inside('rules-youtube'), ['youtube_min_role']);
-  assert.deepEqual(inside('rules-tiktok'), ['min_role', 'min_gifter_level', 'min_fan_club_level']);
+  // The rules of each tab, by key (a list of choices is one rule, whatever its boxes).
+  const inside = (id) =>
+    descendants(page.elements[id])
+      .filter((n) => n.attrs.id && /^setting-[a-z_]+$/.test(n.attrs.id))
+      .map((n) => n.attrs.id.slice(8));
+  assert.deepEqual(inside('rules-general'), ['mode', 'cooldown_secs', 'max_duration_secs', 'max_queue_len', 'max_volume', 'allow_live', 'allow_shorts', 'allowed_categories']);
+  assert.deepEqual(inside('rules-youtube'), ['youtube_min_role', 'youtube_superchat_bypass', 'youtube_auto_approve', 'youtube_cooldown_secs', 'youtube_max_waiting']);
+  assert.deepEqual(inside('rules-tiktok'), ['tiktok_min_role', 'min_gifter_level', 'min_fan_club_level', 'tiktok_cooldown_secs', 'tiktok_max_waiting']);
 
   page.click(page.elements['rtab-youtube']);
   assert.deepEqual(selected(page, 'rtab-', core.RULES_TABS), ['youtube']);
@@ -2593,22 +2619,66 @@ test('the rules are on three tabs, each with the rules of its own, and one Save 
 
   // A change on one tab and another is saved together.
   const updated = snapshot();
-  updated.settings.moderation.youtube_min_role = 'subscriber';
+  updated.settings.moderation.youtube_min_role = 'member';
   updated.settings.moderation.min_gifter_level = 3;
   page.table['PATCH /api/settings'] = { status: 200, body: updated };
-  page.elements['setting-youtube_min_role'].value = 'subscriber';
+  page.elements['setting-youtube_min_role'].value = 'member';
   page.elements['setting-min_gifter_level'].value = '3';
   page.elements['settings-form'].fire('submit');
   await settle();
   const patch = page.log.requests.find((r) => r.method === 'PATCH' && r.path === '/api/settings');
-  assert.deepEqual(patch.body, { youtube_min_role: 'subscriber', min_gifter_level: 3 });
+  assert.deepEqual(patch.body, { youtube_min_role: 'member', min_gifter_level: 3 });
+});
+
+test('the new rules are read from their controls and saved, an unset option as null', async () => {
+  const body = snapshot();
+  Object.assign(body.settings.moderation, { youtube_cooldown_secs: 5, youtube_auto_approve: 'member', allowed_categories: ['music'] });
+  const page = await ready({ hash: '#rules', routes: { 'GET /api/state': () => ({ status: 200, body }) } });
+  // What the server sent is shown.
+  assert.equal(page.elements['setting-youtube_cooldown_secs'].value, '5');
+  assert.equal(page.elements['setting-youtube_auto_approve'].value, 'member');
+  assert.equal(page.elements['setting-allowed_categories-music'].checked, true);
+  assert.equal(page.elements['setting-allowed_categories-gaming'].checked, false);
+
+  const updated = snapshot();
+  page.table['PATCH /api/settings'] = { status: 200, body: updated };
+  page.elements['setting-youtube_cooldown_secs'].value = '';
+  page.elements['setting-youtube_auto_approve'].value = '';
+  page.elements['setting-allowed_categories-music'].checked = false;
+  page.elements['setting-allowed_categories-gaming'].checked = true;
+  page.elements['setting-allowed_categories-film'].checked = true;
+  page.elements['setting-allow_live'].checked = true;
+  page.elements['setting-tiktok_max_waiting'].value = '4';
+  page.elements['setting-tiktok_cooldown_secs'].value = '30';
+  page.elements['settings-form'].fire('submit');
+  await settle();
+  const patch = page.log.requests.find((r) => r.method === 'PATCH' && r.path === '/api/settings');
+  assert.deepEqual(patch.body, {
+    youtube_cooldown_secs: null,
+    youtube_auto_approve: null,
+    allowed_categories: ['film', 'gaming'],
+    allow_live: true,
+    tiktok_max_waiting: 4,
+    tiktok_cooldown_secs: 30,
+  });
+});
+
+test('a rule typed wrongly is named and nothing is sent', async () => {
+  const page = await ready({ hash: '#rules' });
+  page.elements['setting-youtube_cooldown_secs'].value = 'soon';
+  page.elements['settings-form'].fire('submit');
+  await settle();
+  assert.ok(!page.log.requests.some((r) => r.path === '/api/settings'));
+  assert.match(page.elements.error.textContent, /Per-user cooldown for this chat/);
 });
 
 test('the YouTube minimum role is named in the words of a YouTube chat', async () => {
   const page = await ready({ hash: '#rules' });
   const select = descendants(page.elements['rules-youtube']).find((n) => n.attrs.id === 'setting-youtube_min_role');
-  assert.deepEqual(select.children.map((o) => o.textContent), ['Everyone', 'Viewer', 'Member', 'Moderator']);
-  const tiktok = descendants(page.elements['rules-tiktok']).find((n) => n.attrs.id === 'setting-min_role');
+  assert.deepEqual(select.children.map((o) => o.textContent), ['Viewer', 'Member', 'Moderator']);
+  const auto = descendants(page.elements['rules-youtube']).find((n) => n.attrs.id === 'setting-youtube_auto_approve');
+  assert.deepEqual(auto.children.map((o) => o.textContent), ['Nobody (a moderator decides)', 'Viewer', 'Member', 'Moderator']);
+  const tiktok = descendants(page.elements['rules-tiktok']).find((n) => n.attrs.id === 'setting-tiktok_min_role');
   assert.deepEqual(tiktok.children.map((o) => o.textContent), ['Everyone', 'Follower', 'Subscriber', 'Moderator']);
 });
 

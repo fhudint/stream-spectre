@@ -4,7 +4,7 @@ use std::time::SystemTime;
 use super::gatekeeper::Denial;
 use super::item::{ItemId, Media, QueueItem};
 use crate::chat::Sender;
-use crate::config::{ModerationConfig, ModerationMode};
+use crate::config::{ChatSourceKind, ModerationConfig};
 
 /// Why an operation on an existing entry failed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
@@ -50,6 +50,15 @@ impl PlayQueue {
         self.pending.len() + self.approved.len()
     }
 
+    /// Entries of the chat `source` waiting for approval or to play.
+    pub fn waiting_from(&self, source: ChatSourceKind) -> usize {
+        self.pending
+            .iter()
+            .chain(&self.approved)
+            .filter(|item| item.sender.source == source)
+            .count()
+    }
+
     pub fn now_playing(&self) -> Option<&QueueItem> {
         self.now_playing.as_ref()
     }
@@ -83,7 +92,8 @@ impl PlayQueue {
         self.next_id += 1;
         let id = ItemId(self.next_id);
         let media = media.into();
-        let auto = settings.mode == ModerationMode::Auto && media.can_auto_approve();
+        let auto =
+            settings.approves_at_once(sender.source, sender.role) && media.can_auto_approve();
         let item = QueueItem {
             id,
             media,
@@ -170,6 +180,7 @@ mod tests {
 
     use super::*;
     use crate::chat::Role;
+    use crate::config::ModerationMode;
     use crate::youtube::{LiveStatus, VideoDetails, VideoId};
 
     fn video(n: u8) -> VideoDetails {
@@ -182,6 +193,7 @@ mod tests {
             age_restricted: false,
             live: LiveStatus::None,
             private: false,
+            category_id: 10,
         }
     }
 
@@ -210,6 +222,35 @@ mod tests {
             id: crate::tiktok::TiktokVideoId::parse(&format!("77001245411455992{n:02}")).unwrap(),
             account: None,
         })
+    }
+
+    #[test]
+    fn the_requests_of_each_chat_are_counted_apart() {
+        let s = settings(ModerationMode::Manual, 10);
+        let mut q = PlayQueue::new();
+        let youtube = Sender::new("y", "Yan", Role::Follower).on(ChatSourceKind::Youtube);
+        let tiktok = Sender::new("t", "Tia", Role::Follower);
+        q.submit(youtube.clone(), video(1), UNIX_EPOCH, &s).unwrap();
+        q.submit(youtube, video(2), UNIX_EPOCH, &s).unwrap();
+        q.submit(tiktok, video(3), UNIX_EPOCH, &s).unwrap();
+        assert_eq!(q.waiting_from(ChatSourceKind::Youtube), 2);
+        assert_eq!(q.waiting_from(ChatSourceKind::Tiktok), 1);
+    }
+
+    #[test]
+    fn a_role_that_is_set_to_be_approved_at_once_skips_the_approval_in_manual_mode() {
+        let mut s = settings(ModerationMode::Manual, 10);
+        s.youtube_auto_approve = Some(crate::config::YoutubeRole::Member);
+        let mut q = PlayQueue::new();
+        let member = Sender::new("m", "Mia", Role::Subscriber).on(ChatSourceKind::Youtube);
+        let viewer = Sender::new("v", "Vic", Role::Follower).on(ChatSourceKind::Youtube);
+        let tiktok_sub = Sender::new("t", "Tia", Role::Subscriber);
+        q.submit(member, video(1), UNIX_EPOCH, &s).unwrap();
+        q.submit(viewer, video(2), UNIX_EPOCH, &s).unwrap();
+        q.submit(tiktok_sub, video(3), UNIX_EPOCH, &s).unwrap();
+        let snapshot = q.snapshot();
+        assert_eq!(snapshot.approved.len(), 1);
+        assert_eq!(snapshot.pending.len(), 2);
     }
 
     #[test]

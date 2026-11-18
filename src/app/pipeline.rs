@@ -299,8 +299,8 @@ impl<S: VideoSource> Pipeline<S> {
             Parsed::Invalid { source, reason } => {
                 self.tell_invalid(&parser, &sender, source, reason);
             }
-            Parsed::Youtube { id, message } => {
-                self.request_youtube(sender, id, message, now).await;
+            Parsed::Youtube { id, message, short } => {
+                self.request_youtube(sender, id, message, short, now).await;
             }
             Parsed::Tiktok { target, message } => {
                 self.request_tiktok(sender, target, message, now).await;
@@ -348,15 +348,22 @@ impl<S: VideoSource> Pipeline<S> {
         sender: Sender,
         video_id: VideoId,
         message: String,
+        short: bool,
         now: Instant,
     ) {
         // Stage 1: everything that needs no YouTube call.
         let admitted = {
             let mut inner = self.lock();
             let waiting = inner.queue.waiting_len();
-            inner
-                .gatekeeper
-                .admit_with_message(&sender, &video_id, &message, waiting, now)
+            let from_chat = inner.queue.waiting_from(sender.source);
+            let gatekeeper = &mut inner.gatekeeper;
+            gatekeeper
+                .check_sender(&sender)
+                .and_then(|()| gatekeeper.check_shorts(short))
+                .and_then(|()| gatekeeper.check_share(&sender, from_chat))
+                .and_then(|()| {
+                    gatekeeper.admit_with_message(&sender, &video_id, &message, waiting, now)
+                })
         };
         let bare = Subject::bare(CommandSource::Youtube, video_id.as_str()).with_message(&message);
         if let Err(denial) = admitted {
@@ -411,9 +418,12 @@ impl<S: VideoSource> Pipeline<S> {
         let admitted = {
             let mut inner = self.lock();
             let waiting = inner.queue.waiting_len();
-            inner
-                .gatekeeper
-                .admit_with_message(&sender, &key, &message, waiting, now)
+            let from_chat = inner.queue.waiting_from(sender.source);
+            let gatekeeper = &mut inner.gatekeeper;
+            gatekeeper
+                .check_sender(&sender)
+                .and_then(|()| gatekeeper.check_share(&sender, from_chat))
+                .and_then(|()| gatekeeper.admit_with_message(&sender, &key, &message, waiting, now))
         };
         let bare = Subject::bare(CommandSource::Tiktok, key).with_message(&message);
         if let Err(denial) = admitted {
@@ -1198,6 +1208,7 @@ mod tests {
             age_restricted: false,
             live: LiveStatus::None,
             private: false,
+            category_id: 10,
         }
     }
 
@@ -1622,6 +1633,133 @@ mod tests {
         rich.gifter_level = 5;
         say(&p, rich, &format!("!v {ID_B}")).await;
         assert_eq!(kinds(&drain(&mut rx)), vec!["queue_updated"]);
+    }
+
+    fn youtube_viewer(n: u32, role: Role) -> Sender {
+        Sender::new(format!("youtube:UC{n}"), format!("Yan {n}"), role)
+            .on(crate::config::ChatSourceKind::Youtube)
+    }
+
+    #[tokio::test]
+    async fn a_chat_that_has_its_share_of_the_queue_is_told_so_and_the_other_is_not() {
+        let p = pipeline(&config(|m| m.youtube_max_waiting = 1));
+        let mut rx = p.subscribe();
+        say(&p, youtube_viewer(1, Role::Follower), &format!("!v {ID_A}")).await;
+        assert_eq!(p.hello().queue.pending.len(), 1);
+        drain_all(&mut rx);
+
+        say(&p, youtube_viewer(2, Role::Follower), &format!("!v {ID_B}")).await;
+        let notices: Vec<_> = drain_all(&mut rx)
+            .into_iter()
+            .filter(|e| kinds(std::slice::from_ref(e)) == ["notice"])
+            .collect();
+        assert_eq!(notices.len(), 1);
+        assert_eq!(data(&notices[0])["code"], "reject.source_queue_full");
+        assert_eq!(
+            data(&notices[0])["text"],
+            "Too many requests from YouTube are waiting. Try again in a moment"
+        );
+        assert_eq!(p.hello().queue.pending.len(), 1, "nothing was added");
+
+        // TikTok has no share set: its viewer still gets in.
+        say(&p, sender(3, Role::Follower), &format!("!v {ID_B}")).await;
+        assert_eq!(p.hello().queue.pending.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn a_blocked_sender_is_ignored_without_a_notice() {
+        let mut c = config(|_| {});
+        c.blacklist.senders = vec!["viewer 1".to_owned()];
+        let p = pipeline(&c);
+        let mut rx = p.subscribe();
+        say(&p, sender(1, Role::Moderator), &format!("!v {ID_A}")).await;
+        let events = drain_all(&mut rx);
+        assert!(!kinds(&events).contains(&"notice".to_owned()), "{events:?}");
+        assert!(p.hello().queue.pending.is_empty());
+        // The request is in the history, as refused.
+        assert_eq!(p.hello().history.len(), 1);
+        say(&p, sender(2, Role::Follower), &format!("!v {ID_A}")).await;
+        assert_eq!(p.hello().queue.pending.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn shorts_links_are_refused_when_shorts_are_not_allowed() {
+        let p = pipeline(&config(|m| m.allow_shorts = false));
+        let mut rx = p.subscribe();
+        say(
+            &p,
+            sender(1, Role::Follower),
+            &format!("!v https://www.youtube.com/shorts/{ID_A}"),
+        )
+        .await;
+        let events = drain_all(&mut rx);
+        let notice: Vec<_> = events
+            .into_iter()
+            .filter(|e| kinds(std::slice::from_ref(e)) == ["notice"])
+            .collect();
+        assert_eq!(data(&notice[0])["code"], "reject.shorts_not_allowed");
+        assert!(p.hello().queue.pending.is_empty());
+        // The same video as a normal link goes through.
+        say(
+            &p,
+            sender(2, Role::Follower),
+            &format!("!v https://www.youtube.com/watch?v={ID_A}"),
+        )
+        .await;
+        assert_eq!(p.hello().queue.pending.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn a_member_of_the_channel_can_be_approved_at_once_in_manual_mode() {
+        let p = pipeline(&config(|m| {
+            m.youtube_auto_approve = Some(crate::config::YoutubeRole::Member);
+        }));
+        say(&p, youtube_viewer(1, Role::Follower), &format!("!v {ID_A}")).await;
+        let queue = p.hello().queue;
+        assert_eq!(queue.pending.len(), 1, "an ordinary viewer waits");
+        assert!(queue.approved.is_empty() && queue.now_playing.is_none());
+
+        say(
+            &p,
+            youtube_viewer(2, Role::Subscriber),
+            &format!("!v {ID_B}"),
+        )
+        .await;
+        let queue = p.hello().queue;
+        assert_eq!(queue.pending.len(), 1);
+        assert!(
+            queue.now_playing.is_some() || queue.approved.len() == 1,
+            "the member's video was approved without a moderator"
+        );
+
+        // TikTok has no such setting: its subscriber waits.
+        let p = pipeline(&config(|m| {
+            m.youtube_auto_approve = Some(crate::config::YoutubeRole::Viewer);
+        }));
+        say(&p, sender(3, Role::Subscriber), &format!("!v {ID_A}")).await;
+        assert_eq!(p.hello().queue.pending.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn a_super_chat_gets_a_viewer_past_a_members_only_rule_when_that_is_set() {
+        let mut config = config(|m| {
+            m.youtube_min_role = crate::config::YoutubeRole::Member;
+            m.youtube_superchat_bypass = true;
+        });
+        config.command.commands = vec![crate::config::CommandEntry::youtube("v")];
+        let p = pipeline(&config);
+        say(&p, youtube_viewer(1, Role::Follower), &format!("!v {ID_A}")).await;
+        assert!(
+            p.hello().queue.pending.is_empty(),
+            "an ordinary viewer is not a member"
+        );
+        say(
+            &p,
+            youtube_viewer(2, Role::Follower).paid(),
+            &format!("!v {ID_A}"),
+        )
+        .await;
+        assert_eq!(p.hello().queue.pending.len(), 1);
     }
 
     #[tokio::test]
@@ -2093,7 +2231,7 @@ mod tests {
         let p = default_pipeline();
         let mut rx = p.subscribe();
         let mut new = p.hello().settings.moderation;
-        new.min_role = Role::Subscriber;
+        new.tiktok_min_role = Role::Subscriber;
         new.max_queue_len = 5;
         new.volume = 70;
         new.max_volume = 90;
@@ -2101,7 +2239,10 @@ mod tests {
 
         let events = drain(&mut rx);
         assert_eq!(kinds(&events), vec!["settings_updated", "volume"]);
-        assert_eq!(data(&events[0])["moderation"]["min_role"], "subscriber");
+        assert_eq!(
+            data(&events[0])["moderation"]["tiktok_min_role"],
+            "subscriber"
+        );
         assert_eq!(data(&events[0])["moderation"]["max_queue_len"], 5);
         assert_eq!(data(&events[1])["volume"], 70);
         assert_eq!(p.hello().volume, 70);
@@ -2133,7 +2274,7 @@ mod tests {
         assert!(drain(&mut rx).is_empty());
 
         let mut open = p.hello().settings.moderation;
-        open.min_role = Role::Everyone;
+        open.tiktok_min_role = Role::Everyone;
         p.update_settings(open).unwrap();
         drain(&mut rx);
         say(&p, sender(1, Role::Everyone), &format!("!v {ID_A}")).await;
@@ -3580,8 +3721,8 @@ mod tests {
     #[tokio::test]
     async fn the_same_gates_apply_before_anything_is_asked_of_tiktok() {
         let (resolver, hits) = short_link_host(redirect_to(TT_LOCATION)).await;
-        let p =
-            pipeline(&both_sources(|m| m.min_role = Role::Moderator)).with_short_links(resolver);
+        let p = pipeline(&both_sources(|m| m.tiktok_min_role = Role::Moderator))
+            .with_short_links(resolver);
         let mut rx = p.subscribe();
         say(&p, sender(1, Role::Follower), "!vt ZSpGELffb").await;
         // Not allowed to submit: silently ignored, and nothing was asked.

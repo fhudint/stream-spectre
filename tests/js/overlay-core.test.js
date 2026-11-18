@@ -760,13 +760,13 @@ test('the look is set from the hello and from an event, never from junk', () => 
     text: () => undefined,
   });
   controller.handle(envelope(1, 'hello', { volume: 50, settings: { overlay: { mediashare: { theme: 'terminal' } } }, queue: { now_playing: null } }));
-  controller.handle(envelope(2, 'overlay_theme', { overlay: 'mediashare', theme: 'komik' }));
-  controller.handle(envelope(2, 'overlay_theme', { overlay: 'mediashare', theme: 'garis' })); // repeated sequence number
+  controller.handle(envelope(2, 'overlay_theme', { overlay: 'mediashare', theme: 'comic' }));
+  controller.handle(envelope(2, 'overlay_theme', { overlay: 'mediashare', theme: 'outline' })); // repeated sequence number
   controller.handle(envelope(3, 'overlay_theme', { overlay: 'mediashare', theme: 'neon' }));
   controller.handle(envelope(4, 'overlay_theme', {}));
   controller.handle(envelope(6, 'overlay_theme', { overlay: 'chat', theme: 'pixel' })); // another overlay's look
   controller.handle(envelope(5, 'hello', { volume: 50, settings: null, queue: { now_playing: null } }));
-  assert.deepEqual(themes, ['terminal', 'komik']);
+  assert.deepEqual(themes, ['terminal', 'comic']);
 });
 
 test('a role is shown by its translated name, and an odd one is left out', () => {

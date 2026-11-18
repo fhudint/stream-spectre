@@ -156,6 +156,7 @@ fn map_chat(message: &WebcastChatMessage, streamer: &str) -> Option<ChatMessage>
             source: ChatSourceKind::Tiktok,
             gifter_level,
             fan_club_level,
+            paid: false,
         },
         text: message.comment.chars().take(MAX_COMMENT_CHARS).collect(),
     })

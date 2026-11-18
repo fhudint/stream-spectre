@@ -20,6 +20,14 @@ pub enum Denial {
     /// The gifter or fan club level is below the configured minimum.
     LevelTooLow,
     QueueFull,
+    /// The chat the sender wrote in already has its share of the queue.
+    SourceQueueFull {
+        source: ChatSourceKind,
+    },
+    /// The sender is on the list of those who may not request anything.
+    BlockedSender,
+    /// A `youtube.com/shorts/` link, and Shorts are not allowed.
+    ShortsNotAllowed,
     BlacklistedVideo,
     BlacklistedChannel,
     BlacklistedWord,
@@ -40,6 +48,9 @@ impl Denial {
             Self::RoleTooLow { .. } => "reject.role_too_low",
             Self::LevelTooLow => "reject.level_too_low",
             Self::QueueFull => "reject.queue_full",
+            Self::SourceQueueFull { .. } => "reject.source_queue_full",
+            Self::BlockedSender => "reject.blocked_sender",
+            Self::ShortsNotAllowed => "reject.shorts_not_allowed",
             Self::BlacklistedVideo => "reject.blacklisted_video",
             Self::BlacklistedChannel => "reject.blacklisted_channel",
             Self::BlacklistedWord => "reject.blacklisted_word",
@@ -50,11 +61,15 @@ impl Denial {
     }
 
     /// Denials that are everyday noise rather than news for the moderators:
-    /// viewers who may not submit, and viewers who submit too often.
+    /// viewers who may not submit (or are blocked), and viewers who submit too
+    /// often.
     pub fn is_silent(&self) -> bool {
         matches!(
             self,
-            Self::RoleTooLow { .. } | Self::LevelTooLow | Self::Cooldown { .. }
+            Self::RoleTooLow { .. }
+                | Self::LevelTooLow
+                | Self::BlockedSender
+                | Self::Cooldown { .. }
         )
     }
 
@@ -76,6 +91,15 @@ impl Denial {
             }
             Self::LevelTooLow => i18n.t("reject.level_too_low").to_owned(),
             Self::QueueFull => i18n.t("reject.queue_full").to_owned(),
+            Self::SourceQueueFull { source } => {
+                let chat = match source {
+                    ChatSourceKind::Youtube => i18n.t("dashboard.chat.source.youtube"),
+                    ChatSourceKind::Tiktok => i18n.t("dashboard.chat.source.tiktok"),
+                };
+                i18n.t_with("reject.source_queue_full", &[("chat", chat)])
+            }
+            Self::BlockedSender => i18n.t("reject.blocked_sender").to_owned(),
+            Self::ShortsNotAllowed => i18n.t("reject.shorts_not_allowed").to_owned(),
             Self::BlacklistedVideo => i18n.t("reject.blacklisted_video").to_owned(),
             Self::BlacklistedChannel => i18n.t("reject.blacklisted_channel").to_owned(),
             Self::BlacklistedWord => i18n.t("reject.blacklisted_word").to_owned(),
@@ -146,9 +170,33 @@ impl Gatekeeper {
         self.blacklist = blacklist;
     }
 
-    /// Whether the sender's role and levels allow submitting at all.
+    /// Whether the sender may submit at all: not blocked, and with the role
+    /// and levels asked of their chat.
     pub fn check_sender(&self, sender: &Sender) -> Result<(), Denial> {
+        if self.blacklist.check_sender(sender) {
+            return Err(Denial::BlockedSender);
+        }
         check_sender(&self.settings, sender)
+    }
+
+    /// Whether the chat the sender wrote in still has room in the queue:
+    /// `waiting_from_chat` of its requests are waiting or queued.
+    pub fn check_share(&self, sender: &Sender, waiting_from_chat: usize) -> Result<(), Denial> {
+        let most = self.settings.max_waiting_for(sender.source);
+        if most > 0 && waiting_from_chat >= most {
+            return Err(Denial::SourceQueueFull {
+                source: sender.source,
+            });
+        }
+        Ok(())
+    }
+
+    /// Whether requests with a `shorts` link may be made.
+    pub fn check_shorts(&self, short: bool) -> Result<(), Denial> {
+        if short && !self.settings.allow_shorts {
+            return Err(Denial::ShortsNotAllowed);
+        }
+        Ok(())
     }
 
     /// Stage 1, before the YouTube lookup.
@@ -162,7 +210,7 @@ impl Gatekeeper {
         waiting_in_queue: usize,
         now: Instant,
     ) -> Result<(), Denial> {
-        check_sender(&self.settings, sender)?;
+        self.check_sender(sender)?;
         if waiting_in_queue >= self.settings.max_queue_len {
             return Err(Denial::QueueFull);
         }
@@ -170,7 +218,7 @@ impl Gatekeeper {
             return Err(hit.into());
         }
         self.cooldowns
-            .try_acquire(&sender.id, self.settings.cooldown(), now)
+            .try_acquire(&sender.id, self.settings.cooldown_for(sender.source), now)
             .map_err(|remaining| Denial::Cooldown { remaining })
     }
 
@@ -185,7 +233,7 @@ impl Gatekeeper {
         waiting_in_queue: usize,
         now: Instant,
     ) -> Result<(), Denial> {
-        check_sender(&self.settings, sender)?;
+        self.check_sender(sender)?;
         if self.blacklist.check_message(message) {
             return Err(Denial::BlacklistedMessage);
         }
@@ -210,6 +258,13 @@ impl Gatekeeper {
     pub fn vet(&self, video: &VideoDetails) -> Result<(), Denial> {
         let policy = VideoPolicy {
             max_duration_secs: self.settings.max_duration_secs,
+            allow_live: self.settings.allow_live,
+            allowed_categories: self
+                .settings
+                .allowed_categories
+                .iter()
+                .map(|category| category.id())
+                .collect(),
         };
         check_video(video, &policy).map_err(Denial::Video)?;
         match self.blacklist.check_details(video) {
@@ -229,10 +284,12 @@ impl Gatekeeper {
 /// level requirements.
 fn check_sender(settings: &ModerationConfig, sender: &Sender) -> Result<(), Denial> {
     let min = match sender.source {
-        ChatSourceKind::Tiktok => settings.min_role,
-        ChatSourceKind::Youtube => settings.youtube_min_role,
+        ChatSourceKind::Tiktok => settings.tiktok_min_role,
+        ChatSourceKind::Youtube => settings.youtube_min_role.role(),
     };
-    if !min.allows(sender.role) {
+    // Paying for a Super Chat is a way in, when the streamer says so.
+    let paid_in = sender.paid && settings.youtube_superchat_bypass;
+    if !paid_in && !min.allows(sender.role) {
         return Err(Denial::RoleTooLow {
             min,
             source: sender.source,
@@ -252,7 +309,7 @@ fn check_sender(settings: &ModerationConfig, sender: &Sender) -> Result<(), Deni
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::{BlacklistConfig, Language};
+    use crate::config::{BlacklistConfig, Language, YoutubeRole};
     use crate::youtube::{LiveStatus, VideoId};
 
     const OK_ID: &str = "dQw4w9WgXcQ";
@@ -283,6 +340,7 @@ mod tests {
             age_restricted: false,
             live: LiveStatus::None,
             private: false,
+            category_id: 10,
         }
     }
 
@@ -311,13 +369,13 @@ mod tests {
         let sub = Sender::new("s", "Sue", Role::Subscriber);
 
         let mut open = gatekeeper(ModerationConfig {
-            min_role: Role::Everyone,
+            tiktok_min_role: Role::Everyone,
             ..settings()
         });
         assert_eq!(open.admit(&viewer, &id(), 0, now), Ok(()));
 
         let mut subs_only = gatekeeper(ModerationConfig {
-            min_role: Role::Subscriber,
+            tiktok_min_role: Role::Subscriber,
             ..settings()
         });
         assert_eq!(
@@ -471,10 +529,10 @@ mod tests {
         let viewer = Sender::new("v", "Vic", Role::Everyone);
         assert!(g.admit(&viewer, &id(), 0, t0).is_err());
         g.set_settings(ModerationConfig {
-            min_role: Role::Everyone,
+            tiktok_min_role: Role::Everyone,
             ..settings()
         });
-        assert_eq!(g.settings().min_role, Role::Everyone);
+        assert_eq!(g.settings().tiktok_min_role, Role::Everyone);
         assert_eq!(g.admit(&viewer, &id(), 0, t0), Ok(()));
     }
 
@@ -510,6 +568,7 @@ mod tests {
             video_ids: vec![],
             channels: vec!["some channel".to_owned()],
             title_words: vec!["nasty".to_owned()],
+            senders: vec![],
         })
         .unwrap();
         let g = Gatekeeper::new(settings(), blacklist);
@@ -540,8 +599,8 @@ mod tests {
     fn each_chat_has_its_own_minimum_role() {
         let now = Instant::now();
         let mut g = gatekeeper(ModerationConfig {
-            min_role: Role::Follower,
-            youtube_min_role: Role::Subscriber,
+            tiktok_min_role: Role::Follower,
+            youtube_min_role: YoutubeRole::Member,
             cooldown_secs: 0,
             ..settings()
         });
@@ -560,8 +619,8 @@ mod tests {
 
         // And the other way round: TikTok can ask more than YouTube does.
         let mut g = gatekeeper(ModerationConfig {
-            min_role: Role::Subscriber,
-            youtube_min_role: Role::Everyone,
+            tiktok_min_role: Role::Subscriber,
+            youtube_min_role: YoutubeRole::Viewer,
             cooldown_secs: 0,
             ..settings()
         });
@@ -585,6 +644,149 @@ mod tests {
             g.admit(&tiktok_viewer, &id(), 0, now),
             Err(Denial::LevelTooLow)
         );
+    }
+
+    #[test]
+    fn a_blocked_sender_is_refused_by_name_or_by_account_and_never_gets_a_cooldown() {
+        let now = Instant::now();
+        let blacklist = Blacklist::from_config(&BlacklistConfig {
+            senders: vec!["Bad  Viewer!".to_owned(), "youtube:UCbad".to_owned()],
+            ..BlacklistConfig::default()
+        })
+        .unwrap();
+        let mut g = Gatekeeper::new(settings(), blacklist);
+        let by_name = Sender::new("t-1", "bad viewer", Role::Follower);
+        let by_id = Sender::new("youtube:UCbad", "Someone Else", Role::Subscriber)
+            .on(ChatSourceKind::Youtube);
+        let fine = Sender::new("t-2", "Good Viewer", Role::Follower);
+        assert_eq!(g.admit(&by_name, &id(), 0, now), Err(Denial::BlockedSender));
+        assert_eq!(g.admit(&by_id, &id(), 0, now), Err(Denial::BlockedSender));
+        assert_eq!(g.check_sender(&by_name), Err(Denial::BlockedSender));
+        assert_eq!(g.admit(&fine, &id(), 0, now), Ok(()));
+        // Not even a moderator gets past the list.
+        let moderator = Sender::new("t-3", "Bad Viewer", Role::Moderator);
+        assert_eq!(
+            g.admit(&moderator, &id(), 0, now),
+            Err(Denial::BlockedSender)
+        );
+    }
+
+    #[test]
+    fn a_chat_cannot_take_more_than_its_share_of_the_queue() {
+        let g = gatekeeper(ModerationConfig {
+            youtube_max_waiting: 2,
+            ..settings()
+        });
+        let youtube = Sender::new("y", "Yan", Role::Follower).on(ChatSourceKind::Youtube);
+        assert_eq!(g.check_share(&youtube, 1), Ok(()));
+        assert_eq!(
+            g.check_share(&youtube, 2),
+            Err(Denial::SourceQueueFull {
+                source: ChatSourceKind::Youtube
+            })
+        );
+        // The other chat has no limit of its own, and 0 is no limit.
+        assert_eq!(g.check_share(&follower(), 500), Ok(()));
+    }
+
+    #[test]
+    fn each_chat_can_have_its_own_cooldown() {
+        let now = Instant::now();
+        let mut g = gatekeeper(ModerationConfig {
+            cooldown_secs: 60,
+            youtube_cooldown_secs: Some(0),
+            tiktok_cooldown_secs: None,
+            ..settings()
+        });
+        let youtube = Sender::new("youtube:UC1", "Yan", Role::Follower).on(ChatSourceKind::Youtube);
+        assert_eq!(g.admit(&youtube, &id(), 0, now), Ok(()));
+        assert_eq!(g.admit(&youtube, &id(), 0, now), Ok(()), "YouTube has none");
+        let tiktok = follower();
+        assert_eq!(g.admit(&tiktok, &id(), 0, now), Ok(()));
+        assert!(
+            matches!(
+                g.admit(&tiktok, &id(), 0, now),
+                Err(Denial::Cooldown { .. })
+            ),
+            "TikTok keeps the general one"
+        );
+        let own = ModerationConfig {
+            cooldown_secs: 0,
+            tiktok_cooldown_secs: Some(30),
+            ..settings()
+        };
+        assert_eq!(
+            own.cooldown_for(ChatSourceKind::Tiktok),
+            Duration::from_secs(30)
+        );
+        assert_eq!(own.cooldown_for(ChatSourceKind::Youtube), Duration::ZERO);
+    }
+
+    #[test]
+    fn a_super_chat_gets_past_the_role_only_when_the_streamer_says_so() {
+        let now = Instant::now();
+        let viewer = Sender::new("y", "Yan", Role::Follower).on(ChatSourceKind::Youtube);
+        let rich = viewer.clone().paid();
+        let members_only = ModerationConfig {
+            youtube_min_role: YoutubeRole::Member,
+            cooldown_secs: 0,
+            ..settings()
+        };
+        let mut closed = gatekeeper(members_only.clone());
+        assert!(
+            closed.admit(&rich, &id(), 0, now).is_err(),
+            "off by default"
+        );
+        let mut open = gatekeeper(ModerationConfig {
+            youtube_superchat_bypass: true,
+            ..members_only
+        });
+        assert_eq!(open.admit(&rich, &id(), 0, now), Ok(()));
+        assert!(
+            open.admit(&viewer, &id(), 0, now).is_err(),
+            "an ordinary chat still is not"
+        );
+    }
+
+    #[test]
+    fn shorts_links_are_refused_only_when_shorts_are_not_allowed() {
+        let allowed = gatekeeper(settings());
+        assert_eq!(allowed.check_shorts(true), Ok(()));
+        let refused = gatekeeper(ModerationConfig {
+            allow_shorts: false,
+            ..settings()
+        });
+        assert_eq!(refused.check_shorts(true), Err(Denial::ShortsNotAllowed));
+        assert_eq!(refused.check_shorts(false), Ok(()));
+    }
+
+    #[test]
+    fn vet_applies_the_live_and_category_rules_of_the_settings() {
+        let mut live = details();
+        live.live = LiveStatus::Live;
+        live.duration_secs = 0;
+        assert_eq!(
+            gatekeeper(settings()).vet(&live),
+            Err(Denial::Video(Rejection::LiveStream))
+        );
+        let g = gatekeeper(ModerationConfig {
+            allow_live: true,
+            ..settings()
+        });
+        assert_eq!(g.vet(&live), Ok(()));
+
+        let mut music = details();
+        music.category_id = 10;
+        let g = gatekeeper(ModerationConfig {
+            allowed_categories: vec![crate::config::VideoCategory::Gaming],
+            ..settings()
+        });
+        assert_eq!(
+            g.vet(&music),
+            Err(Denial::Video(Rejection::CategoryNotAllowed))
+        );
+        music.category_id = 20;
+        assert_eq!(g.vet(&music), Ok(()));
     }
 
     #[test]
@@ -619,6 +821,15 @@ mod tests {
             },
             Denial::LevelTooLow,
             Denial::QueueFull,
+            Denial::SourceQueueFull {
+                source: ChatSourceKind::Youtube,
+            },
+            Denial::SourceQueueFull {
+                source: ChatSourceKind::Tiktok,
+            },
+            Denial::BlockedSender,
+            Denial::ShortsNotAllowed,
+            Denial::Video(Rejection::CategoryNotAllowed),
             Denial::BlacklistedVideo,
             Denial::BlacklistedChannel,
             Denial::BlacklistedWord,
@@ -656,6 +867,14 @@ mod tests {
                 true,
             ),
             (Denial::LevelTooLow, true),
+            (Denial::BlockedSender, true),
+            (
+                Denial::SourceQueueFull {
+                    source: ChatSourceKind::Youtube,
+                },
+                false,
+            ),
+            (Denial::ShortsNotAllowed, false),
             (
                 Denial::Cooldown {
                     remaining: Duration::from_secs(1),

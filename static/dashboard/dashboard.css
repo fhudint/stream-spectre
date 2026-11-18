@@ -585,6 +585,11 @@ kbd { padding: 1px 6px; border-radius: 4px; background: var(--button); color: va
 .tab[aria-pressed='true'] { color: var(--text); border-bottom-color: var(--text); }
 .tab[aria-selected='true'] { color: var(--text); border-bottom-color: var(--text); }
 
+/* A rule that is several choices at once (the allowed video categories). */
+.checks-field { border: 0; padding: 0; margin: 0; min-width: 0; }
+.checks-field legend { padding: 0; margin-bottom: 8px; }
+.checks { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 8px; }
+
 /* The tabs of the Rules and Overlay pages. */
 .page-tabs { align-items: stretch; margin-bottom: 14px; border-bottom: 1px solid var(--rule); overflow-x: auto; }
 .page-tabs .tab { height: auto; min-height: 40px; margin-bottom: -1px; white-space: nowrap; flex: none; }
@@ -712,17 +717,17 @@ input[type='text'].short { max-width: 120px; }
 .theme .theme-name { font-size: 13px; color: var(--muted); }
 .theme input:checked ~ .theme-name { color: var(--text); font-weight: 500; }
 .theme[data-theme='obsidian'] { --sw-bg: #15171a; --sw-ink: #fff; --sw-accent: #41a0e3; }
-.theme[data-theme='kertas'] { --sw-bg: #f4f1ea; --sw-ink: #141414; --sw-accent: #b3361b; }
+.theme[data-theme='paper'] { --sw-bg: #f4f1ea; --sw-ink: #141414; --sw-accent: #b3361b; }
 .theme[data-theme='brutal'] { --sw-bg: #ffd60a; --sw-ink: #000; --sw-accent: #000; }
 .theme[data-theme='terminal'] { --sw-bg: #0b100d; --sw-ink: #d4f5dd; --sw-accent: #7ee2a0; }
-.theme[data-theme='permen'] { --sw-bg: #fff0f5; --sw-ink: #5b2a3c; --sw-accent: #ff6f9c; }
+.theme[data-theme='candy'] { --sw-bg: #fff0f5; --sw-ink: #5b2a3c; --sw-accent: #ff6f9c; }
 .theme[data-theme='pixel'] { --sw-bg: #0f0f10; --sw-ink: #f2f2f2; --sw-accent: #ffe14d; }
-.theme[data-theme='komik'] { --sw-bg: #fff; --sw-ink: #000; --sw-accent: #e63946; }
-.theme[data-theme='garis'] { --sw-bg: #5a5f68; --sw-ink: #fff; --sw-accent: #fff; }
-.theme[data-theme='struk'] { --sw-bg: #fffdf6; --sw-ink: #1d1d1b; --sw-accent: #1d1d1b; }
-.theme[data-theme='pesan'] { --sw-bg: #0f1112; --sw-ink: #fff; --sw-accent: #3ddc84; }
+.theme[data-theme='comic'] { --sw-bg: #fff; --sw-ink: #000; --sw-accent: #e63946; }
+.theme[data-theme='outline'] { --sw-bg: #5a5f68; --sw-ink: #fff; --sw-accent: #fff; }
+.theme[data-theme='receipt'] { --sw-bg: #fffdf6; --sw-ink: #1d1d1b; --sw-accent: #1d1d1b; }
+.theme[data-theme='messages'] { --sw-bg: #0f1112; --sw-ink: #fff; --sw-accent: #3ddc84; }
 .theme[data-theme='ticker'] { --sw-bg: #111214; --sw-ink: #fff; --sw-accent: #e63946; }
-.theme[data-theme='catatan'] { --sw-bg: #ffe9b0; --sw-ink: #3b2f1e; --sw-accent: #3b2f1e; }
+.theme[data-theme='notes'] { --sw-bg: #ffe9b0; --sw-ink: #3b2f1e; --sw-accent: #3b2f1e; }
 
 /* --- phones and narrow windows --- */
 

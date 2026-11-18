@@ -1,6 +1,7 @@
 use std::collections::HashSet;
 
 use super::item::TiktokDetails;
+use crate::chat::Sender;
 use crate::config::{BlacklistConfig, ConfigError};
 use crate::tiktok::TiktokVideoId;
 use crate::youtube::{VideoDetails, VideoId};
@@ -13,7 +14,7 @@ pub enum BlacklistHit {
     TitleWord,
 }
 
-/// Blocked videos, channels and title words.
+/// Blocked videos, channels, title words and senders.
 ///
 /// - Video IDs match exactly (they are case-sensitive). A YouTube ID and a
 ///   TikTok ID can share one list: they cannot be mistaken for each other.
@@ -24,12 +25,16 @@ pub enum BlacklistHit {
 ///   Japanese) have no word boundaries, so entries in them only match when
 ///   they stand apart in the title.
 ///
+/// - Senders match by the name they are shown with (like channel names) or by
+///   the ID of their account (`youtube:UC...`).
+///
 /// Look-alike characters from other alphabets are not folded.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Blacklist {
     video_ids: HashSet<String>,
     channels: HashSet<String>,
     title_phrases: Vec<String>,
+    senders: HashSet<String>,
 }
 
 impl Blacklist {
@@ -71,10 +76,23 @@ impl Blacklist {
             title_phrases.push(format!(" {phrase} "));
         }
 
+        let mut senders = HashSet::new();
+        for (i, entry) in config.senders.iter().enumerate() {
+            let sender = normalize(entry);
+            if sender.is_empty() {
+                return Err(ConfigError::invalid(
+                    format!("blacklist.senders[{i}]"),
+                    "must contain at least one letter or digit",
+                ));
+            }
+            senders.insert(sender);
+        }
+
         Ok(Self {
             video_ids,
             channels,
             title_phrases,
+            senders,
         })
     }
 
@@ -96,6 +114,13 @@ impl Blacklist {
         self.channels
             .contains(&normalize(account))
             .then_some(BlacklistHit::Channel)
+    }
+
+    /// Whether the sender is blocked, by name or by account ID.
+    pub fn check_sender(&self, sender: &Sender) -> bool {
+        !self.senders.is_empty()
+            && (self.senders.contains(&normalize(&sender.name))
+                || self.senders.contains(&normalize(&sender.id)))
     }
 
     /// Whether a viewer's message has one of the banned words, the same words
@@ -153,6 +178,7 @@ mod tests {
             video_ids: own(ids),
             channels: own(channels),
             title_words: own(words),
+            senders: Vec::new(),
         }
     }
 
@@ -166,10 +192,33 @@ mod tests {
             age_restricted: false,
             live: LiveStatus::None,
             private: false,
+            category_id: 10,
         }
     }
 
     const OK_ID: &str = "dQw4w9WgXcQ";
+
+    #[test]
+    fn senders_match_by_shown_name_or_account_id_and_an_empty_entry_is_refused() {
+        let senders = |list: &[&str]| BlacklistConfig {
+            senders: list.iter().map(|s| (*s).to_owned()).collect(),
+            ..BlacklistConfig::default()
+        };
+        let b = Blacklist::from_config(&senders(&["Bad Viewer", "youtube:UC_abc"])).unwrap();
+        let named = |name: &str| Sender::new("tiktok-1", name, crate::chat::Role::Follower);
+        for name in ["Bad Viewer", "bad  viewer", "BAD-VIEWER!"] {
+            assert!(b.check_sender(&named(name)), "{name}");
+        }
+        for name in ["Bad Viewers", "Viewer", "Good"] {
+            assert!(!b.check_sender(&named(name)), "{name}");
+        }
+        let by_id = Sender::new("youtube:UC_abc", "Other", crate::chat::Role::Follower);
+        assert!(b.check_sender(&by_id));
+        assert!(!Blacklist::default().check_sender(&by_id));
+        for bad in ["", "   ", "!!!"] {
+            assert!(Blacklist::from_config(&senders(&[bad])).is_err(), "{bad:?}");
+        }
+    }
 
     #[test]
     fn empty_blacklist_blocks_nothing() {

@@ -417,6 +417,7 @@ mod tests {
                 age_restricted: false,
                 live: LiveStatus::None,
                 private: false,
+                category_id: 10,
             }),
             sender: Sender::new("u1", "Budi", Role::Subscriber),
             requested_at: UNIX_EPOCH + Duration::from_millis(1_700_000_000_123),
@@ -573,7 +574,7 @@ mod tests {
         let value = to_json(&settings);
         assert_eq!(value["type"], "settings_updated");
         assert_eq!(value["data"]["moderation"]["mode"], "manual");
-        assert_eq!(value["data"]["moderation"]["min_role"], "follower");
+        assert_eq!(value["data"]["moderation"]["tiktok_min_role"], "follower");
         assert_eq!(value["data"]["moderation"]["volume"], 50);
         assert_eq!(value["data"]["blacklist"]["video_ids"], json!([]));
         assert_eq!(value["data"]["dashboard"]["chat_history"], 20);
@@ -712,6 +713,7 @@ mod tests {
                     video_ids: vec!["dQw4w9WgXcQ".to_owned()],
                     channels: vec!["Secret Channel".to_owned()],
                     title_words: vec!["secretword".to_owned()],
+                    senders: vec!["secret_sender".to_owned()],
                 },
                 dashboard: DashboardConfig {
                     display_name: "Secret Name".to_owned(),

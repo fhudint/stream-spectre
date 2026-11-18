@@ -385,9 +385,9 @@ body {
   color: #949494;
 }
 
-/* ---- kertas: a sheet of paper, serif words --------------------------- */
+/* ---- paper: a sheet of paper, serif words --------------------------- */
 
-#root[data-theme="kertas"] {
+#root[data-theme="paper"] {
   --accent: #b3361b;
   --void: #d8d2c4;
   --pill-bg: #f4f1ea;
@@ -396,14 +396,14 @@ body {
   --pill-radius: 0;
 }
 
-[data-theme="kertas"] #card {
+[data-theme="paper"] #card {
   gap: 0.75em;
   padding: 1.25em;
   background: #f4f1ea;
   color: #141414;
 }
 
-[data-theme="kertas"] #head {
+[data-theme="paper"] #head {
   display: flex;
   justify-content: space-between;
   align-items: baseline;
@@ -413,22 +413,22 @@ body {
   color: #5c574d;
 }
 
-[data-theme="kertas"] #frame {
+[data-theme="paper"] #frame {
   gap: 0.75em;
 }
 
-[data-theme="kertas"] #bar {
+[data-theme="paper"] #bar {
   height: clamp(2px, 0.35vmin, 5px);
   background: #c9c3b5;
 }
 
-[data-theme="kertas"] #caption {
+[data-theme="paper"] #caption {
   display: flex;
   flex-direction: column;
   gap: 0.5em;
 }
 
-[data-theme="kertas"] #title {
+[data-theme="paper"] #title {
   order: 1;
   display: -webkit-box;
   -webkit-line-clamp: 3;
@@ -439,24 +439,24 @@ body {
   line-height: 1.1;
 }
 
-[data-theme="kertas"] #who {
+[data-theme="paper"] #who {
   order: 2;
   gap: 0.5em;
   align-items: baseline;
   font-size: 0.875em;
 }
 
-[data-theme="kertas"] #name {
+[data-theme="paper"] #name {
   display: inline;
   font-weight: 600;
 }
 
-[data-theme="kertas"] #role {
+[data-theme="paper"] #role {
   display: inline;
   color: #5c574d;
 }
 
-[data-theme="kertas"] #channel {
+[data-theme="paper"] #channel {
   order: 3;
   display: block;
   font-size: 0.75em;
@@ -658,9 +658,9 @@ body {
   content: "# ";
 }
 
-/* ---- permen: soft pink, round everything ----------------------------- */
+/* ---- candy: soft pink, round everything ----------------------------- */
 
-#root[data-theme="permen"] {
+#root[data-theme="candy"] {
   --accent: #ff6f9c;
   --void: #ffd6e4;
   --pill-bg: #fff0f5;
@@ -669,7 +669,7 @@ body {
   --pill-radius: 999px;
 }
 
-[data-theme="permen"] #card {
+[data-theme="candy"] #card {
   gap: 0.85em;
   padding: 1.1em;
   background: #fff0f5;
@@ -679,27 +679,27 @@ body {
   font-family: "Fredoka", "Nunito", system-ui, sans-serif;
 }
 
-[data-theme="permen"] #frame {
+[data-theme="candy"] #frame {
   gap: 0.85em;
 }
 
-[data-theme="permen"] #stage {
+[data-theme="candy"] #stage {
   border-radius: 1.4em;
 }
 
-[data-theme="permen"] #bar {
+[data-theme="candy"] #bar {
   height: 0.9em;
   border-radius: 999px;
   background: #ffd6e4;
 }
 
-[data-theme="permen"] #caption {
+[data-theme="candy"] #caption {
   display: flex;
   flex-direction: column;
   gap: 0.7em;
 }
 
-[data-theme="permen"] #title {
+[data-theme="candy"] #title {
   order: 1;
   display: -webkit-box;
   -webkit-line-clamp: 3;
@@ -714,14 +714,14 @@ body {
   line-height: 1.35;
 }
 
-[data-theme="permen"] #who {
+[data-theme="candy"] #who {
   order: 2;
   flex-wrap: wrap;
   gap: 0.5em;
 }
 
-[data-theme="permen"] #requested,
-[data-theme="permen"] #role {
+[data-theme="candy"] #requested,
+[data-theme="candy"] #role {
   display: inline-block;
   padding: 0.15em 0.8em;
   border-radius: 999px;
@@ -729,11 +729,11 @@ body {
   font-weight: 600;
 }
 
-[data-theme="permen"] #requested {
+[data-theme="candy"] #requested {
   background: #ffb3cc;
 }
 
-[data-theme="permen"] #role {
+[data-theme="candy"] #role {
   background: #ffe066;
   transform: rotate(-3deg);
 }
@@ -820,9 +820,9 @@ body {
   margin-top: 0.5em;
 }
 
-/* ---- komik: stickers and a speech bubble ----------------------------- */
+/* ---- comic: stickers and a speech bubble ----------------------------- */
 
-#root[data-theme="komik"] {
+#root[data-theme="comic"] {
   --accent: #e63946;
   --void: #fff;
   --pill-bg: #ffe14d;
@@ -832,7 +832,7 @@ body {
 }
 
 /* Room for the sticker, the hard shadows and the tilted name tag. */
-[data-theme="komik"] #card {
+[data-theme="comic"] #card {
   gap: 1em;
   padding: 1.5em 0.6em 0.6em 0.5em;
   color: #000;
@@ -841,14 +841,14 @@ body {
 }
 
 /* The sticker sits on the corner of the video and takes no room of its own. */
-[data-theme="komik"] #head {
+[data-theme="comic"] #head {
   display: block;
   position: relative;
   z-index: 2;
   height: 0;
 }
 
-[data-theme="komik"] #kicker {
+[data-theme="comic"] #kicker {
   position: absolute;
   left: -0.4em;
   top: -0.5em;
@@ -863,30 +863,30 @@ body {
   transform: rotate(-8deg);
 }
 
-[data-theme="komik"] #frame {
+[data-theme="comic"] #frame {
   gap: 0.9em;
 }
 
-[data-theme="komik"] #stage {
+[data-theme="comic"] #stage {
   box-sizing: border-box;
   border: 0.3em solid #000;
   box-shadow: 0.4em 0.4em 0 #000;
 }
 
-[data-theme="komik"] #bar {
+[data-theme="comic"] #bar {
   height: 1.3em;
   box-sizing: border-box;
   border: 0.25em solid #000;
   background: #fff;
 }
 
-[data-theme="komik"] #caption {
+[data-theme="comic"] #caption {
   display: flex;
   flex-direction: column;
   gap: 1.2em;
 }
 
-[data-theme="komik"] #title {
+[data-theme="comic"] #title {
   order: 1;
   position: relative;
   padding: 0.8em 1.1em;
@@ -899,29 +899,29 @@ body {
 }
 
 /* The tail of the bubble: a black triangle with a white one on top. */
-[data-theme="komik"] #title::before,
-[data-theme="komik"] #title::after {
+[data-theme="comic"] #title::before,
+[data-theme="comic"] #title::after {
   content: "";
   position: absolute;
   border-style: solid;
   border-color: transparent;
 }
 
-[data-theme="komik"] #title::before {
+[data-theme="comic"] #title::before {
   left: 1.8em;
   bottom: -1.05em;
   border-width: 0.9em 0.65em 0;
   border-top-color: #000;
 }
 
-[data-theme="komik"] #title::after {
+[data-theme="comic"] #title::after {
   left: 2.05em;
   bottom: -0.65em;
   border-width: 0.7em 0.4em 0;
   border-top-color: #fff;
 }
 
-[data-theme="komik"] #who {
+[data-theme="comic"] #who {
   order: 2;
   align-self: flex-start;
   gap: 0.4em;
@@ -935,18 +935,18 @@ body {
   transform: rotate(-2deg);
 }
 
-[data-theme="komik"] #name,
-[data-theme="komik"] #role {
+[data-theme="comic"] #name,
+[data-theme="comic"] #role {
   display: inline;
 }
 
-[data-theme="komik"] #role::before {
+[data-theme="comic"] #role::before {
   content: "\00B7  ";
 }
 
-/* ---- garis: outlines only, over the stream --------------------------- */
+/* ---- outline: outlines only, over the stream --------------------------- */
 
-#root[data-theme="garis"] {
+#root[data-theme="outline"] {
   --accent: #fff;
   --void: rgba(12, 13, 15, 0.55);
   --pill-bg: rgba(12, 13, 15, 0.75);
@@ -955,28 +955,28 @@ body {
   --pill-radius: 0.5em;
 }
 
-[data-theme="garis"] #card {
+[data-theme="outline"] #card {
   gap: 0.7em;
   color: #fff;
   text-shadow: 0 1px 3px rgba(0, 0, 0, 0.55);
 }
 
-[data-theme="garis"] #frame {
+[data-theme="outline"] #frame {
   gap: 0.6em;
 }
 
-[data-theme="garis"] #stage {
+[data-theme="outline"] #stage {
   box-sizing: border-box;
   border: 0.125em solid #fff;
   border-radius: 0.5em;
 }
 
-[data-theme="garis"] #bar {
+[data-theme="outline"] #bar {
   height: clamp(2px, 0.35vmin, 5px);
   background: rgba(255, 255, 255, 0.4);
 }
 
-[data-theme="garis"] #caption {
+[data-theme="outline"] #caption {
   display: flex;
   flex-direction: column;
   gap: 0.4em;
@@ -985,24 +985,24 @@ body {
   background: rgba(12, 13, 15, 0.6);
 }
 
-[data-theme="garis"] #who {
+[data-theme="outline"] #who {
   order: 1;
   gap: 0.5em;
   align-items: baseline;
 }
 
-[data-theme="garis"] #name {
+[data-theme="outline"] #name {
   display: inline;
   font-weight: 600;
 }
 
-[data-theme="garis"] #role {
+[data-theme="outline"] #role {
   display: inline;
   font-size: 0.875em;
   color: #d8d8d8;
 }
 
-[data-theme="garis"] #title {
+[data-theme="outline"] #title {
   order: 2;
   display: -webkit-box;
   -webkit-line-clamp: 2;
@@ -1013,9 +1013,9 @@ body {
   line-height: 1.35;
 }
 
-/* ---- struk: a till receipt ------------------------------------------- */
+/* ---- receipt: a till receipt ------------------------------------------- */
 
-#root[data-theme="struk"] {
+#root[data-theme="receipt"] {
   --accent: #1d1d1b;
   --void: #e9e5d6;
   --pill-bg: #fffdf6;
@@ -1024,7 +1024,7 @@ body {
   --pill-radius: 0;
 }
 
-[data-theme="struk"] #card {
+[data-theme="receipt"] #card {
   gap: 0.75em;
   padding: 1.25em;
   background: #fffdf6;
@@ -1034,7 +1034,7 @@ body {
   line-height: 1.4;
 }
 
-[data-theme="struk"] #head {
+[data-theme="receipt"] #head {
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -1043,46 +1043,46 @@ body {
   text-align: center;
 }
 
-[data-theme="struk"] #kicker {
+[data-theme="receipt"] #kicker {
   display: block;
   font-size: 1.1em;
   font-weight: 700;
   text-transform: uppercase;
 }
 
-[data-theme="struk"] #left {
+[data-theme="receipt"] #left {
   display: block;
 }
 
-[data-theme="struk"] #frame {
+[data-theme="receipt"] #frame {
   gap: 0.75em;
 }
 
-[data-theme="struk"] #stage {
+[data-theme="receipt"] #stage {
   border: 1px dashed #1d1d1b;
 }
 
-[data-theme="struk"] #bar {
+[data-theme="receipt"] #bar {
   height: 0.7em;
   box-sizing: border-box;
   border: 1px dashed #1d1d1b;
 }
 
-[data-theme="struk"] #caption {
+[data-theme="receipt"] #caption {
   display: flex;
   flex-direction: column;
   gap: 0.35em;
 }
 
-[data-theme="struk"] #who {
+[data-theme="receipt"] #who {
   display: contents;
 }
 
 /* A row of the receipt: the label (set by the script) and the value, with a
    dotted line under both. */
-[data-theme="struk"] #name,
-[data-theme="struk"] #role,
-[data-theme="struk"] #time {
+[data-theme="receipt"] #name,
+[data-theme="receipt"] #role,
+[data-theme="receipt"] #time {
   display: flex;
   justify-content: space-between;
   gap: 1em;
@@ -1090,26 +1090,26 @@ body {
   font-weight: 700;
 }
 
-[data-theme="struk"] #name::before,
-[data-theme="struk"] #role::before,
-[data-theme="struk"] #time::before {
+[data-theme="receipt"] #name::before,
+[data-theme="receipt"] #role::before,
+[data-theme="receipt"] #time::before {
   content: attr(data-label);
   font-weight: 400;
 }
 
-[data-theme="struk"] #name {
+[data-theme="receipt"] #name {
   order: 1;
 }
 
-[data-theme="struk"] #role {
+[data-theme="receipt"] #role {
   order: 2;
 }
 
-[data-theme="struk"] #time {
+[data-theme="receipt"] #time {
   order: 3;
 }
 
-[data-theme="struk"] #title {
+[data-theme="receipt"] #title {
   order: 4;
   display: -webkit-box;
   -webkit-line-clamp: 3;
@@ -1120,9 +1120,9 @@ body {
   border-top: 0.14em dashed #1d1d1b;
 }
 
-/* ---- pesan: a chat app ----------------------------------------------- */
+/* ---- messages: a chat app ----------------------------------------------- */
 
-#root[data-theme="pesan"] {
+#root[data-theme="messages"] {
   --accent: #3ddc84;
   --void: #2a2f33;
   --pill-bg: #1f2326;
@@ -1131,7 +1131,7 @@ body {
   --pill-radius: 999px;
 }
 
-[data-theme="pesan"] #card {
+[data-theme="messages"] #card {
   gap: 0.7em;
   padding: 1em;
   border-radius: 1.5em;
@@ -1139,11 +1139,11 @@ body {
   color: #fff;
 }
 
-[data-theme="pesan"] #caption {
+[data-theme="messages"] #caption {
   display: contents;
 }
 
-[data-theme="pesan"] #who {
+[data-theme="messages"] #who {
   order: -1;
   display: grid;
   grid-template-columns: auto 1fr;
@@ -1151,7 +1151,7 @@ body {
   align-items: center;
 }
 
-[data-theme="pesan"] #avatar {
+[data-theme="messages"] #avatar {
   grid-row: 1 / 3;
   display: inline-flex;
   align-items: center;
@@ -1164,37 +1164,37 @@ body {
   font-weight: 600;
 }
 
-[data-theme="pesan"] #name {
+[data-theme="messages"] #name {
   display: block;
   align-self: end;
   font-weight: 600;
 }
 
-[data-theme="pesan"] #role {
+[data-theme="messages"] #role {
   display: block;
   align-self: start;
   font-size: 0.75em;
   color: #a9b0b4;
 }
 
-[data-theme="pesan"] #frame {
+[data-theme="messages"] #frame {
   padding: 0.6em;
   gap: 0.55em;
   border-radius: 1.1em;
   background: #1f2326;
 }
 
-[data-theme="pesan"] #stage {
+[data-theme="messages"] #stage {
   border-radius: 0.7em;
 }
 
-[data-theme="pesan"] #bar {
+[data-theme="messages"] #bar {
   height: clamp(4px, 0.6vmin, 8px);
   border-radius: 999px;
   background: #3a4044;
 }
 
-[data-theme="pesan"] #title {
+[data-theme="messages"] #title {
   order: 1;
   display: -webkit-box;
   -webkit-line-clamp: 2;
@@ -1206,7 +1206,7 @@ body {
   font-weight: 600;
 }
 
-[data-theme="pesan"] #channel {
+[data-theme="messages"] #channel {
   order: 2;
   display: block;
   align-self: flex-end;

@@ -61,18 +61,26 @@
   var THUMBNAIL = /^https:\/\/i\.ytimg\.com\/vi\/[A-Za-z0-9_-]{11}\/[A-Za-z0-9_]+\.jpg$/;
 
   /* The moderation settings the form edits (volume has its own slider). */
+  /* The roles of a YouTube chat, as the server names them. */
   var YOUTUBE_ROLE_OPTIONS = [
-    { value: 'everyone', label: 'role.everyone' },
-    { value: 'follower', label: 'role.youtube.follower' },
-    { value: 'subscriber', label: 'role.youtube.subscriber' },
+    { value: 'viewer', label: 'role.youtube.follower' },
+    { value: 'member', label: 'role.youtube.subscriber' },
     { value: 'moderator', label: 'role.youtube.moderator' },
+  ];
+  /* The categories YouTube sorts videos into, as the server names them. */
+  var VIDEO_CATEGORIES = [
+    'film', 'autos', 'music', 'pets', 'sports', 'travel', 'gaming', 'people',
+    'comedy', 'entertainment', 'news', 'howto', 'education', 'science', 'nonprofits',
   ];
   /* The tabs of the Rules page, and of the Overlay page. */
   var RULES_TABS = ['general', 'youtube', 'tiktok'];
   var OVERLAY_TABS = ['mediashare', 'chat-panel', 'chat-float'];
 
   /* The fields of the Rules page, each on the tab of the rules it belongs to:
-   * the general ones, those of the YouTube chat and those of the TikTok chat. */
+   * the general ones, those of the YouTube chat and those of the TikTok chat.
+   * `kind` says how it is typed: 'select' (`nullable`: '' means not set),
+   * 'number', 'optional-number' (empty means not set), 'bool' (a switch) or
+   * 'multi' (several of `options`). */
   var SETTINGS_FIELDS = [
     {
       key: 'mode',
@@ -88,6 +96,17 @@
     { key: 'max_duration_secs', tab: 'general', kind: 'number', label: 'dashboard.settings.max_duration_secs' },
     { key: 'max_queue_len', tab: 'general', kind: 'number', label: 'dashboard.settings.max_queue_len' },
     { key: 'max_volume', tab: 'general', kind: 'number', label: 'dashboard.settings.max_volume' },
+    { key: 'allow_live', tab: 'general', kind: 'bool', label: 'dashboard.settings.allow_live' },
+    { key: 'allow_shorts', tab: 'general', kind: 'bool', label: 'dashboard.settings.allow_shorts' },
+    {
+      key: 'allowed_categories',
+      tab: 'general',
+      kind: 'multi',
+      label: 'dashboard.settings.allowed_categories',
+      options: VIDEO_CATEGORIES.map(function (name) {
+        return { value: name, label: 'dashboard.category.' + name };
+      }),
+    },
     {
       key: 'youtube_min_role',
       tab: 'youtube',
@@ -95,8 +114,19 @@
       label: 'dashboard.settings.youtube_min_role',
       options: YOUTUBE_ROLE_OPTIONS,
     },
+    { key: 'youtube_superchat_bypass', tab: 'youtube', kind: 'bool', label: 'dashboard.settings.youtube_superchat_bypass' },
     {
-      key: 'min_role',
+      key: 'youtube_auto_approve',
+      tab: 'youtube',
+      kind: 'select',
+      nullable: true,
+      label: 'dashboard.settings.youtube_auto_approve',
+      options: [{ value: '', label: 'dashboard.settings.nobody' }].concat(YOUTUBE_ROLE_OPTIONS),
+    },
+    { key: 'youtube_cooldown_secs', tab: 'youtube', kind: 'optional-number', label: 'dashboard.settings.chat_cooldown_secs' },
+    { key: 'youtube_max_waiting', tab: 'youtube', kind: 'number', label: 'dashboard.settings.chat_max_waiting' },
+    {
+      key: 'tiktok_min_role',
       tab: 'tiktok',
       kind: 'select',
       label: 'dashboard.settings.min_role',
@@ -109,6 +139,8 @@
     },
     { key: 'min_gifter_level', tab: 'tiktok', kind: 'number', label: 'dashboard.settings.min_gifter_level' },
     { key: 'min_fan_club_level', tab: 'tiktok', kind: 'number', label: 'dashboard.settings.min_fan_club_level' },
+    { key: 'tiktok_cooldown_secs', tab: 'tiktok', kind: 'optional-number', label: 'dashboard.settings.chat_cooldown_secs' },
+    { key: 'tiktok_max_waiting', tab: 'tiktok', kind: 'number', label: 'dashboard.settings.chat_max_waiting' },
   ];
 
   /* The three blacklist lists, in the order they are shown. */
@@ -116,6 +148,7 @@
     { key: 'video_ids', label: 'dashboard.blacklist.video_ids' },
     { key: 'channels', label: 'dashboard.blacklist.channels' },
     { key: 'title_words', label: 'dashboard.blacklist.title_words' },
+    { key: 'senders', label: 'dashboard.blacklist.senders' },
   ];
 
   function isObject(value) {
@@ -525,10 +558,17 @@
     var chips = [];
     var words = commandWords(settings.command);
     if (words.length > 0) chips.push(text('dashboard.rules.commands', { list: words.join(' ') }));
+    // Each chat has its own minimum role.
+    var youtubeKey = { member: 'subscriber', moderator: 'moderator' }[m.youtube_min_role];
     chips.push(
-      m.min_role === 'everyone'
-        ? text('dashboard.rules.everyone', {})
-        : text('dashboard.rules.role', { role: text('role.' + m.min_role, {}) })
+      youtubeKey
+        ? text('dashboard.rules.youtube_role', { role: text('role.youtube.' + youtubeKey, {}) })
+        : text('dashboard.rules.youtube_everyone', {})
+    );
+    chips.push(
+      m.tiktok_min_role === 'everyone'
+        ? text('dashboard.rules.tiktok_everyone', {})
+        : text('dashboard.rules.tiktok_role', { role: text('role.' + m.tiktok_min_role, {}) })
     );
     if (m.mode === 'auto') chips.push(text('dashboard.rules.mode_auto', {}));
     if (m.min_gifter_level > 0) chips.push(text('dashboard.rules.gifter', { level: m.min_gifter_level }));
@@ -687,7 +727,7 @@
 
   /* The looks of the overlay, as the server names them. */
   var YOUTUBE_ROLES = ['follower', 'subscriber', 'moderator'];
-  var OVERLAY_THEMES = ['obsidian', 'kertas', 'brutal', 'terminal', 'permen', 'pixel', 'komik', 'garis', 'struk', 'pesan'];
+  var OVERLAY_THEMES = ['obsidian', 'paper', 'brutal', 'terminal', 'candy', 'pixel', 'comic', 'outline', 'receipt', 'messages'];
 
   /* The key of a role's name for someone who wrote in the chat of `source`:
    * a YouTube chat has its own words (a viewer, a paying member), the rest use
@@ -697,8 +737,8 @@
   }
 
   /* The two chat overlays: one with a background, one transparent. */
-  var CHAT_PANEL_THEMES = ['obsidian', 'kertas', 'brutal', 'terminal', 'permen', 'pixel', 'struk', 'pesan', 'ticker'];
-  var CHAT_FLOAT_THEMES = ['garis', 'komik', 'catatan'];
+  var CHAT_PANEL_THEMES = ['obsidian', 'paper', 'brutal', 'terminal', 'candy', 'pixel', 'receipt', 'messages', 'ticker'];
+  var CHAT_FLOAT_THEMES = ['outline', 'comic', 'notes'];
 
   /* The look the settings say the mediashare overlay has; the first when they say none. */
   function overlayTheme(settings) {
@@ -757,9 +797,15 @@
 
   /* The fields of `desired` that differ from `current`. */
   function diffSettings(current, desired) {
+    // A setting that is not set is null, and a server may leave it out.
+    var same = function (a, b) {
+      if (a === undefined) a = null;
+      if (Array.isArray(a) && Array.isArray(b)) return a.length === b.length && a.every(function (x, i) { return x === b[i]; });
+      return a === b;
+    };
     var changes = {};
     Object.keys(desired).forEach(function (key) {
-      if (!current || current[key] !== desired[key]) changes[key] = desired[key];
+      if (!current || !same(current[key], desired[key])) changes[key] = desired[key];
     });
     return changes;
   }
@@ -796,10 +842,28 @@
           return option.value === input;
         });
         if (!allowed) return { error: field.key };
+        value[field.key] = input === '' && field.nullable ? null : input;
+      } else if (field.kind === 'bool') {
+        if (typeof input !== 'boolean') return { error: field.key };
         value[field.key] = input;
+      } else if (field.kind === 'multi') {
+        var known = field.options.map(function (option) {
+          return option.value;
+        });
+        if (!Array.isArray(input) || input.some(function (name) { return known.indexOf(name) < 0; })) {
+          return { error: field.key };
+        }
+        // In the order of the list, each once.
+        value[field.key] = known.filter(function (name) {
+          return input.indexOf(name) >= 0;
+        });
       } else {
         // Digits only: Number() would also accept "1e2" and "0x10".
         var text = String(input).trim();
+        if (field.kind === 'optional-number' && text === '') {
+          value[field.key] = null;
+          continue;
+        }
         var number = Number(text);
         if (!/^[0-9]+$/.test(text) || !Number.isSafeInteger(number)) return { error: field.key };
         value[field.key] = number;
@@ -884,6 +948,7 @@
     CHAT_SOURCES: CHAT_SOURCES,
     TINTS: TINTS,
     SETTINGS_FIELDS: SETTINGS_FIELDS,
+    VIDEO_CATEGORIES: VIDEO_CATEGORIES,
     BLACKLIST_FIELDS: BLACKLIST_FIELDS,
     format: format,
     formatDuration: formatDuration,

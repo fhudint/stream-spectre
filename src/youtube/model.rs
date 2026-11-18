@@ -28,4 +28,7 @@ pub struct VideoDetails {
     pub live: LiveStatus,
     /// The video is private and cannot be played by others.
     pub private: bool,
+    /// The number of its category (`snippet.categoryId`); 0 when YouTube does
+    /// not say.
+    pub category_id: u32,
 }

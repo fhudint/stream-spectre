@@ -18,7 +18,7 @@ pub use model::{
     ChatSourceKind, CommandConfig, CommandEntry, CommandSource, Config, DashboardConfig,
     GeneralConfig, Language, MAX_AVATAR_LEN, MAX_CHAT_HISTORY, MAX_DISPLAY_NAME_CHARS,
     MediashareConfig, MediashareTheme, ModerationConfig, ModerationMode, OverlayConfig,
-    ServerConfig, TiktokConfig, YoutubeChatConfig, YoutubeConfig,
+    ServerConfig, TiktokConfig, VideoCategory, YoutubeChatConfig, YoutubeConfig, YoutubeRole,
 };
 pub use paths::{CONFIG_FILE_NAME, ENV_CONFIG_PATH};
 /// A new empty folder under the system temp folder, for tests.
@@ -195,6 +195,124 @@ mod tests {
     }
 
     #[test]
+    fn each_chat_has_its_own_rules_and_the_youtube_roles_are_viewer_member_and_moderator() {
+        let c = parse_str(&format!(
+            "{USER}\n[moderation]\ntiktok_min_role = \"subscriber\"\nyoutube_min_role = \"member\"\n\
+             youtube_superchat_bypass = true\nyoutube_cooldown_secs = 10\ntiktok_cooldown_secs = 90\n\
+             youtube_max_waiting = 3\ntiktok_max_waiting = 5\nyoutube_auto_approve = \"moderator\"\n\
+             allow_live = true\nallow_shorts = false\nallowed_categories = [\"music\", \"gaming\"]\n\
+             [blacklist]\nsenders = [\"Bad Viewer\", \"youtube:UC1\"]\n"
+        ))
+        .unwrap();
+        let m = &c.moderation;
+        assert_eq!(m.tiktok_min_role, Role::Subscriber);
+        assert_eq!(m.youtube_min_role, YoutubeRole::Member);
+        assert!(m.youtube_superchat_bypass);
+        assert_eq!(
+            (m.youtube_cooldown_secs, m.tiktok_cooldown_secs),
+            (Some(10), Some(90))
+        );
+        assert_eq!((m.youtube_max_waiting, m.tiktok_max_waiting), (3, 5));
+        assert_eq!(m.youtube_auto_approve, Some(YoutubeRole::Moderator));
+        assert!(m.allow_live && !m.allow_shorts);
+        assert_eq!(
+            m.allowed_categories,
+            vec![VideoCategory::Music, VideoCategory::Gaming]
+        );
+        assert_eq!(c.blacklist.senders.len(), 2);
+
+        for (word, role) in [
+            ("viewer", YoutubeRole::Viewer),
+            ("member", YoutubeRole::Member),
+            ("moderator", YoutubeRole::Moderator),
+        ] {
+            let c = parse_str(&format!(
+                "{USER}\n[moderation]\nyoutube_min_role = \"{word}\"\n"
+            ))
+            .unwrap();
+            assert_eq!(c.moderation.youtube_min_role, role, "{word}");
+        }
+        // What it was called before it had its own names.
+        for (old, role) in [
+            ("everyone", YoutubeRole::Viewer),
+            ("follower", YoutubeRole::Viewer),
+            ("subscriber", YoutubeRole::Member),
+        ] {
+            let c = parse_str(&format!(
+                "{USER}\n[moderation]\nyoutube_min_role = \"{old}\"\n"
+            ))
+            .unwrap();
+            assert_eq!(c.moderation.youtube_min_role, role, "{old}");
+        }
+        for bad in [
+            "youtube_min_role = \"vip\"",
+            "allowed_categories = [\"cooking\"]",
+            "youtube_auto_approve = \"vip\"",
+            "tiktok_auto_approve = \"moderator\"",
+        ] {
+            assert!(
+                parse_str(&format!("{USER}\n[moderation]\n{bad}\n")).is_err(),
+                "{bad}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_rules_of_each_chat_have_their_defaults_and_an_unset_option_is_not_written() {
+        let m = ModerationConfig::default();
+        assert_eq!(m.youtube_min_role, YoutubeRole::Viewer);
+        assert_eq!(m.tiktok_min_role, Role::Follower);
+        assert!(!m.youtube_superchat_bypass && !m.allow_live && m.allow_shorts);
+        assert!(m.allowed_categories.is_empty());
+        assert_eq!((m.youtube_max_waiting, m.tiktok_max_waiting), (0, 0));
+        assert_eq!(
+            m.cooldown_for(crate::config::ChatSourceKind::Youtube),
+            std::time::Duration::from_secs(60)
+        );
+        // Saved as TOML, an option that is not set is left out (TOML has no null).
+        let text = toml::to_string(&m).unwrap();
+        for key in [
+            "youtube_cooldown_secs",
+            "tiktok_cooldown_secs",
+            "youtube_auto_approve",
+        ] {
+            assert!(!text.contains(key), "{key} in {text}");
+        }
+        assert!(
+            text.contains("tiktok_min_role") && !text.contains("\nmin_role"),
+            "{text}"
+        );
+        let again: ModerationConfig = toml::from_str(&text).unwrap();
+        assert_eq!(again, m);
+        // Sent to the dashboard as JSON, it is left out as well.
+        let json = serde_json::to_value(&m).unwrap();
+        assert!(json.get("youtube_cooldown_secs").is_none());
+    }
+
+    #[test]
+    fn the_looks_have_english_names_and_the_first_indonesian_ones_still_load() {
+        let config = parse_str(&format!(
+            "{USER}\n[overlay.mediashare]\ntheme = \"paper\"\n[overlay.chat_panel]\ntheme = \"messages\"\n[overlay.chat_float]\ntheme = \"notes\"\n"
+        ))
+        .unwrap();
+        assert_eq!(config.overlay.mediashare.theme, MediashareTheme::Paper);
+        assert_eq!(config.overlay.chat_panel.theme, ChatPanelTheme::Messages);
+        assert_eq!(config.overlay.chat_float.theme, ChatFloatTheme::Notes);
+
+        let old = parse_str(&format!(
+            "{USER}\n[overlay.mediashare]\ntheme = \"kertas\"\n[overlay.chat_panel]\ntheme = \"pesan\"\n[overlay.chat_float]\ntheme = \"catatan\"\n"
+        ))
+        .unwrap();
+        assert_eq!(old.overlay, config.overlay);
+        // Saved again, a look has its English name.
+        let saved = toml::to_string(&old.overlay).unwrap();
+        assert!(
+            saved.contains("paper") && !saved.contains("kertas"),
+            "{saved}"
+        );
+    }
+
+    #[test]
     fn both_chats_are_on_by_default_and_the_old_source_setting_still_loads() {
         let config = parse_str(&format!(
             "[chat]\nsource = \"tiktok\"\n{USER}\n[chat.youtube]\nvideo = \"HFSuEKR1b0w\"\n"
@@ -333,7 +451,7 @@ mod tests {
         let c = Config::default();
         assert_eq!(c.server.bind.to_string(), "127.0.0.1");
         assert_eq!(c.moderation.mode, ModerationMode::Manual);
-        assert_eq!(c.moderation.min_role, Role::Follower);
+        assert_eq!(c.moderation.tiktok_min_role, Role::Follower);
         assert_eq!(c.command.prefix, "!");
         assert_eq!(c.command.commands, vec![CommandEntry::youtube("v")]);
         assert_eq!(c.general.language, Language::Id);
@@ -408,7 +526,7 @@ mod tests {
             "#,
         )
         .unwrap();
-        assert_eq!(c.moderation.min_role, Role::Subscriber);
+        assert_eq!(c.moderation.tiktok_min_role, Role::Subscriber);
         assert_eq!(c.moderation.min_gifter_level, 3);
         assert_eq!(c.moderation.min_fan_club_level, 2);
         assert_eq!(c.moderation.mode, ModerationMode::Auto);

@@ -1134,11 +1134,12 @@
       username.value = String(state.settings.chat.tiktok.username);
     }
     core.SETTINGS_FIELDS.forEach(function (field) {
-      var input = $('setting-' + field.key);
-      // A server from before a setting existed does not send it.
-      if (input !== document.activeElement && moderation[field.key] !== undefined) {
-        input.value = String(moderation[field.key]);
-      }
+      var node = $('setting-' + field.key);
+      // Not while it is being edited, and not what a server from before the
+      // setting existed does not send.
+      if (node === document.activeElement) return;
+      if (moderation[field.key] === undefined && field.kind !== 'optional-number' && !(field.kind === 'select' && field.nullable)) return;
+      showSetting(field, moderation[field.key]);
     });
     core.BLACKLIST_FIELDS.forEach(function (field) {
       var input = $('blacklist-' + field.key);
@@ -1356,6 +1357,76 @@
     ]);
   }
 
+  /* The control of one rule, with its label (see SETTINGS_FIELDS for the kinds). */
+  function settingControl(spec) {
+    var id = 'setting-' + spec.key;
+    if (spec.kind === 'bool') {
+      return h('label', { className: 'toggle' }, [
+        h('input', { attrs: { id: id, name: spec.key, type: 'checkbox' } }),
+        h('span', { text: t(spec.label) }),
+      ]);
+    }
+    if (spec.kind === 'multi') {
+      return h('fieldset', { className: 'field checks-field', attrs: { id: id } }, [
+        h('legend', { className: 'field-label', text: t(spec.label) }),
+        h(
+          'div',
+          { className: 'checks' },
+          spec.options.map(function (option) {
+            return h('label', { className: 'toggle' }, [
+              h('input', { attrs: { id: id + '-' + option.value, type: 'checkbox', value: option.value } }),
+              h('span', { text: t(option.label) }),
+            ]);
+          })
+        ),
+      ]);
+    }
+    var control =
+      spec.kind === 'select'
+        ? h(
+            'select',
+            { attrs: { id: id, name: spec.key } },
+            spec.options.map(function (option) {
+              return h('option', { text: t(option.label), attrs: { value: option.value } });
+            })
+          )
+        : h('input', {
+            attrs: { id: id, name: spec.key, type: 'number', min: '0', step: '1', inputmode: 'numeric' },
+          });
+    return field(id, spec.label, control);
+  }
+
+  /* What the control of a rule holds now, in the shape readSettings takes. */
+  function settingInput(spec) {
+    var node = $('setting-' + spec.key);
+    if (spec.kind === 'bool') return node.checked === true;
+    if (spec.kind === 'multi') {
+      return spec.options
+        .filter(function (option) {
+          return $('setting-' + spec.key + '-' + option.value).checked === true;
+        })
+        .map(function (option) {
+          return option.value;
+        });
+    }
+    return node.value;
+  }
+
+  /* Shows a rule's saved value in its control. */
+  function showSetting(spec, value) {
+    var node = $('setting-' + spec.key);
+    if (spec.kind === 'bool') {
+      node.checked = value === true;
+    } else if (spec.kind === 'multi') {
+      var chosen = Array.isArray(value) ? value : [];
+      spec.options.forEach(function (option) {
+        $('setting-' + spec.key + '-' + option.value).checked = chosen.indexOf(option.value) >= 0;
+      });
+    } else {
+      node.value = value === null || value === undefined ? '' : String(value);
+    }
+  }
+
   function buildForms() {
     if (built) return;
     built = true;
@@ -1369,20 +1440,7 @@
       settingsForm.appendChild(rulesPanels[tab]);
     });
     core.SETTINGS_FIELDS.forEach(function (spec) {
-      var id = 'setting-' + spec.key;
-      var control =
-        spec.kind === 'select'
-          ? h(
-              'select',
-              { attrs: { id: id, name: spec.key } },
-              spec.options.map(function (option) {
-                return h('option', { text: t(option.label), attrs: { value: option.value } });
-              })
-            )
-          : h('input', {
-              attrs: { id: id, name: spec.key, type: 'number', min: '0', step: '1', inputmode: 'numeric' },
-            });
-      rulesPanels[spec.tab].appendChild(field(id, spec.label, control));
+      rulesPanels[spec.tab].appendChild(settingControl(spec));
     });
     settingsForm.appendChild(submitButton('dashboard.settings.save'));
     settingsForm.addEventListener('submit', function (event) {
@@ -1431,7 +1489,7 @@
   function saveSettings() {
     var raw = {};
     core.SETTINGS_FIELDS.forEach(function (spec) {
-      raw[spec.key] = $('setting-' + spec.key).value;
+      raw[spec.key] = settingInput(spec);
     });
     var read = core.readSettings(raw);
     if (read.error) {

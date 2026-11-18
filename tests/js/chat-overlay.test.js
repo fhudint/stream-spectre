@@ -27,14 +27,14 @@ const look = (theme, kind = 'panel') => ({ overlay: 'chat_' + kind, theme });
 
 test('the looks are the twelve of the style sheet, nine with a background and three without', () => {
   assert.equal(core.THEMES.length, 12);
-  assert.deepEqual(core.PANEL_THEMES, ['obsidian', 'kertas', 'brutal', 'terminal', 'permen', 'pixel', 'struk', 'pesan', 'ticker']);
-  assert.deepEqual(core.FLOAT_THEMES, ['garis', 'komik', 'catatan']);
+  assert.deepEqual(core.PANEL_THEMES, ['obsidian', 'paper', 'brutal', 'terminal', 'candy', 'pixel', 'receipt', 'messages', 'ticker']);
+  assert.deepEqual(core.FLOAT_THEMES, ['outline', 'comic', 'notes']);
   assert.deepEqual(core.themesOf('float'), core.FLOAT_THEMES);
   assert.deepEqual(core.themesOf('panel'), core.PANEL_THEMES);
   assert.deepEqual(core.themesOf('nope'), core.PANEL_THEMES);
-  assert.ok(core.isTheme('komik', 'float') && !core.isTheme('komik', 'panel'));
+  assert.ok(core.isTheme('comic', 'float') && !core.isTheme('comic', 'panel'));
   assert.ok(core.isTheme('obsidian', 'panel') && !core.isTheme('obsidian', 'float'));
-  assert.ok(core.isTheme('komik') && core.isTheme('obsidian'), 'either, when no overlay is named');
+  assert.ok(core.isTheme('comic') && core.isTheme('obsidian'), 'either, when no overlay is named');
   for (const name of core.THEMES) {
     assert.ok(core.isTheme(name));
     assert.ok(core.LIMITS[name] >= 1 && core.LIMITS[name] <= core.MAX_LINES, name);
@@ -131,8 +131,8 @@ test('a change of look redraws, keeps the lines, and trims to the new limit', ()
   c.handle(hello(1, 'obsidian'));
   for (let i = 1; i <= 7; i += 1) c.handle(envelope(1 + i, 'chat_message', say({ text: `m${i}` })));
   assert.equal(last()[1].length, 7);
-  c.handle(envelope(9, 'overlay_theme', look('pesan')));
-  assert.deepEqual(calls.at(-2), ['theme', 'pesan']);
+  c.handle(envelope(9, 'overlay_theme', look('messages')));
+  assert.deepEqual(calls.at(-2), ['theme', 'messages']);
   assert.deepEqual(last()[1], ['m2', 'm3', 'm4', 'm5', 'm6', 'm7'], 'six fit the messages look');
 });
 
@@ -141,8 +141,8 @@ test('the look of another overlay, an unknown look and old events are ignored', 
   c.handle(hello(10, 'obsidian'));
   const before = calls.length;
   c.handle(envelope(11, 'overlay_theme', { overlay: 'mediashare', theme: 'pixel' }));
-  c.handle(envelope(11, 'overlay_theme', look('garis', 'float'))); // the other chat overlay's look
-  c.handle(envelope(11, 'overlay_theme', look('komik'))); // a look this overlay does not have
+  c.handle(envelope(11, 'overlay_theme', look('outline', 'float'))); // the other chat overlay's look
+  c.handle(envelope(11, 'overlay_theme', look('comic'))); // a look this overlay does not have
   c.handle(envelope(12, 'overlay_theme', look('neon')));
   c.handle(envelope(13, 'chat_message', say({ name: '' })));
   c.handle(envelope(9, 'chat_message', say({ text: 'older than the snapshot' })));
@@ -165,7 +165,7 @@ test('a look forced in the address wins over the dashboard', () => {
   const bad = controller({ forcedTheme: 'neon' });
   bad.c.handle(hello(1, 'pixel'));
   assert.equal(bad.c.state().theme, 'pixel', 'a look that does not exist is not forced');
-  const wrongOverlay = controller({ forcedTheme: 'komik' });
+  const wrongOverlay = controller({ forcedTheme: 'comic' });
   wrongOverlay.c.handle(hello(1, 'pixel'));
   assert.equal(wrongOverlay.c.state().theme, 'pixel', 'nor a look of the other overlay');
 });
@@ -180,19 +180,19 @@ test('a new hello starts the list again', () => {
 
 test('the transparent overlay has its own looks, its own settings and its own events', () => {
   const { c, calls } = controller({ kind: 'float' });
-  c.handle(hello(1, 'catatan', [say({ text: 'one' })], 'float'));
-  assert.deepEqual(calls.slice(0, 1), [['theme', 'catatan']]);
-  assert.equal(c.state().theme, 'catatan');
-  c.handle(envelope(2, 'overlay_theme', look('komik', 'float')));
-  assert.equal(c.state().theme, 'komik');
+  c.handle(hello(1, 'notes', [say({ text: 'one' })], 'float'));
+  assert.deepEqual(calls.slice(0, 1), [['theme', 'notes']]);
+  assert.equal(c.state().theme, 'notes');
+  c.handle(envelope(2, 'overlay_theme', look('comic', 'float')));
+  assert.equal(c.state().theme, 'comic');
   c.handle(envelope(3, 'overlay_theme', look('ticker')));
-  assert.equal(c.state().theme, 'komik', 'the panel look is not its own');
+  assert.equal(c.state().theme, 'comic', 'the panel look is not its own');
   const fresh = controller({ kind: 'float' });
   fresh.c.handle(hello(1, 'obsidian', [], 'float'));
-  assert.equal(fresh.c.state().theme, 'garis', 'a panel look in its settings is refused: it keeps its first');
+  assert.equal(fresh.c.state().theme, 'outline', 'a panel look in its settings is refused: it keeps its first');
   const nothing = controller({ kind: 'float' });
   nothing.c.handle(envelope(1, 'hello', { settings: {}, chat_log: [] }));
-  assert.equal(nothing.c.state().theme, 'garis');
+  assert.equal(nothing.c.state().theme, 'outline');
 });
 
 test('a line says which chat it is from', () => {
@@ -339,8 +339,8 @@ test('a command line says what it is, and the dashboard\'s look changes at once'
   const line = items(page)[0];
   assert.ok(line.classes.has('cmd'));
   assert.equal(part(line, 'status').textContent, 'Permintaan video');
-  page.socket().receive(envelope(3, 'overlay_theme', look('pesan')));
-  assert.equal(page.elements.root.attrs['data-theme'], 'pesan');
+  page.socket().receive(envelope(3, 'overlay_theme', look('messages')));
+  assert.equal(page.elements.root.attrs['data-theme'], 'messages');
 });
 
 test('the words around the lines come from the texts, with English defaults', async () => {
@@ -357,14 +357,14 @@ test('?theme= forces a look for one source, if the overlay has it', () => {
   page.socket().receive(hello(1, 'obsidian'));
   assert.equal(page.elements.root.attrs['data-theme'], 'pixel');
   const wrong = load({ search: '?theme=neon' });
-  wrong.socket().receive(hello(1, 'kertas'));
-  assert.equal(wrong.elements.root.attrs['data-theme'], 'kertas');
-  const other = load({ search: '?theme=komik' });
-  other.socket().receive(hello(1, 'kertas'));
-  assert.equal(other.elements.root.attrs['data-theme'], 'kertas', 'komik is not a look of the panel overlay');
-  const float = load({ search: '?theme=komik', pathname: '/overlay/chat/float/' });
-  float.socket().receive(hello(1, 'garis', [], 'float'));
-  assert.equal(float.elements.root.attrs['data-theme'], 'komik');
+  wrong.socket().receive(hello(1, 'paper'));
+  assert.equal(wrong.elements.root.attrs['data-theme'], 'paper');
+  const other = load({ search: '?theme=comic' });
+  other.socket().receive(hello(1, 'paper'));
+  assert.equal(other.elements.root.attrs['data-theme'], 'paper', 'comic is not a look of the panel overlay');
+  const float = load({ search: '?theme=comic', pathname: '/overlay/chat/float/' });
+  float.socket().receive(hello(1, 'outline', [], 'float'));
+  assert.equal(float.elements.root.attrs['data-theme'], 'comic');
 });
 
 test('each line has an icon of the chat it is from, as the first part of its head', () => {

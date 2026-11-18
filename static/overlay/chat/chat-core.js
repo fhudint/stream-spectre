@@ -17,24 +17,24 @@
   /* The looks of the overlay; each is a block of styles in chat.css and a
    * name of ChatPanelTheme or ChatFloatTheme in the server. The panel
    * overlay has a background behind the lines, the float one is transparent. */
-  var PANEL_THEMES = ['obsidian', 'kertas', 'brutal', 'terminal', 'permen', 'pixel', 'struk', 'pesan', 'ticker'];
-  var FLOAT_THEMES = ['garis', 'komik', 'catatan'];
+  var PANEL_THEMES = ['obsidian', 'paper', 'brutal', 'terminal', 'candy', 'pixel', 'receipt', 'messages', 'ticker'];
+  var FLOAT_THEMES = ['outline', 'comic', 'notes'];
   var THEMES = PANEL_THEMES.concat(FLOAT_THEMES);
   /* How many lines a look keeps on screen: what fits in a source of the
    * usual size (360 x 640), or what a bar can hold. */
   var LIMITS = {
     obsidian: 7,
-    kertas: 7,
+    paper: 7,
     brutal: 6,
     terminal: 7,
-    permen: 5,
+    candy: 5,
     pixel: 6,
-    komik: 5,
-    garis: 7,
-    struk: 6,
-    pesan: 6,
+    comic: 5,
+    outline: 7,
+    receipt: 6,
+    messages: 6,
     ticker: 4,
-    catatan: 5,
+    notes: 5,
   };
   /* Colours for viewers' names: see .tint-N in chat.css. */
   var TINTS = 7;

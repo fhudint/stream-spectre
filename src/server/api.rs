@@ -418,14 +418,39 @@ mod tests {
         let current = ModerationConfig::default();
         let updated: ModerationConfig = merge_patch(
             &current,
-            json!({"min_role": "subscriber", "cooldown_secs": 5}),
+            json!({"tiktok_min_role": "subscriber", "cooldown_secs": 5}),
         )
         .unwrap();
-        assert_eq!(updated.min_role, Role::Subscriber);
+        assert_eq!(updated.tiktok_min_role, Role::Subscriber);
         assert_eq!(updated.cooldown_secs, 5);
         assert_eq!(updated.max_queue_len, current.max_queue_len);
         assert_eq!(updated.mode, ModerationMode::Manual);
         assert_eq!(updated.max_volume, current.max_volume);
+    }
+
+    #[test]
+    fn an_optional_setting_is_set_and_cleared_by_a_patch() {
+        let current = ModerationConfig::default();
+        let set: ModerationConfig = merge_patch(
+            &current,
+            json!({"youtube_cooldown_secs": 5, "youtube_auto_approve": "member"}),
+        )
+        .unwrap();
+        assert_eq!(set.youtube_cooldown_secs, Some(5));
+        assert_eq!(
+            set.youtube_auto_approve,
+            Some(crate::config::YoutubeRole::Member)
+        );
+        let cleared: ModerationConfig = merge_patch(
+            &set,
+            json!({"youtube_cooldown_secs": null, "youtube_auto_approve": null}),
+        )
+        .unwrap();
+        assert_eq!(cleared, current);
+        assert!(
+            merge_patch::<ModerationConfig>(&current, json!({"tiktok_auto_approve": "member"}))
+                .is_err()
+        );
     }
 
     #[test]
@@ -443,7 +468,7 @@ mod tests {
         let current = ModerationConfig::default();
         for bad in [
             json!({"typo_field": 1}),
-            json!({"min_role": "vip"}),
+            json!({"tiktok_min_role": "vip"}),
             json!({"cooldown_secs": "soon"}),
             json!({"cooldown_secs": -1}),
             json!({"volume": 300}),
@@ -465,6 +490,7 @@ mod tests {
             video_ids: vec!["aaaaaaaaaaa".to_owned()],
             channels: vec!["Chan".to_owned()],
             title_words: vec![],
+            senders: vec![],
         };
         let updated: BlacklistConfig =
             merge_patch(&current, json!({"title_words": ["spam"]})).unwrap();

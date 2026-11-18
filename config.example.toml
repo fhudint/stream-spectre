@@ -81,16 +81,8 @@ request_timeout_secs = 10
 # "manual": every request waits for approval in the dashboard.
 # "auto": requests that pass validation are approved automatically.
 mode = "manual"
-# Minimum role allowed to submit from the TikTok chat: "everyone", "follower",
-# "subscriber" or "moderator".
-min_role = "follower"
-# The same for the YouTube chat, where "follower" is any viewer and "subscriber"
-# a paying member.
-youtube_min_role = "follower"
-# Minimum TikTok gifter level and fan club level (not asked of YouTube). 0 turns the check off.
-min_gifter_level = 0
-min_fan_club_level = 0
-# Seconds a user must wait between submissions. 0 turns it off.
+# Seconds a user must wait between submissions. 0 turns it off. Each chat can
+# have its own (youtube_cooldown_secs, tiktok_cooldown_secs below).
 cooldown_secs = 60
 # Longest video accepted, in seconds.
 max_duration_secs = 600
@@ -99,12 +91,49 @@ max_queue_len = 20
 # Initial volume and the highest volume the dashboard may set (0-100).
 volume = 50
 max_volume = 80
+# Live streams and premieres may be requested. YouTube Shorts links may be (the
+# check only looks at the form of the link: a Short opened as a watch link
+# passes).
+allow_live = false
+allow_shorts = true
+# Only videos of these categories may be requested; empty: all. Any of film,
+# autos, music, pets, sports, travel, gaming, people, comedy, entertainment,
+# news, howto, education, science, nonprofits.
+allowed_categories = []
+
+# --- the YouTube chat ---
+# Minimum role: "viewer" (anyone), "member" (of the channel) or "moderator".
+youtube_min_role = "viewer"
+# A Super Chat sender gets in whatever their role is.
+youtube_superchat_bypass = false
+# Most requests of this chat that may be waiting or queued at once, so it cannot
+# fill the queue. 0 is no limit.
+youtube_max_waiting = 0
+# Not set: the general cooldown_secs applies.
+# youtube_cooldown_secs = 30
+# Requests from this role and above are approved at once, even in manual mode.
+# Not set: a moderator decides on each.
+# youtube_auto_approve = "member"
+
+# --- the TikTok chat ---
+# Minimum role: "everyone", "follower", "subscriber" or "moderator".
+tiktok_min_role = "follower"
+# Minimum gifter level and fan club level. 0 turns the check off.
+min_gifter_level = 0
+min_fan_club_level = 0
+# Most requests of this chat that may be waiting or queued at once. 0 is no limit.
+tiktok_max_waiting = 0
+# Not set: the general cooldown_secs applies.
+# tiktok_cooldown_secs = 30
+# (TikTok has no automatic approval: a video from TikTok has had no length, age
+# or embedding check, so a person always looks first.)
 
 [blacklist]
 # Anything listed here is rejected.
 video_ids = []       # YouTube video IDs, e.g. ["dQw4w9WgXcQ"]
 channels = []        # YouTube channel names
 title_words = []     # words that must not appear in a video title or in a viewer's message
+senders = []         # viewers who may not request anything: a name as shown, or an account ID (youtube:UC...)
 
 [dashboard]
 # How many recent chat messages the dashboard shows right after it is opened or
@@ -117,19 +146,19 @@ chat_history = 20
 # avatar = ""
 
 [overlay.mediashare]
-# The look of the mediashare overlay: obsidian, kertas, brutal, terminal, permen, pixel,
-# komik, garis, struk or pesan. Changeable in the dashboard (Overlay page),
+# The look of the mediashare overlay: obsidian, paper, brutal, terminal, candy, pixel,
+# comic, outline, receipt or messages. Changeable in the dashboard (Overlay page),
 # also while streaming. Adding theme=name to the overlay's address in OBS
 # (after a ? or a &) gives that one source another look.
 theme = "obsidian"
 
 [overlay.chat_panel]
 # The look of the chat overlay with a background (/overlay/chat/panel/): obsidian,
-# kertas, brutal, terminal, permen, pixel, struk, pesan or ticker (a bar along the
+# paper, brutal, terminal, candy, pixel, receipt, messages or ticker (a bar along the
 # bottom). Changed the same way.
 theme = "obsidian"
 
 [overlay.chat_float]
-# The look of the transparent chat overlay (/overlay/chat/float/): garis, komik or
-# catatan (sticky notes). Changed the same way.
-theme = "garis"
+# The look of the transparent chat overlay (/overlay/chat/float/): outline, comic or
+# notes (sticky notes). Changed the same way.
+theme = "outline"

@@ -241,6 +241,7 @@ mod tests {
                 age_restricted: false,
                 live: LiveStatus::None,
                 private: false,
+                category_id: 10,
             }))
         }
     }
@@ -644,7 +645,7 @@ mod tests {
 
         let updated: Value = patch(
             "/api/settings",
-            json!({"min_role": "subscriber", "cooldown_secs": 5}),
+            json!({"tiktok_min_role": "subscriber", "cooldown_secs": 5}),
         )
         .send()
         .await
@@ -652,7 +653,10 @@ mod tests {
         .json()
         .await
         .unwrap();
-        assert_eq!(updated["settings"]["moderation"]["min_role"], "subscriber");
+        assert_eq!(
+            updated["settings"]["moderation"]["tiktok_min_role"],
+            "subscriber"
+        );
         assert_eq!(updated["settings"]["moderation"]["cooldown_secs"], 5);
         assert_eq!(
             updated["settings"]["moderation"]["max_queue_len"], 20,
@@ -685,7 +689,10 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(state["settings"]["moderation"]["max_queue_len"], 20);
-        assert_eq!(state["settings"]["moderation"]["min_role"], "subscriber");
+        assert_eq!(
+            state["settings"]["moderation"]["tiktok_min_role"],
+            "subscriber"
+        );
 
         let list: Value = patch("/api/blacklist", json!({"title_words": ["spam"]}))
             .send()
@@ -1275,7 +1282,7 @@ mod tests {
                 .send()
         };
 
-        let updated: Value = patch(json!({"theme": "kertas"}))
+        let updated: Value = patch(json!({"theme": "paper"}))
             .await
             .unwrap()
             .json()
@@ -1283,7 +1290,7 @@ mod tests {
             .unwrap();
         assert_eq!(
             updated["settings"]["overlay"]["mediashare"]["theme"],
-            "kertas"
+            "paper"
         );
 
         for bad in [
@@ -1304,10 +1311,7 @@ mod tests {
             .json()
             .await
             .unwrap();
-        assert_eq!(
-            state["settings"]["overlay"]["mediashare"]["theme"],
-            "kertas"
-        );
+        assert_eq!(state["settings"]["overlay"]["mediashare"]["theme"], "paper");
     }
 
     #[tokio::test]
@@ -1329,7 +1333,7 @@ mod tests {
         );
         assert_eq!(
             hello["data"]["settings"]["overlay"]["chat_float"]["theme"],
-            "garis"
+            "outline"
         );
         next_json(&mut float).await;
         next_json(&mut mediashare).await;
@@ -1353,7 +1357,7 @@ mod tests {
         );
         assert_eq!(
             updated["settings"]["overlay"]["chat_float"]["theme"],
-            "garis"
+            "outline"
         );
         assert_eq!(
             updated["settings"]["overlay"]["mediashare"]["theme"],
@@ -1367,7 +1371,7 @@ mod tests {
         expect_silence(&mut float).await;
         expect_silence(&mut mediashare).await;
 
-        let updated: Value = patch("float", json!({"theme": "catatan"}))
+        let updated: Value = patch("float", json!({"theme": "notes"}))
             .await
             .unwrap()
             .json()
@@ -1375,21 +1379,21 @@ mod tests {
             .unwrap();
         assert_eq!(
             updated["settings"]["overlay"]["chat_float"]["theme"],
-            "catatan"
+            "notes"
         );
         let event = next_json(&mut float).await;
         assert_eq!(event["data"]["overlay"], "chat_float");
-        assert_eq!(event["data"]["theme"], "catatan");
+        assert_eq!(event["data"]["theme"], "notes");
         expect_silence(&mut panel).await;
 
         // A look of the other overlay, a made-up one and a wrong shape are refused.
         for (overlay, bad) in [
-            ("panel", json!({"theme": "komik"})),
+            ("panel", json!({"theme": "comic"})),
             ("float", json!({"theme": "obsidian"})),
             ("panel", json!({"theme": "neon"})),
             ("float", json!({"theme": 3})),
             ("panel", json!({"color": "red"})),
-            ("float", json!(["garis"])),
+            ("float", json!(["outline"])),
         ] {
             assert_eq!(
                 patch(overlay, bad.clone()).await.unwrap().status(),
@@ -1418,8 +1422,8 @@ mod tests {
             ("/overlay/chat/panel", "/overlay/chat/panel/"),
             ("/overlay/chat/float", "/overlay/chat/float/"),
             (
-                "/overlay/chat/float?theme=komik",
-                "/overlay/chat/float/?theme=komik",
+                "/overlay/chat/float?theme=comic",
+                "/overlay/chat/float/?theme=comic",
             ),
         ] {
             let response = server.http.get(server.url(path)).send().await.unwrap();

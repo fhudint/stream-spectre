@@ -285,6 +285,7 @@ mod tests {
                 age_restricted: false,
                 live: LiveStatus::None,
                 private: false,
+                category_id: 10,
             }),
             sender: Sender::new("u", "n", Role::Follower),
             requested_at: SystemTime::UNIX_EPOCH,
@@ -308,7 +309,7 @@ mod tests {
             Event::Volume { volume: 5 },
             Event::OverlayTheme {
                 overlay: crate::app::OverlayKind::Mediashare,
-                theme: crate::app::ThemeName::Mediashare(crate::config::MediashareTheme::Komik),
+                theme: crate::app::ThemeName::Mediashare(crate::config::MediashareTheme::Comic),
             },
         ];
         for event in &screen {
@@ -351,7 +352,7 @@ mod tests {
         };
         let float_look = Event::OverlayTheme {
             overlay: crate::app::OverlayKind::ChatFloat,
-            theme: crate::app::ThemeName::ChatFloat(crate::config::ChatFloatTheme::Komik),
+            theme: crate::app::ThemeName::ChatFloat(crate::config::ChatFloatTheme::Comic),
         };
         let line = Event::ChatMessage(line);
         // Both hear the chat; each hears of its own look only.

@@ -191,6 +191,7 @@ impl VideoSource for DemoVideos {
             age_restricted: false,
             live: LiveStatus::None,
             private: false,
+            category_id: 10,
         }))
     }
 }

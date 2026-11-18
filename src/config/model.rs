@@ -244,29 +244,171 @@ pub enum ModerationMode {
 #[serde(default, deny_unknown_fields)]
 pub struct ModerationConfig {
     pub mode: ModerationMode,
-    /// Minimum role allowed to submit videos from the TikTok chat.
-    pub min_role: Role,
-    /// The same for the YouTube chat (`follower` is any viewer there,
-    /// `subscriber` a paying member).
-    pub youtube_min_role: Role,
+    /// Minimum role allowed to submit videos from the TikTok chat. (`min_role`
+    /// was its name when there was only TikTok.)
+    #[serde(alias = "min_role")]
+    pub tiktok_min_role: Role,
+    /// The same for the YouTube chat.
+    pub youtube_min_role: YoutubeRole,
+    /// A Super Chat or Super Sticker sender gets in whatever their role is.
+    pub youtube_superchat_bypass: bool,
     /// Minimum TikTok gifter level; 0 disables the check.
     pub min_gifter_level: u32,
     /// Minimum TikTok fan club level; 0 disables the check.
     pub min_fan_club_level: u32,
-    /// Seconds a user must wait between submissions; 0 disables it.
+    /// Seconds a user must wait between submissions; 0 disables it. Applies to
+    /// both chats unless one has its own below.
     pub cooldown_secs: u64,
+    /// The cooldown of the YouTube chat, when it is not `cooldown_secs`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub youtube_cooldown_secs: Option<u64>,
+    /// The cooldown of the TikTok chat, when it is not `cooldown_secs`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tiktok_cooldown_secs: Option<u64>,
     pub max_duration_secs: u64,
     pub max_queue_len: usize,
+    /// Most requests of the YouTube chat that may be waiting or queued at
+    /// once, so that one chat cannot fill the queue; 0 is no limit.
+    pub youtube_max_waiting: usize,
+    /// The same for the TikTok chat.
+    pub tiktok_max_waiting: usize,
+    /// Requests from this YouTube role and above are approved at once, even
+    /// when `mode` is manual; none when not set. (There is no such setting for
+    /// TikTok: a TikTok video has had no length, age or embedding check, so a
+    /// person always looks first.)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub youtube_auto_approve: Option<YoutubeRole>,
+    /// Live streams and scheduled premieres may be requested.
+    pub allow_live: bool,
+    /// Videos requested with a `youtube.com/shorts/` link may be.
+    pub allow_shorts: bool,
+    /// Only videos of these categories may be requested; all of them when
+    /// empty.
+    pub allowed_categories: Vec<VideoCategory>,
     /// Initial volume, 0-100.
     pub volume: u8,
     /// Upper bound for the volume, 0-100.
     pub max_volume: u8,
 }
 
+/// The roles of a YouTube chat, which has no followers: everyone is a viewer,
+/// some pay as members of the channel, some moderate.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum YoutubeRole {
+    /// (`everyone` and `follower` were the names before this one.)
+    #[default]
+    #[serde(alias = "everyone", alias = "follower")]
+    Viewer,
+    #[serde(alias = "subscriber")]
+    Member,
+    Moderator,
+}
+
+impl YoutubeRole {
+    /// The same standing on the scale every chat is mapped to.
+    pub fn role(self) -> Role {
+        match self {
+            Self::Viewer => Role::Follower,
+            Self::Member => Role::Subscriber,
+            Self::Moderator => Role::Moderator,
+        }
+    }
+}
+
+/// The categories YouTube sorts videos into (`snippet.categoryId`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum VideoCategory {
+    Film,
+    Autos,
+    Music,
+    Pets,
+    Sports,
+    Travel,
+    Gaming,
+    People,
+    Comedy,
+    Entertainment,
+    News,
+    Howto,
+    Education,
+    Science,
+    Nonprofits,
+}
+
+impl VideoCategory {
+    pub const ALL: [Self; 15] = [
+        Self::Film,
+        Self::Autos,
+        Self::Music,
+        Self::Pets,
+        Self::Sports,
+        Self::Travel,
+        Self::Gaming,
+        Self::People,
+        Self::Comedy,
+        Self::Entertainment,
+        Self::News,
+        Self::Howto,
+        Self::Education,
+        Self::Science,
+        Self::Nonprofits,
+    ];
+
+    /// The number YouTube gives the category.
+    pub fn id(self) -> u32 {
+        match self {
+            Self::Film => 1,
+            Self::Autos => 2,
+            Self::Music => 10,
+            Self::Pets => 15,
+            Self::Sports => 17,
+            Self::Travel => 19,
+            Self::Gaming => 20,
+            Self::People => 22,
+            Self::Comedy => 23,
+            Self::Entertainment => 24,
+            Self::News => 25,
+            Self::Howto => 26,
+            Self::Education => 27,
+            Self::Science => 28,
+            Self::Nonprofits => 29,
+        }
+    }
+}
+
 impl ModerationConfig {
-    /// Per-user cooldown as a duration; zero means no cooldown.
-    pub fn cooldown(&self) -> std::time::Duration {
-        std::time::Duration::from_secs(self.cooldown_secs)
+    /// Per-user cooldown of the chat `source`, as a duration; zero means no
+    /// cooldown.
+    pub fn cooldown_for(&self, source: ChatSourceKind) -> std::time::Duration {
+        let own = match source {
+            ChatSourceKind::Youtube => self.youtube_cooldown_secs,
+            ChatSourceKind::Tiktok => self.tiktok_cooldown_secs,
+        };
+        std::time::Duration::from_secs(own.unwrap_or(self.cooldown_secs))
+    }
+
+    /// Most requests of `source` that may be waiting or queued; 0 is no limit.
+    pub fn max_waiting_for(&self, source: ChatSourceKind) -> usize {
+        match source {
+            ChatSourceKind::Youtube => self.youtube_max_waiting,
+            ChatSourceKind::Tiktok => self.tiktok_max_waiting,
+        }
+    }
+
+    /// Whether a sender of `source` with `role` is approved without waiting:
+    /// the whole chat is in `auto` mode, or their role is one that is.
+    pub fn approves_at_once(&self, source: ChatSourceKind, role: Role) -> bool {
+        if self.mode == ModerationMode::Auto {
+            return true;
+        }
+        match source {
+            ChatSourceKind::Youtube => self
+                .youtube_auto_approve
+                .is_some_and(|min| role >= min.role()),
+            ChatSourceKind::Tiktok => false,
+        }
     }
 
     /// Limits a requested volume to `max_volume`.
@@ -279,13 +421,22 @@ impl Default for ModerationConfig {
     fn default() -> Self {
         Self {
             mode: ModerationMode::Manual,
-            min_role: Role::Follower,
-            youtube_min_role: Role::Follower,
+            tiktok_min_role: Role::Follower,
+            youtube_min_role: YoutubeRole::Viewer,
+            youtube_superchat_bypass: false,
             min_gifter_level: 0,
             min_fan_club_level: 0,
             cooldown_secs: 60,
+            youtube_cooldown_secs: None,
+            tiktok_cooldown_secs: None,
             max_duration_secs: 10 * 60,
             max_queue_len: 20,
+            youtube_max_waiting: 0,
+            tiktok_max_waiting: 0,
+            youtube_auto_approve: None,
+            allow_live: false,
+            allow_shorts: true,
+            allowed_categories: Vec::new(),
             volume: 50,
             max_volume: 80,
         }
@@ -301,6 +452,9 @@ pub struct BlacklistConfig {
     pub channels: Vec<String>,
     /// Words that must not appear in a video title or in a viewer's message.
     pub title_words: Vec<String>,
+    /// Viewers who may not request anything: a name as it is shown, or the ID
+    /// of the account (`youtube:UC...`).
+    pub senders: Vec<String>,
 }
 
 /// Most chat messages the server will remember for the dashboard.
@@ -343,15 +497,21 @@ impl Default for DashboardConfig {
 pub enum MediashareTheme {
     #[default]
     Obsidian,
-    Kertas,
+    #[serde(alias = "kertas")]
+    Paper,
     Brutal,
     Terminal,
-    Permen,
+    #[serde(alias = "permen")]
+    Candy,
     Pixel,
-    Komik,
-    Garis,
-    Struk,
-    Pesan,
+    #[serde(alias = "komik")]
+    Comic,
+    #[serde(alias = "garis")]
+    Outline,
+    #[serde(alias = "struk")]
+    Receipt,
+    #[serde(alias = "pesan")]
+    Messages,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, Serialize)]
@@ -368,13 +528,17 @@ pub struct MediashareConfig {
 pub enum ChatPanelTheme {
     #[default]
     Obsidian,
-    Kertas,
+    #[serde(alias = "kertas")]
+    Paper,
     Brutal,
     Terminal,
-    Permen,
+    #[serde(alias = "permen")]
+    Candy,
     Pixel,
-    Struk,
-    Pesan,
+    #[serde(alias = "struk")]
+    Receipt,
+    #[serde(alias = "pesan")]
+    Messages,
     Ticker,
 }
 
@@ -384,9 +548,12 @@ pub enum ChatPanelTheme {
 #[serde(rename_all = "lowercase")]
 pub enum ChatFloatTheme {
     #[default]
-    Garis,
-    Komik,
-    Catatan,
+    #[serde(alias = "garis")]
+    Outline,
+    #[serde(alias = "komik")]
+    Comic,
+    #[serde(alias = "catatan")]
+    Notes,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, Serialize)]

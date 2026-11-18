@@ -24,7 +24,7 @@
   var DEFAULT_LEFT = '{time} left';
   /* The looks the overlay has; each is a block of styles in overlay.css and a
    * name of OverlayTheme in the server. */
-  var THEMES = ['obsidian', 'kertas', 'brutal', 'terminal', 'permen', 'pixel', 'komik', 'garis', 'struk', 'pesan'];
+  var THEMES = ['obsidian', 'paper', 'brutal', 'terminal', 'candy', 'pixel', 'comic', 'outline', 'receipt', 'messages'];
   var ROLE_NAME = /^[a-z_]{1,20}$/;
 
   function isTheme(value) {

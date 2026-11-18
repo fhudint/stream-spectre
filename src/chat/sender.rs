@@ -19,6 +19,8 @@ pub struct Sender {
     pub gifter_level: u32,
     /// TikTok fan club level; 0 when unknown or not applicable.
     pub fan_club_level: u32,
+    /// The message was a Super Chat (YouTube); false for the rest.
+    pub paid: bool,
 }
 
 impl Sender {
@@ -31,7 +33,14 @@ impl Sender {
             source: ChatSourceKind::Tiktok,
             gifter_level: 0,
             fan_club_level: 0,
+            paid: false,
         }
+    }
+
+    /// The same sender, said to have paid with this message (a Super Chat).
+    pub fn paid(mut self) -> Self {
+        self.paid = true;
+        self
     }
 
     /// The same sender, said to be from the chat of `source`.

@@ -225,14 +225,14 @@ mod tests {
         run.pipeline
             .update_settings(moderation(|m| {
                 m.mode = ModerationMode::Auto;
-                m.min_role = Role::Moderator;
+                m.tiktok_min_role = Role::Moderator;
             }))
             .unwrap();
         run.finish().await;
 
         let saved = read_saved(&path).unwrap().unwrap();
         assert_eq!(saved.tables(), vec!["moderation"]);
-        assert_eq!(saved.moderation.unwrap().min_role, Role::Moderator);
+        assert_eq!(saved.moderation.unwrap().tiktok_min_role, Role::Moderator);
     }
 
     #[tokio::test]

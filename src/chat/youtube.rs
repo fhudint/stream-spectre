@@ -11,8 +11,9 @@
 //! response as described in the parsers below, the moderator badge (an icon
 //! of type `MODERATOR`) and the member badge (a custom picture, no icon).
 //! Not seen yet: the streamer's own badge (assumed to be icon type `OWNER`),
-//! custom emoji (assumed `isCustomEmoji`) and Super Chat messages, which are
-//! not read.
+//! custom emoji (assumed `isCustomEmoji`) and Super Chat messages
+//! (`liveChatPaidMessageRenderer`, read like the text ones, from the fields
+//! they are assumed to share). Super Stickers carry no words and are not read.
 
 use std::collections::{HashSet, VecDeque};
 use std::time::Duration;
@@ -444,8 +445,14 @@ fn parse_poll(value: &Value, min_poll: Duration) -> Option<Poll> {
         .and_then(Value::as_array)
         .into_iter()
         .flatten()
-        .filter_map(|action| action.pointer("/addChatItemAction/item/liveChatTextMessageRenderer"))
-        .filter_map(map_message)
+        .filter_map(|action| action.pointer("/addChatItemAction/item"))
+        .filter_map(|item| {
+            // A Super Chat is a message too, from someone who paid.
+            match item.get("liveChatTextMessageRenderer") {
+                Some(renderer) => map_message(renderer, false),
+                None => map_message(item.get("liveChatPaidMessageRenderer")?, true),
+            }
+        })
         .collect();
     let next = chat
         .get("continuations")
@@ -469,7 +476,7 @@ fn parse_poll(value: &Value, min_poll: Duration) -> Option<Poll> {
 
 /// Builds a message, or `None` when the sender cannot be identified (which
 /// would let them dodge per-user limits).
-fn map_message(renderer: &Value) -> Option<(String, ChatMessage)> {
+fn map_message(renderer: &Value, paid: bool) -> Option<(String, ChatMessage)> {
     let id = renderer.get("id")?.as_str()?.to_owned();
     let channel = renderer.get("authorExternalChannelId")?.as_str()?;
     let channel_ok = !channel.is_empty()
@@ -496,19 +503,21 @@ fn map_message(renderer: &Value) -> Option<(String, ChatMessage)> {
         .chars()
         .take(MAX_COMMENT_CHARS)
         .collect();
+    // A Super Chat may carry no words at all; then there is nothing to read.
+    if paid && text.trim().is_empty() {
+        return None;
+    }
     let badges = renderer
         .get("authorBadges")
         .and_then(Value::as_array)
         .map_or(&[][..], Vec::as_slice);
-    Some((
-        id,
-        ChatMessage {
-            // The prefix keeps a YouTube channel apart from any other platform.
-            sender: Sender::new(format!("youtube:{channel}"), name, role_of(badges))
-                .on(ChatSourceKind::Youtube),
-            text,
-        },
-    ))
+    // The prefix keeps a YouTube channel apart from any other platform.
+    let mut sender = Sender::new(format!("youtube:{channel}"), name, role_of(badges))
+        .on(ChatSourceKind::Youtube);
+    if paid {
+        sender = sender.paid();
+    }
+    Some((id, ChatMessage { sender, text }))
 }
 
 /// The text of one piece of a message: plain text, a link's text, an emoji
@@ -733,7 +742,52 @@ mod tests {
     // --- one message ---
 
     fn mapped(renderer: Value) -> Option<ChatMessage> {
-        map_message(&renderer).map(|(_, message)| message)
+        map_message(&renderer, false).map(|(_, message)| message)
+    }
+
+    fn paid_item(id: &str, text: Option<&str>) -> Value {
+        let mut renderer = json!({
+            "id": id,
+            "authorExternalChannelId": "UCpay",
+            "authorName": {"simpleText": "Dewi"},
+            "purchaseAmountText": {"simpleText": "Rp20.000"},
+        });
+        if let Some(text) = text {
+            renderer["message"] = json!({"runs": [{"text": text}]});
+        }
+        json!({"addChatItemAction": {"item": {"liveChatPaidMessageRenderer": renderer}}})
+    }
+
+    #[test]
+    fn a_super_chat_with_words_is_a_message_from_someone_who_paid() {
+        let poll = parse_poll(
+            &answer(
+                &[
+                    text_message("m1", "UCaaa", "Sari", "hi"),
+                    paid_item("p1", Some("!yt dQw4w9WgXcQ")),
+                    // No words: nothing to read. A sticker has none either.
+                    paid_item("p2", None),
+                    json!({"addChatItemAction": {"item": {"liveChatPaidStickerRenderer": {
+                        "id": "s1", "authorExternalChannelId": "UCstk",
+                        "authorName": {"simpleText": "Stick"},
+                    }}}}),
+                ],
+                None,
+            ),
+            MIN_POLL,
+        )
+        .unwrap();
+        let senders: Vec<(&str, bool)> = poll
+            .messages
+            .iter()
+            .map(|(_, m)| (m.sender.name.as_str(), m.sender.paid))
+            .collect();
+        assert_eq!(senders, vec![("Sari", false), ("Dewi", true)]);
+        let (id, message) = &poll.messages[1];
+        assert_eq!(id, "p1");
+        assert_eq!(message.text, "!yt dQw4w9WgXcQ");
+        assert_eq!(message.sender.id, "youtube:UCpay");
+        assert_eq!(message.sender.source, ChatSourceKind::Youtube);
     }
 
     #[test]

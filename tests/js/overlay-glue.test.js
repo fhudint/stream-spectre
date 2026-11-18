@@ -901,24 +901,24 @@ test('the look comes from the server: in the hello and when it changes', () => {
   page.socket().open();
   page.socket().receive({ ...envelope(1, 'hello', { volume: 50, queue: { now_playing: null }, settings: { overlay: { mediashare: { theme: 'pixel' } } } }) });
   assert.equal(themeOf(page), 'pixel');
-  page.socket().receive(envelope(2, 'overlay_theme', { overlay: 'mediashare', theme: 'komik' }));
-  assert.equal(themeOf(page), 'komik');
+  page.socket().receive(envelope(2, 'overlay_theme', { overlay: 'mediashare', theme: 'comic' }));
+  assert.equal(themeOf(page), 'comic');
   page.socket().receive(envelope(3, 'overlay_theme', { overlay: 'mediashare', theme: 'neon<script>' }));
-  assert.equal(themeOf(page), 'komik', 'a name the page has no look for changes nothing');
+  assert.equal(themeOf(page), 'comic', 'a name the page has no look for changes nothing');
 });
 
 test('?theme= in the address wins over the server, but only for a look that exists', () => {
-  const forced = load({ search: '?token=t&theme=struk' });
+  const forced = load({ search: '?token=t&theme=receipt' });
   forced.socket().open();
   forced.socket().receive(envelope(1, 'hello', { volume: 50, queue: { now_playing: null }, settings: { overlay: { mediashare: { theme: 'pixel' } } } }));
-  assert.equal(themeOf(forced), 'struk');
-  forced.socket().receive(envelope(2, 'overlay_theme', { overlay: 'mediashare', theme: 'garis' }));
-  assert.equal(themeOf(forced), 'struk');
+  assert.equal(themeOf(forced), 'receipt');
+  forced.socket().receive(envelope(2, 'overlay_theme', { overlay: 'mediashare', theme: 'outline' }));
+  assert.equal(themeOf(forced), 'receipt');
 
   const wrong = load({ search: '?theme=nope' });
   wrong.socket().open();
-  wrong.socket().receive(envelope(1, 'overlay_theme', { overlay: 'mediashare', theme: 'garis' }));
-  assert.equal(themeOf(wrong), 'garis');
+  wrong.socket().receive(envelope(1, 'overlay_theme', { overlay: 'mediashare', theme: 'outline' }));
+  assert.equal(themeOf(wrong), 'outline');
 });
 
 test('the card gets the name, the role, the channel and a letter for the avatar, as plain text', () => {

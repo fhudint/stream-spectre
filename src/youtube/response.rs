@@ -39,6 +39,8 @@ struct Snippet {
     channel_title: Option<String>,
     #[serde(rename = "liveBroadcastContent")]
     live_broadcast_content: Option<String>,
+    #[serde(rename = "categoryId")]
+    category_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -147,6 +149,11 @@ fn parse_success(requested: &VideoId, body: &[u8]) -> Result<Option<VideoDetails
             == Some(AGE_RESTRICTED_RATING),
         live,
         private: status.privacy_status.as_deref() == Some("private"),
+        category_id: snippet
+            .category_id
+            .as_deref()
+            .and_then(|id| id.trim().parse().ok())
+            .unwrap_or(0),
     }))
 }
 

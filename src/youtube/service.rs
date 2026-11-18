@@ -167,6 +167,7 @@ mod tests {
             age_restricted: false,
             live: LiveStatus::None,
             private: false,
+            category_id: 10,
         }
     }
 

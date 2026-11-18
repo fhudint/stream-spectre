@@ -229,7 +229,7 @@ pub(crate) mod tests {
     fn changed_moderation() -> ModerationConfig {
         ModerationConfig {
             mode: ModerationMode::Auto,
-            min_role: Role::Moderator,
+            tiktok_min_role: Role::Moderator,
             cooldown_secs: 5,
             volume: 33,
             ..ModerationConfig::default()
@@ -241,6 +241,7 @@ pub(crate) mod tests {
             video_ids: vec!["dQw4w9WgXcQ".to_owned()],
             channels: vec!["Some \"Channel\"".to_owned()],
             title_words: vec!["spoiler".to_owned(), "naïve é".to_owned()],
+            senders: vec!["Some Viewer".to_owned(), "youtube:UC1".to_owned()],
         }
     }
 
@@ -449,7 +450,7 @@ pub(crate) mod tests {
             }),
             overlay: Some(OverlayConfig {
                 mediashare: MediashareConfig {
-                    theme: MediashareTheme::Struk,
+                    theme: MediashareTheme::Receipt,
                 },
                 ..OverlayConfig::default()
             }),

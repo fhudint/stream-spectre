@@ -43,13 +43,18 @@ for what plays on your stream.
   [Known limitations](#known-limitations)).
 - Checks each video with the YouTube Data API (one quota unit per new video,
   results cached): rejects videos that cannot be embedded, are age-restricted,
-  are live streams, or are too long.
-- Moderation: manual approval by default (or automatic), minimum role for each
-  chat (everyone / follower / subscriber / moderator; a YouTube viewer, member
-  or moderator), minimum TikTok gifter level
-  and fan club level, per-viewer cooldown, maximum duration, queue length limit,
-  blacklist (video IDs, channel names, words in the title), skip button, and a
-  volume limit.
+  are live streams (unless you allow them), are not of a category you allow, or
+  are too long.
+- Moderation: manual approval by default (or automatic, or at once for the
+  members and moderators of the YouTube chat), a minimum role for each chat (a
+  YouTube viewer, member or moderator; on TikTok everyone, follower,
+  subscriber or moderator, and a minimum gifter and fan club level), a Super
+  Chat that gets past the YouTube minimum, a per-viewer cooldown that each chat
+  can set for itself, a limit on how much of the queue one chat may take,
+  maximum duration, queue length limit, blacklist (video IDs, channel names,
+  words in the title and in the message, and blocked viewers), no Shorts links
+  if you like, skip button, and a volume limit. The rules are on three tabs of
+  the Rules page: General, YouTube and TikTok.
 - A dashboard for moderators (the video playing with its progress, the approval
   queue with keyboard shortcuts, a live view of the chat with video requests
   highlighted, counters for the session, the rules in force, settings and the
@@ -155,8 +160,8 @@ username = "your_tiktok_username"
 
 [moderation]
 mode = "manual"            # every request waits for approval
-min_role = "follower"      # who may submit from TikTok
-youtube_min_role = "follower"  # and from YouTube (follower = any viewer)
+tiktok_min_role = "follower"   # who may submit from TikTok
+youtube_min_role = "viewer"    # and from YouTube: viewer, member or moderator
 cooldown_secs = 60
 max_duration_secs = 600
 ```
@@ -374,11 +379,15 @@ trust, not across the internet.
   page for each stream. YouTube answers about
   every 10 seconds, so a command can take up to that long to be read. Messages
   already in the chat when the program connects are skipped, so old commands do
-  not run again, and Super Chats are not read. A channel's members count as
-  **subscribers**, the streamer and the moderators as **moderators**, and
-  everyone else as **followers** (YouTube shows no followers), so the default
-  minimum role lets every YouTube viewer in. YouTube has a minimum role of its
-  own (the **YouTube** tab of the Rules page): *Viewer*, *Member* or *Moderator*. The `!yt` command also accepts
+  not run again. A channel's members are **members**, the streamer and the
+  moderators **moderators**, and everyone else **viewers** (YouTube shows no
+  followers). The minimum role of the YouTube chat is `youtube_min_role`
+  (`viewer`, `member` or `moderator`; the **YouTube** tab of the Rules page),
+  separate from TikTok's `tiktok_min_role`. A Super Chat with words is read
+  like any message, from a sender marked as having paid, and can get past the
+  minimum role (`youtube_superchat_bypass`); Super Chats are read from the
+  fields they are assumed to share with ordinary messages, which has not been
+  checked against a real one. The `!yt` command also accepts
   `youtube.com/live/ID` links.
 - **Some videos still fail to play.** The YouTube API saying a video is
   embeddable does not guarantee it plays (the owner may restrict playback). The

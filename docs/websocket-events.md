@@ -23,7 +23,7 @@ of truth; this page describes them for people writing clients.
 | `PATCH /api/dashboard` | Change dashboard settings (`chat_history`, `display_name`, `avatar`), keep the rest |
 | `PATCH /api/overlay/mediashare` | Change the mediashare overlay's look (`{"theme": "pixel"}`); an unknown theme is refused |
 | `PATCH /api/overlay/chat/panel` | Change the look of the chat overlay with a background (`{"theme": "ticker"}`); an unknown theme, or one of the transparent overlay, is refused |
-| `PATCH /api/overlay/chat/float` | The same for the transparent chat overlay (`garis`, `komik`, `catatan`) |
+| `PATCH /api/overlay/chat/float` | The same for the transparent chat overlay (`outline`, `comic`, `notes`) |
 | `PATCH /api/commands` | Change the chat commands: `{"prefix": "!", "commands": [{"name": "v", "source": "youtube"}, {"name": "vt", "source": "tiktok"}]}`. `source` is `youtube` or `tiktok`. Either field may be left out; `commands` is always the whole list. Takes effect for the next chat message. `400` for an empty list, more than 8, a name used twice (capitals do not count), a name with anything but ASCII letters, digits and `_`, an unknown source, or a prefix that is empty, longer than 4 or has spaces. Answers the new state. |
 | `PATCH /api/chat/tiktok` | Body `{"username": "name", "enabled": true}`, either or both: set the TikTok username (an empty string stops reading chat) and switch the chat on or off; the chat follows without a restart. Letters, digits, `_` and `.`, at most 64; a leading `@` and spaces are dropped. Answers the new state. |
 | `PATCH /api/chat/youtube` | Body `{"video": "link or ID", "enabled": true}`, either or both: set the YouTube live whose chat is read (a link or an 11-character ID, kept as the ID; an empty string stops reading chat) and switch the chat on or off. Something that is not a video is refused. Answers the new state. |
@@ -261,10 +261,10 @@ changes.
 The look of an overlay changed (that overlay and the dashboard). Sent only when
 it actually changes. `overlay` says which one (`mediashare`, `chat_panel` or
 `chat_float`); an overlay is only sent its own. Each learns its look from
-`settings.overlay.<overlay>.theme` in `hello`. `theme` is one of `obsidian`, `kertas`,
-`brutal`, `terminal`, `permen`, `pixel`, `komik`, `garis`, `struk`, `pesan` for the
-mediashare overlay; `obsidian`, `kertas`, `brutal`, `terminal`, `permen`, `pixel`,
-`struk`, `pesan`, `ticker` for `chat_panel`; `garis`, `komik`, `catatan` for
+`settings.overlay.<overlay>.theme` in `hello`. `theme` is one of `obsidian`, `paper`,
+`brutal`, `terminal`, `candy`, `pixel`, `comic`, `outline`, `receipt`, `messages` for the
+mediashare overlay; `obsidian`, `paper`, `brutal`, `terminal`, `candy`, `pixel`,
+`receipt`, `messages`, `ticker` for `chat_panel`; `outline`, `comic`, `notes` for
 `chat_float`. An overlay ignores a name it has no look for. Adding `theme=name` to the
 overlay's address overrides it for that page.
 
@@ -282,17 +282,23 @@ The moderation settings, the blacklist or the dashboard settings changed
 { "type": "settings_updated", "data": {
     "moderation": {
       "mode": "manual",
-      "min_role": "follower",
-      "youtube_min_role": "follower",
+      "tiktok_min_role": "follower",
+      "youtube_min_role": "viewer",
+      "youtube_superchat_bypass": false,
       "min_gifter_level": 0,
       "min_fan_club_level": 0,
       "cooldown_secs": 60,
       "max_duration_secs": 600,
       "max_queue_len": 20,
+      "youtube_max_waiting": 0,
+      "tiktok_max_waiting": 0,
+      "allow_live": false,
+      "allow_shorts": true,
+      "allowed_categories": [],
       "volume": 50,
       "max_volume": 80
     },
-    "blacklist": { "video_ids": [], "channels": [], "title_words": [] },
+    "blacklist": { "video_ids": [], "channels": [], "title_words": [], "senders": [] },
     "dashboard": { "chat_history": 20, "display_name": "", "avatar": "" },
     "overlay": { "mediashare": { "theme": "obsidian" } },
     "command": { "prefix": "!", "commands": [{ "name": "v", "source": "youtube" }] },

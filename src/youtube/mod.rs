@@ -14,7 +14,7 @@ mod video_id;
 pub use client::{VideoSource, YoutubeClient};
 pub use duration::{format_duration, parse_iso8601_duration};
 pub use error::YoutubeError;
-pub use link::extract_video_id;
+pub use link::{extract_video, extract_video_id};
 pub(crate) use link::{is_safe_token, parse_url};
 pub use model::{LiveStatus, VideoDetails};
 pub use policy::{Rejection, VideoPolicy, check as check_video};

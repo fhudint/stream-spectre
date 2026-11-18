@@ -7,6 +7,8 @@ const path = require('node:path');
 const core = require('../../static/dashboard/dashboard-core.js');
 
 const root = path.join(__dirname, '../..');
+const english = JSON.parse(fs.readFileSync(path.join(root, 'locales/en.json'), 'utf8'));
+const indonesian = JSON.parse(fs.readFileSync(path.join(root, 'locales/id.json'), 'utf8'));
 
 function item(id, extra = {}) {
   return {
@@ -22,8 +24,8 @@ function item(id, extra = {}) {
 }
 
 const settings = () => ({
-  moderation: { mode: 'manual', min_role: 'follower', cooldown_secs: 60, volume: 50, max_volume: 80 },
-  blacklist: { video_ids: [], channels: [], title_words: [] },
+  moderation: { mode: 'manual', tiktok_min_role: 'follower', cooldown_secs: 60, volume: 50, max_volume: 80 },
+  blacklist: { video_ids: [], channels: [], title_words: [], senders: [] },
   dashboard: { chat_history: 20 },
 });
 const line = (text, extra = {}) => ({ name: 'Budi', role: 'follower', text, command: false, skipped: 0, ...extra });
@@ -90,39 +92,81 @@ test('diffSettings returns only what changed', () => {
   assert.deepEqual(core.diffSettings(null, { mode: 'auto' }), { mode: 'auto' });
 });
 
+const goodRules = () => ({
+  mode: 'auto', cooldown_secs: '60', max_duration_secs: '600', max_queue_len: '20', max_volume: '80',
+  allow_live: true, allow_shorts: false, allowed_categories: ['gaming', 'music'],
+  youtube_min_role: 'member', youtube_superchat_bypass: true, youtube_auto_approve: 'moderator',
+  youtube_cooldown_secs: ' 10 ', youtube_max_waiting: '3',
+  tiktok_min_role: 'subscriber', min_gifter_level: '3', min_fan_club_level: ' 0 ',
+  tiktok_cooldown_secs: '', tiktok_max_waiting: '0',
+});
+
 test('readSettings accepts good values and names the first bad field', () => {
-  const good = {
-    mode: 'auto', min_role: 'subscriber', youtube_min_role: 'subscriber', min_gifter_level: '3', min_fan_club_level: ' 0 ',
-    cooldown_secs: '60', max_duration_secs: '600', max_queue_len: '20', max_volume: '80',
-  };
-  assert.deepEqual(core.readSettings(good).value, {
-    mode: 'auto', min_role: 'subscriber', youtube_min_role: 'subscriber', min_gifter_level: 3, min_fan_club_level: 0,
-    cooldown_secs: 60, max_duration_secs: 600, max_queue_len: 20, max_volume: 80,
-  });
+  assert.deepEqual(core.readSettings(goodRules()).value, {
+    mode: 'auto', cooldown_secs: 60, max_duration_secs: 600, max_queue_len: 20, max_volume: 80,
+    allow_live: true, allow_shorts: false, allowed_categories: ['music', 'gaming'],
+    youtube_min_role: 'member', youtube_superchat_bypass: true, youtube_auto_approve: 'moderator',
+    youtube_cooldown_secs: 10, youtube_max_waiting: 3,
+    tiktok_min_role: 'subscriber', min_gifter_level: 3, min_fan_club_level: 0,
+    tiktok_cooldown_secs: null, tiktok_max_waiting: 0,
+  }, 'categories in the order of the list; an empty optional number is not set');
   for (const [key, bad] of [
-    ['mode', 'sometimes'], ['min_role', 'vip'], ['youtube_min_role', 'vip'], ['cooldown_secs', ''], ['cooldown_secs', '-1'],
+    ['mode', 'sometimes'], ['tiktok_min_role', 'vip'], ['youtube_min_role', 'follower'], ['youtube_min_role', 'everyone'],
+    ['youtube_auto_approve', 'vip'], ['cooldown_secs', ''], ['cooldown_secs', '-1'],
     ['max_queue_len', '1.5'], ['max_volume', 'loud'], ['min_gifter_level', '1e2'], ['max_duration_secs', '0x10'],
+    ['youtube_cooldown_secs', '-5'], ['youtube_cooldown_secs', '1.5'], ['tiktok_max_waiting', 'many'],
+    ['allow_live', 'true'], ['allow_shorts', 1], ['allowed_categories', 'music'], ['allowed_categories', ['cooking']],
+    ['allowed_categories', null],
   ]) {
-    assert.equal(core.readSettings({ ...good, [key]: bad }).error, key, `${key}=${bad}`);
+    assert.equal(core.readSettings({ ...goodRules(), [key]: bad }).error, key, `${key}=${bad}`);
   }
+  const off = core.readSettings({ ...goodRules(), youtube_auto_approve: '' }).value;
+  assert.equal(off.youtube_auto_approve, null, 'nobody is not set');
+  assert.equal(core.readSettings({ ...goodRules(), tiktok_cooldown_secs: ' 0 ' }).value.tiktok_cooldown_secs, 0, '0 is a cooldown of none, not "not set"');
+});
+
+test('diffSettings compares lists and unset options', () => {
+  const now = { mode: 'manual', allowed_categories: ['music'], youtube_cooldown_secs: 5 };
+  assert.deepEqual(core.diffSettings(now, { mode: 'manual', allowed_categories: ['music'], youtube_cooldown_secs: 5 }), {});
+  assert.deepEqual(core.diffSettings(now, { allowed_categories: ['music', 'gaming'] }), { allowed_categories: ['music', 'gaming'] });
+  assert.deepEqual(core.diffSettings(now, { allowed_categories: [] }), { allowed_categories: [] });
+  assert.deepEqual(core.diffSettings(now, { youtube_cooldown_secs: null }), { youtube_cooldown_secs: null }, 'clearing is a change');
+  // A server leaves out what is not set.
+  assert.deepEqual(core.diffSettings({ mode: 'manual' }, { tiktok_cooldown_secs: null }), {});
+  assert.deepEqual(core.diffSettings({ mode: 'manual' }, { tiktok_cooldown_secs: 7 }), { tiktok_cooldown_secs: 7 });
+  assert.deepEqual(core.diffSettings(null, { mode: 'auto' }), { mode: 'auto' });
 });
 
 test('every rule is on the tab of the rules it belongs to', () => {
   assert.deepEqual(core.RULES_TABS, ['general', 'youtube', 'tiktok']);
   const on = (tab) => core.SETTINGS_FIELDS.filter((f) => f.tab === tab).map((f) => f.key);
-  assert.deepEqual(on('general'), ['mode', 'cooldown_secs', 'max_duration_secs', 'max_queue_len', 'max_volume']);
-  assert.deepEqual(on('youtube'), ['youtube_min_role']);
-  assert.deepEqual(on('tiktok'), ['min_role', 'min_gifter_level', 'min_fan_club_level']);
+  assert.deepEqual(on('general'), ['mode', 'cooldown_secs', 'max_duration_secs', 'max_queue_len', 'max_volume', 'allow_live', 'allow_shorts', 'allowed_categories']);
+  assert.deepEqual(on('youtube'), ['youtube_min_role', 'youtube_superchat_bypass', 'youtube_auto_approve', 'youtube_cooldown_secs', 'youtube_max_waiting']);
+  assert.deepEqual(on('tiktok'), ['tiktok_min_role', 'min_gifter_level', 'min_fan_club_level', 'tiktok_cooldown_secs', 'tiktok_max_waiting']);
   for (const field of core.SETTINGS_FIELDS) assert.ok(core.RULES_TABS.includes(field.tab), field.key);
   const youtube = core.SETTINGS_FIELDS.find((f) => f.key === 'youtube_min_role');
-  assert.deepEqual(youtube.options.map((o) => o.value), ['everyone', 'follower', 'subscriber', 'moderator']);
-  assert.ok(youtube.options.slice(1).every((o) => o.label.startsWith('role.youtube.')), 'a YouTube chat has its own words for the roles');
+  assert.deepEqual(youtube.options.map((o) => o.value), ['viewer', 'member', 'moderator']);
+  assert.ok(youtube.options.every((o) => o.label.startsWith('role.youtube.')), 'a YouTube chat has its own words for the roles');
+  const auto = core.SETTINGS_FIELDS.find((f) => f.key === 'youtube_auto_approve');
+  assert.deepEqual(auto.options.map((o) => o.value), ['', 'viewer', 'member', 'moderator']);
+  assert.ok(!core.SETTINGS_FIELDS.some((f) => f.key.startsWith('tiktok_auto')), 'TikTok has no automatic approval');
+});
+
+test('the categories are the server\'s, each with a name in both languages', () => {
+  const server = fs.readFileSync(path.join(root, 'src/config/model.rs'), 'utf8');
+  const block = server.split('pub enum VideoCategory {')[1].split('}')[0];
+  const names = [...block.matchAll(/^\s+([A-Z][a-z]+),/gm)].map((m) => m[1].toLowerCase());
+  assert.deepEqual(core.VIDEO_CATEGORIES, names);
+  for (const name of names) {
+    assert.ok(english[`dashboard.category.${name}`] && indonesian[`dashboard.category.${name}`], name);
+  }
 });
 
 test('the settings form edits real configuration keys', () => {
   const example = fs.readFileSync(path.join(root, 'config.example.toml'), 'utf8');
   const section = example.split('[moderation]')[1].split(/\n\[/)[0];
-  const keys = [...section.matchAll(/^([a-z_]+)\s*=/gm)].map((m) => m[1]);
+  // A setting that is not set by default is in the example as a comment.
+  const keys = [...section.matchAll(/^#?\s*([a-z_]+)\s*=/gm)].map((m) => m[1]);
   for (const field of core.SETTINGS_FIELDS) assert.ok(keys.includes(field.key), field.key);
   assert.ok(keys.includes('volume'), 'volume has its own slider');
 
@@ -541,18 +585,20 @@ test('the clock time is HH:MM:SS in local time, or empty when unknown', () => {
 
 test('the rules in force are listed as short texts', () => {
   const say = (key, values) => `${key}${JSON.stringify(values)}`;
-  const moderation = { mode: 'manual', min_role: 'subscriber', min_gifter_level: 0, min_fan_club_level: 0, cooldown_secs: 90, max_duration_secs: 600, max_queue_len: 20 };
+  const moderation = { mode: 'manual', tiktok_min_role: 'subscriber', youtube_min_role: 'viewer', min_gifter_level: 0, min_fan_club_level: 0, cooldown_secs: 90, max_duration_secs: 600, max_queue_len: 20 };
   const lists = { video_ids: ['a', 'b'], channels: ['c'], title_words: [] };
   assert.deepEqual(core.ruleChips({ moderation, blacklist: lists }, say), [
-    'dashboard.rules.role{"role":"role.subscriber{}"}',
+    'dashboard.rules.youtube_everyone{}',
+    'dashboard.rules.tiktok_role{"role":"role.subscriber{}"}',
     'dashboard.rules.cooldown{"seconds":90}',
     'dashboard.rules.max_duration{"duration":"10:00"}',
     'dashboard.rules.max_queue{"count":20}',
     'dashboard.rules.blocked{"count":3}',
   ]);
-  const all = core.ruleChips({ moderation: { ...moderation, mode: 'auto', min_role: 'everyone', min_gifter_level: 3, min_fan_club_level: 2, cooldown_secs: 0 }, blacklist: { video_ids: [], channels: [], title_words: [] } }, say);
+  const all = core.ruleChips({ moderation: { ...moderation, mode: 'auto', youtube_min_role: 'member', tiktok_min_role: 'everyone', min_gifter_level: 3, min_fan_club_level: 2, cooldown_secs: 0 }, blacklist: { video_ids: [], channels: [], title_words: [] } }, say);
   assert.deepEqual(all, [
-    'dashboard.rules.everyone{}',
+    'dashboard.rules.youtube_role{"role":"role.youtube.subscriber{}"}',
+    'dashboard.rules.tiktok_everyone{}',
     'dashboard.rules.mode_auto{}',
     'dashboard.rules.gifter{"level":3}',
     'dashboard.rules.fan_club{"level":2}',
@@ -804,15 +850,15 @@ test('the two chat overlays have their own addresses and their own looks', () =>
   assert.equal(core.overlayUrl('http:', '127.0.0.1:8787', '', 'chat-float'), 'http://localhost:8787/overlay/chat/float/');
   assert.equal(core.overlayUrl('https:', 'x.example', 'a b', 'chat-float'), 'https://x.example/overlay/chat/float/?token=a%20b');
   assert.equal(core.overlayUrl('http:', 'x', '', 'nope'), 'http://x/overlay/mediashare/', 'an unknown overlay is the mediashare one');
-  assert.deepEqual(core.CHAT_PANEL_THEMES, ['obsidian', 'kertas', 'brutal', 'terminal', 'permen', 'pixel', 'struk', 'pesan', 'ticker']);
-  assert.deepEqual(core.CHAT_FLOAT_THEMES, ['garis', 'komik', 'catatan']);
+  assert.deepEqual(core.CHAT_PANEL_THEMES, ['obsidian', 'paper', 'brutal', 'terminal', 'candy', 'pixel', 'receipt', 'messages', 'ticker']);
+  assert.deepEqual(core.CHAT_FLOAT_THEMES, ['outline', 'comic', 'notes']);
   assert.equal(core.chatPanelTheme({ overlay: { chat_panel: { theme: 'ticker' } } }), 'ticker');
-  assert.equal(core.chatFloatTheme({ overlay: { chat_float: { theme: 'catatan' } } }), 'catatan');
-  for (const bad of [null, {}, { overlay: {} }, { overlay: { chat_panel: { theme: 'komik' } } }, { overlay: { chat_panel: { theme: 'neon' } } }]) {
+  assert.equal(core.chatFloatTheme({ overlay: { chat_float: { theme: 'notes' } } }), 'notes');
+  for (const bad of [null, {}, { overlay: {} }, { overlay: { chat_panel: { theme: 'comic' } } }, { overlay: { chat_panel: { theme: 'neon' } } }]) {
     assert.equal(core.chatPanelTheme(bad), 'obsidian', JSON.stringify(bad));
   }
   for (const bad of [null, {}, { overlay: { chat_float: { theme: 'obsidian' } } }, { overlay: { chat_panel: { theme: 'pixel' } } }]) {
-    assert.equal(core.chatFloatTheme(bad), 'garis', JSON.stringify(bad));
+    assert.equal(core.chatFloatTheme(bad), 'outline', JSON.stringify(bad));
   }
   assert.deepEqual(core.OVERLAY_TABS, ['mediashare', 'chat-panel', 'chat-float']);
 });

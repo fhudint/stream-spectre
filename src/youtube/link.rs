@@ -22,11 +22,18 @@ const LONG_HOSTS: [&str; 3] = ["youtube.com", "www.youtube.com", "m.youtube.com"
 /// extra path segments, and IDs that fail validation. The result is always a
 /// validated `VideoId`; the input text is never reused.
 pub fn extract_video_id(token: &str) -> Option<VideoId> {
+    extract_video(token).map(|(id, _)| id)
+}
+
+/// Like [`extract_video_id`], and says whether the link was a
+/// `youtube.com/shorts/` one. (A Short can also be opened as a `watch` link;
+/// only the form of the link is looked at, not the video.)
+pub fn extract_video(token: &str) -> Option<(VideoId, bool)> {
     if !is_safe_token(token) {
         return None;
     }
     if let Ok(id) = VideoId::parse(token) {
-        return Some(id);
+        return Some((id, false));
     }
 
     let url = parse_url(token)?;
@@ -44,7 +51,7 @@ pub fn extract_video_id(token: &str) -> Option<VideoId> {
 
     if host == SHORT_HOST {
         return match segments {
-            [id] => VideoId::parse(id).ok(),
+            [id] => VideoId::parse(id).ok().map(|id| (id, false)),
             _ => None,
         };
     }
@@ -54,8 +61,10 @@ pub fn extract_video_id(token: &str) -> Option<VideoId> {
             ["watch"] => url
                 .query_pairs()
                 .find(|(key, _)| key == "v")
-                .and_then(|(_, value)| VideoId::parse(&value).ok()),
-            ["shorts" | "live", id] => VideoId::parse(id).ok(),
+                .and_then(|(_, value)| VideoId::parse(&value).ok())
+                .map(|id| (id, false)),
+            ["shorts", id] => VideoId::parse(id).ok().map(|id| (id, true)),
+            ["live", id] => VideoId::parse(id).ok().map(|id| (id, false)),
             _ => None,
         };
     }

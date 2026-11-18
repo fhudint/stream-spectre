@@ -7,7 +7,7 @@
 use crate::config::{CommandConfig, CommandEntry, CommandSource};
 use crate::text::sanitize_message;
 use crate::tiktok::{TiktokRef, extract_tiktok_ref};
-use crate::youtube::{VideoId, extract_video_id};
+use crate::youtube::{VideoId, extract_video};
 
 /// Why a message that is clearly a command was not accepted.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -33,8 +33,13 @@ pub enum Parsed {
         reason: InvalidReason,
     },
     /// A valid YouTube request. `message` is what the viewer wrote after the
-    /// link, cleaned up and cut short; empty when they wrote nothing.
-    Youtube { id: VideoId, message: String },
+    /// link, cleaned up and cut short; empty when they wrote nothing. `short`
+    /// says the link was a `youtube.com/shorts/` one.
+    Youtube {
+        id: VideoId,
+        message: String,
+        short: bool,
+    },
     /// A valid TikTok request. A short code still has to be looked up.
     Tiktok { target: TiktokRef, message: String },
 }
@@ -101,8 +106,8 @@ impl CommandParser {
         }
         let message = sanitize_message(message);
         match source {
-            CommandSource::Youtube => match extract_video_id(argument) {
-                Some(id) => Parsed::Youtube { id, message },
+            CommandSource::Youtube => match extract_video(argument) {
+                Some((id, short)) => Parsed::Youtube { id, message, short },
                 None if is_link(argument) && extract_tiktok_ref(argument).is_some() => {
                     invalid(InvalidReason::WrongSource(CommandSource::Tiktok))
                 }
@@ -110,7 +115,7 @@ impl CommandParser {
             },
             CommandSource::Tiktok => match extract_tiktok_ref(argument) {
                 Some(target) => Parsed::Tiktok { target, message },
-                None if is_link(argument) && extract_video_id(argument).is_some() => {
+                None if is_link(argument) && extract_video(argument).is_some() => {
                     invalid(InvalidReason::WrongSource(CommandSource::Youtube))
                 }
                 None => invalid(InvalidReason::InvalidLink),
@@ -161,6 +166,7 @@ mod tests {
         Parsed::Youtube {
             id: VideoId::parse(id).unwrap(),
             message: message.to_owned(),
+            short: false,
         }
     }
 
@@ -175,7 +181,12 @@ mod tests {
         );
         assert_eq!(
             p.parse("!v https://www.youtube.com/shorts/dQw4w9WgXcQ"),
-            video(ID)
+            Parsed::Youtube {
+                id: VideoId::parse(ID).unwrap(),
+                message: String::new(),
+                short: true,
+            },
+            "a Shorts link says so"
         );
     }
 
@@ -457,7 +468,7 @@ mod tests {
         assert_eq!(p.parse(&long_arg), invalid(InvalidReason::InvalidLink));
         let many_words = format!("!v {ID} {}", "word ".repeat(50_000));
         match p.parse(&many_words) {
-            Parsed::Youtube { id, message } => {
+            Parsed::Youtube { id, message, .. } => {
                 assert_eq!(id.as_str(), ID);
                 assert!(message.starts_with("word word") && message.chars().count() <= 150);
             }

@@ -2,9 +2,13 @@ use super::duration::format_duration;
 use super::model::{LiveStatus, VideoDetails};
 
 /// Rules a video must satisfy to be accepted.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VideoPolicy {
     pub max_duration_secs: u64,
+    /// Live streams and scheduled premieres may be played.
+    pub allow_live: bool,
+    /// The category numbers a video may have; any when empty.
+    pub allowed_categories: Vec<u32>,
 }
 
 /// Why a video was refused.
@@ -14,8 +18,10 @@ pub enum Rejection {
     NotFound,
     NotEmbeddable,
     AgeRestricted,
-    /// Live streams and scheduled premieres are not supported.
+    /// Live streams and scheduled premieres, when they are not allowed.
     LiveStream,
+    /// The video's category is not one of those allowed.
+    CategoryNotAllowed,
     TooLong {
         max_secs: u64,
     },
@@ -29,6 +35,7 @@ impl Rejection {
             Self::NotEmbeddable => "reject.not_embeddable",
             Self::AgeRestricted => "reject.age_restricted",
             Self::LiveStream => "reject.live_stream",
+            Self::CategoryNotAllowed => "reject.category_not_allowed",
             Self::TooLong { .. } => "reject.too_long",
         }
     }
@@ -43,12 +50,13 @@ impl Rejection {
 }
 
 /// Checks a looked-up video against the policy. The first failing rule wins,
-/// in a fixed order: unplayable, live, age-restricted, not embeddable, too long.
+/// in a fixed order: unplayable, live, age-restricted, not embeddable, category,
+/// too long.
 pub fn check(video: &VideoDetails, policy: &VideoPolicy) -> Result<(), Rejection> {
     if video.private || (video.duration_secs == 0 && video.live == LiveStatus::None) {
         return Err(Rejection::NotFound);
     }
-    if video.live != LiveStatus::None {
+    if video.live != LiveStatus::None && !policy.allow_live {
         return Err(Rejection::LiveStream);
     }
     if video.age_restricted {
@@ -56,6 +64,11 @@ pub fn check(video: &VideoDetails, policy: &VideoPolicy) -> Result<(), Rejection
     }
     if !video.embeddable {
         return Err(Rejection::NotEmbeddable);
+    }
+    if !policy.allowed_categories.is_empty()
+        && !policy.allowed_categories.contains(&video.category_id)
+    {
+        return Err(Rejection::CategoryNotAllowed);
     }
     if video.duration_secs > policy.max_duration_secs {
         return Err(Rejection::TooLong {
@@ -72,6 +85,8 @@ mod tests {
 
     const POLICY: VideoPolicy = VideoPolicy {
         max_duration_secs: 600,
+        allow_live: false,
+        allowed_categories: Vec::new(),
     };
 
     fn video() -> VideoDetails {
@@ -84,7 +99,50 @@ mod tests {
             age_restricted: false,
             live: LiveStatus::None,
             private: false,
+            category_id: 10,
         }
+    }
+
+    #[test]
+    fn live_streams_pass_when_they_are_allowed() {
+        let allowed = VideoPolicy {
+            allow_live: true,
+            ..POLICY
+        };
+        for live in [LiveStatus::Live, LiveStatus::Upcoming] {
+            let mut v = video();
+            v.live = live;
+            v.duration_secs = 0;
+            assert_eq!(check(&v, &allowed), Ok(()), "{live:?}");
+        }
+        // A video that is gone is still gone.
+        let mut v = video();
+        v.private = true;
+        assert_eq!(check(&v, &allowed), Err(Rejection::NotFound));
+    }
+
+    #[test]
+    fn only_the_allowed_categories_pass_when_some_are_named() {
+        let music_and_games = VideoPolicy {
+            allowed_categories: vec![10, 20],
+            ..POLICY
+        };
+        let mut v = video();
+        assert_eq!(check(&v, &music_and_games), Ok(()));
+        v.category_id = 20;
+        assert_eq!(check(&v, &music_and_games), Ok(()));
+        v.category_id = 24;
+        assert_eq!(
+            check(&v, &music_and_games),
+            Err(Rejection::CategoryNotAllowed)
+        );
+        v.category_id = 0;
+        assert_eq!(
+            check(&v, &music_and_games),
+            Err(Rejection::CategoryNotAllowed),
+            "a video that does not say is not allowed either"
+        );
+        assert_eq!(check(&v, &POLICY), Ok(()), "none named: all pass");
     }
 
     #[test]
