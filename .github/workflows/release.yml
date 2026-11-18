@@ -52,8 +52,9 @@ jobs:
       - name: .deb
         run: cargo deb --no-build
 
+      # An RPM version has no hyphen: 0.1.0-rc1 is 0.1.0~rc1 (before 0.1.0).
       - name: .rpm
-        run: cargo generate-rpm
+        run: cargo generate-rpm -s "version = \"$(echo "${GITHUB_REF_NAME#v}" | tr - '~')\""
 
       - uses: actions/upload-artifact@v7
         with:
@@ -141,7 +142,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          # A tag such as v0.1.0-rc1 is a pre-release.
+          case "$GITHUB_REF_NAME" in *-*) pre=--prerelease ;; *) pre= ;; esac
           gh release create "$GITHUB_REF_NAME" dist/* \
             --repo "$GITHUB_REPOSITORY" \
-            --draft --verify-tag --generate-notes \
+            --draft --verify-tag --generate-notes $pre \
             --title "Stream Spectre ${GITHUB_REF_NAME#v}"

@@ -17,6 +17,9 @@ arm64="${2:?directory of the Apple Silicon build}"
 x86_64="${3:?directory of the Intel build}"
 out="${4:?output directory}"
 
+# macOS wants the numbers of the version in the app (0.1.0), not a suffix (-rc1).
+plist_version="${version%%-*}"
+
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 app="$out/Stream Spectre.app"
 rm -rf "$app" "$out/dmg"
@@ -50,8 +53,8 @@ cat >"$app/Contents/Info.plist" <<PLIST
   <key>CFBundleName</key><string>Stream Spectre</string>
   <key>CFBundleDisplayName</key><string>Stream Spectre</string>
   <key>CFBundleIdentifier</key><string>io.github.fhudint.stream-spectre</string>
-  <key>CFBundleVersion</key><string>${version}</string>
-  <key>CFBundleShortVersionString</key><string>${version}</string>
+  <key>CFBundleVersion</key><string>${plist_version}</string>
+  <key>CFBundleShortVersionString</key><string>${plist_version}</string>
   <key>CFBundleExecutable</key><string>stream-spectre-window</string>
   <key>CFBundleIconFile</key><string>icon</string>
   <key>CFBundlePackageType</key><string>APPL</string>
