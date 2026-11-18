@@ -1,0 +1,147 @@
+name: Release
+
+# Pushing a tag such as v0.1.0 builds the installers and puts them in a draft
+# GitHub release, to be looked over and published by hand. The version in
+# Cargo.toml must be the one in the tag.
+#
+#   git tag v0.1.0 && git push origin v0.1.0
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  version:
+    name: the tag is the version in Cargo.toml
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - run: |
+          version="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n 1)"
+          if [ "$GITHUB_REF_NAME" != "v$version" ]; then
+            echo "The tag is $GITHUB_REF_NAME but Cargo.toml says version $version." >&2
+            exit 1
+          fi
+
+  linux:
+    name: .deb and .rpm
+    needs: version
+    # The oldest runner there is, so the programs run on older systems as well.
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Rust (stable)
+        run: rustup toolchain install stable --profile minimal
+
+      - name: Install the packaging tools
+        run: cargo install --locked cargo-deb@3.8.0 cargo-generate-rpm@0.21.1
+
+      - name: Install the libraries of the window
+        run: sudo apt-get update && sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libsoup-3.0-dev
+
+      - name: Build
+        run: cargo build --release --locked --features window
+
+      - name: .deb
+        run: cargo deb --no-build
+
+      - name: .rpm
+        run: cargo generate-rpm
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: installer-linux
+          path: |
+            target/debian/*.deb
+            target/generate-rpm/*.rpm
+          if-no-files-found: error
+
+  windows:
+    name: Windows installer
+    needs: version
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Rust (stable)
+        run: rustup toolchain install stable --profile minimal
+
+      - name: Build
+        run: cargo build --release --locked --features window
+
+      - name: Install NSIS
+        run: choco install nsis --no-progress -y
+
+      - name: Installer
+        shell: bash
+        run: |
+          export PATH="$PATH:/c/Program Files (x86)/NSIS"
+          cd packaging/windows
+          makensis -V2 "-DVERSION=${GITHUB_REF_NAME#v}" installer.nsi
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: installer-windows
+          path: target/release/stream-spectre-*-windows-x64-setup.exe
+          if-no-files-found: error
+
+  macos:
+    name: macOS disk image
+    needs: version
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Rust (stable) for both kinds of Mac
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup target add aarch64-apple-darwin x86_64-apple-darwin
+
+      - name: Build for Apple Silicon and Intel
+        run: |
+          cargo build --release --locked --features window --target aarch64-apple-darwin
+          cargo build --release --locked --features window --target x86_64-apple-darwin
+
+      - name: App and disk image
+        run: |
+          packaging/macos/build-dmg.sh "${GITHUB_REF_NAME#v}" \
+            target/aarch64-apple-darwin/release \
+            target/x86_64-apple-darwin/release \
+            dist
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: installer-macos
+          path: dist/*.dmg
+          if-no-files-found: error
+
+  publish:
+    name: draft release
+    needs: [linux, windows, macos]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: installer-*
+          merge-multiple: true
+          path: dist
+
+      - name: Checksums
+        working-directory: dist
+        run: sha256sum * > SHA256SUMS
+
+      - name: Draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --draft --verify-tag --generate-notes \
+            --title "Stream Spectre ${GITHUB_REF_NAME#v}"

@@ -69,8 +69,37 @@ for what plays on your stream.
 
 ## Install
 
-There are no prebuilt binaries yet; build from source. You need
-[Rust](https://rustup.rs) 1.85 or newer.
+### Installers
+
+Each release on the [Releases](https://github.com/fhudint/stream-spectre/releases)
+page has an installer for each system. They put **Stream Spectre** in the
+application menu: it opens the dashboard in a window of its own. The terminal
+program `stream-spectre` is installed beside it.
+
+| System | File | Notes |
+|--------|------|-------|
+| Windows 10 and 11 (64-bit) | `stream-spectre-VERSION-windows-x64-setup.exe` | Installs for you alone (no administrator rights needed) and adds a Start menu entry. Needs the Microsoft Edge WebView2 runtime, which Windows 10 and 11 have. |
+| Ubuntu, Debian and the like | `stream-spectre_VERSION-1_amd64.deb` | `sudo apt install ./stream-spectre_*.deb`. Needs Ubuntu 22.04 or newer (or Debian 12). |
+| Fedora, openSUSE and the like | `stream-spectre-VERSION-1.x86_64.rpm` | `sudo dnf install ./stream-spectre-*.rpm`. |
+| macOS 11 or newer, Intel and Apple Silicon | `stream-spectre-VERSION-macos-universal.dmg` | Open it and drag the app to Applications. |
+
+`SHA256SUMS` lists the checksum of each file.
+
+**They are not signed.** There is no certificate behind them yet, so Windows
+SmartScreen says "Windows protected your PC" (More info, then Run anyway) and
+macOS says the app cannot be checked (right-click the app, Open, then Open
+again; or allow it under System Settings, Privacy and Security).
+
+The first time it starts it writes a commented `config.toml` of its own, in
+`%APPDATA%\stream-spectre` on Windows, `~/Library/Application Support/stream-spectre`
+on macOS and `~/.config/stream-spectre` on Linux, and everything you change in the
+dashboard is saved beside it. Set the TikTok username and the YouTube live on the
+**Account** dialog; the YouTube API key goes there too. A problem before the
+window opens (such as a broken `config.toml`) is said in a small window.
+
+### From source
+
+You need [Rust](https://rustup.rs) 1.85 or newer.
 
 ```sh
 git clone https://github.com/fhudint/stream-spectre.git
@@ -102,7 +131,8 @@ run `stream-spectre-window` in a terminal to see it. A port that is taken is
 shown in the window itself.
 
 Development so far has been on Linux (Fedora). CI also builds on Windows and
-macOS, but those have not been tried by hand.
+macOS, and the installers are made there; none of them has been tried by hand
+on those systems.
 
 ### Try it without TikTok or an API key
 

@@ -169,17 +169,23 @@ stays a browser source in OBS, because OBS needs a URL for it.
 with `--features window`, Linux tested) shows the dashboard in a small web view
 (`wry` and `tao`), with the server in the same process (`run::serve`); closing
 the window stops the program after it has saved. `scripts/install-linux.sh`
-puts it in the application menu. What Tauri would still add: installers,
-a tray icon, updates and signing.
+puts it in the application menu. Installers are built in CI when a tag `v*` is
+pushed (`.github/workflows/release.yml`, `packaging/`): an NSIS `.exe` for
+Windows, `.deb` and `.rpm` for Linux, a `.dmg` for macOS, in a draft GitHub
+release. A first run writes a default `config.toml` in the user's config
+directory. What Tauri would still add: a tray icon, updates and signing.
 
 **Open questions**
-- Installers and signing: unsigned apps show security warnings on Windows and
-  macOS. Windows and macOS have so far only been built in CI, not run by hand.
+- Signing: the installers are unsigned, so Windows and macOS show security
+  warnings (a certificate costs money: an EV certificate for Windows, an Apple
+  developer account for macOS). Windows and macOS have so far only been built in
+  CI, not run by hand. Not done: an arm64 build for Linux and Windows, an
+  AppImage, and the Windows icon inside the program file itself (the installer
+  and its shortcut have it).
 - Whether to start with a lighter step (tray icon, open the dashboard
   automatically, a "copy overlay URL" button) before a full app.
-- Icons for the installers and the window: `.ico` (Windows) and `.icns`
-  (macOS) can be made from `assets/icon.svg`, the source of the current icon
-  files. Tauri also wants a set of PNG sizes, which `assets/` already has.
+- Icons: `assets/icon.ico` is made (see `assets/README.md`) and the `.icns` is
+  made in CI from the PNG files.
 
 ## 4. Fill in the API key, username and settings from the app
 

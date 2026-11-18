@@ -19,6 +19,55 @@ name = "stream-spectre-window"
 path = "src/bin/window.rs"
 required-features = ["window"]
 
+# Linux packages (.deb and .rpm), made in CI on a tag; see
+# .github/workflows/release.yml and packaging/. Both hold the window program
+# (the menu entry "Stream Spectre") and the terminal one.
+[package.metadata.deb]
+maintainer = "fhudint"
+section = "video"
+priority = "optional"
+depends = "libgtk-3-0 | libgtk-3-0t64, libwebkit2gtk-4.1-0"
+extended-description = "An OBS browser-source overlay with a moderated, chat-driven YouTube and TikTok mediashare and a chat overlay. Opens its dashboard in a window of its own."
+assets = [
+  ["target/release/stream-spectre-window", "usr/bin/", "755"],
+  ["target/release/stream-spectre", "usr/bin/", "755"],
+  ["packaging/linux/stream-spectre-window.desktop", "usr/share/applications/", "644"],
+  ["assets/icon-16.png", "usr/share/icons/hicolor/16x16/apps/stream-spectre.png", "644"],
+  ["assets/icon-32.png", "usr/share/icons/hicolor/32x32/apps/stream-spectre.png", "644"],
+  ["assets/icon-48.png", "usr/share/icons/hicolor/48x48/apps/stream-spectre.png", "644"],
+  ["assets/icon-64.png", "usr/share/icons/hicolor/64x64/apps/stream-spectre.png", "644"],
+  ["assets/icon-128.png", "usr/share/icons/hicolor/128x128/apps/stream-spectre.png", "644"],
+  ["assets/icon-256.png", "usr/share/icons/hicolor/256x256/apps/stream-spectre.png", "644"],
+  ["assets/icon-512.png", "usr/share/icons/hicolor/512x512/apps/stream-spectre.png", "644"],
+  ["assets/icon.svg", "usr/share/icons/hicolor/scalable/apps/stream-spectre.svg", "644"],
+  ["README.md", "usr/share/doc/stream-spectre/README.md", "644"],
+  ["LICENSE", "usr/share/doc/stream-spectre/LICENSE", "644"],
+]
+
+[package.metadata.generate-rpm]
+# The programs are built on Ubuntu; the library names the build would find
+# (their versions) are Ubuntu's, so only what is said below is required.
+auto-req = "disabled"
+assets = [
+  { source = "target/release/stream-spectre-window", dest = "/usr/bin/stream-spectre-window", mode = "755" },
+  { source = "target/release/stream-spectre", dest = "/usr/bin/stream-spectre", mode = "755" },
+  { source = "packaging/linux/stream-spectre-window.desktop", dest = "/usr/share/applications/stream-spectre-window.desktop", mode = "644" },
+  { source = "assets/icon-16.png", dest = "/usr/share/icons/hicolor/16x16/apps/stream-spectre.png", mode = "644" },
+  { source = "assets/icon-32.png", dest = "/usr/share/icons/hicolor/32x32/apps/stream-spectre.png", mode = "644" },
+  { source = "assets/icon-48.png", dest = "/usr/share/icons/hicolor/48x48/apps/stream-spectre.png", mode = "644" },
+  { source = "assets/icon-64.png", dest = "/usr/share/icons/hicolor/64x64/apps/stream-spectre.png", mode = "644" },
+  { source = "assets/icon-128.png", dest = "/usr/share/icons/hicolor/128x128/apps/stream-spectre.png", mode = "644" },
+  { source = "assets/icon-256.png", dest = "/usr/share/icons/hicolor/256x256/apps/stream-spectre.png", mode = "644" },
+  { source = "assets/icon-512.png", dest = "/usr/share/icons/hicolor/512x512/apps/stream-spectre.png", mode = "644" },
+  { source = "assets/icon.svg", dest = "/usr/share/icons/hicolor/scalable/apps/stream-spectre.svg", mode = "644" },
+  { source = "README.md", dest = "/usr/share/doc/stream-spectre/README.md", mode = "644", doc = true },
+  { source = "LICENSE", dest = "/usr/share/licenses/stream-spectre/LICENSE", mode = "644", doc = true },
+]
+
+[package.metadata.generate-rpm.requires]
+gtk3 = "*"
+"webkit2gtk4.1" = "*"
+
 [dependencies]
 anyhow = "1.0.104"
 axum = { version = "0.8.9", features = ["ws"] }

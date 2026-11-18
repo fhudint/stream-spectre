@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Stream Spectre
+Comment=Chat-driven mediashare overlay for OBS
+Exec=stream-spectre-window
+Icon=stream-spectre
+Terminal=false
+Categories=AudioVideo;Video;
+StartupWMClass=stream-spectre-window
