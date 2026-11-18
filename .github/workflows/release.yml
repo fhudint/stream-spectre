@@ -134,9 +134,13 @@ jobs:
           merge-multiple: true
           path: dist
 
+      # The Linux files come in their own folders: put every file in dist itself.
       - name: Checksums
         working-directory: dist
-        run: sha256sum * > SHA256SUMS
+        run: |
+          find . -mindepth 2 -type f -exec mv {} . \;
+          find . -mindepth 1 -type d -empty -delete
+          sha256sum * > SHA256SUMS
 
       - name: Draft release
         env:
