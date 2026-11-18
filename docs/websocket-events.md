@@ -18,7 +18,7 @@ of truth; this page describes them for people writing clients.
 | `POST /api/volume` | Body `{"volume": 0-100}`; answers `{"volume": n}` with the volume in effect |
 | `PATCH /api/settings` | Change some moderation settings, keep the rest; answers the new state |
 | `PATCH /api/blacklist` | Replace some blacklist lists (`video_ids`, `channels`, `title_words`), keep the rest |
-| `PATCH /api/dashboard` | Change dashboard settings (`chat_history`), keep the rest |
+| `PATCH /api/dashboard` | Change dashboard settings (`chat_history`, `display_name`, `avatar`), keep the rest |
 | `PATCH /api/overlay/mediashare` | Change the mediashare overlay's look (`{"theme": "pixel"}`); an unknown theme is refused |
 | `PATCH /api/commands` | Change the chat commands: `{"prefix": "!", "commands": [{"name": "v", "source": "youtube"}, {"name": "vt", "source": "tiktok"}]}`. `source` is `youtube` or `tiktok`. Either field may be left out; `commands` is always the whole list. Takes effect for the next chat message. `400` for an empty list, more than 8, a name used twice (capitals do not count), a name with anything but ASCII letters, digits and `_`, an unknown source, or a prefix that is empty, longer than 4 or has spaces. Answers the new state. |
 | `PATCH /api/chat/tiktok` | Body `{"username": "name", "enabled": true}`, either or both: set the TikTok username (an empty string stops reading chat) and switch the chat on or off; the chat follows without a restart. Letters, digits, `_` and `.`, at most 64; a leading `@` and spaces are dropped. Answers the new state. |
@@ -281,7 +281,7 @@ The moderation settings, the blacklist or the dashboard settings changed
       "max_volume": 80
     },
     "blacklist": { "video_ids": [], "channels": [], "title_words": [] },
-    "dashboard": { "chat_history": 20 },
+    "dashboard": { "chat_history": 20, "display_name": "", "avatar": "" },
     "overlay": { "mediashare": { "theme": "obsidian" } },
     "command": { "prefix": "!", "commands": [{ "name": "v", "source": "youtube" }] },
     "chat": { "tiktok": { "username": "streamer" } }

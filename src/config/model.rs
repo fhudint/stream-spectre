@@ -301,6 +301,11 @@ pub struct BlacklistConfig {
 
 /// Most chat messages the server will remember for the dashboard.
 pub const MAX_CHAT_HISTORY: usize = 200;
+/// The longest name shown next to the avatar, in characters.
+pub const MAX_DISPLAY_NAME_CHARS: usize = 40;
+/// The longest avatar picture, as the `data:` address the dashboard sends. The
+/// dashboard shrinks a photo to a small square, so this is far more than needed.
+pub const MAX_AVATAR_LEN: usize = 48 * 1024;
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
@@ -309,11 +314,21 @@ pub struct DashboardConfig {
     /// dashboard that has just opened or reloaded; 0 remembers none. At most
     /// `MAX_CHAT_HISTORY`.
     pub chat_history: usize,
+    /// The name shown next to the avatar in the dashboard; empty shows
+    /// "Account". It is not read from any chat.
+    pub display_name: String,
+    /// The avatar picture as a `data:image/(jpeg|png|webp);base64,` address;
+    /// empty shows the first letter of the name. Only the dashboard gets it.
+    pub avatar: String,
 }
 
 impl Default for DashboardConfig {
     fn default() -> Self {
-        Self { chat_history: 20 }
+        Self {
+            chat_history: 20,
+            display_name: String::new(),
+            avatar: String::new(),
+        }
     }
 }
 

@@ -39,7 +39,14 @@
    * the avatar instead. */
   var MENU_VIEWS = ['queue', 'requests', 'blacklist', 'rules', 'overlay', 'settings'];
   /* The parts of the account page: #account/tiktok and so on. */
-  var ACCOUNT_SECTIONS = ['tiktok', 'youtube-chat', 'youtube', 'token'];
+  var ACCOUNT_SECTIONS = ['profile', 'tiktok', 'youtube-chat', 'youtube', 'token'];
+  /* The tab of the account dialog each part belongs to; the YouTube chat and
+   * the API key share one. */
+  var ACCOUNT_TABS = ['profile', 'tiktok', 'youtube', 'token'];
+  var SECTION_TAB = { 'youtube-chat': 'youtube' };
+  /* The side of the square the avatar is shrunk to, and the longest name. */
+  var AVATAR_SIZE = 128;
+  var MAX_DISPLAY_NAME = 40;
   /* The chats that are read, in the order they are shown. */
   var CHAT_SOURCES = ['tiktok', 'youtube'];
   /* The longest YouTube API key the server accepts. */
@@ -672,6 +679,41 @@
     return OVERLAY_THEMES.indexOf(name) >= 0 ? name : OVERLAY_THEMES[0];
   }
 
+  /* The tab an address like '#account/youtube-chat' opens: the profile when it
+   * names none. */
+  function accountTab(hash) {
+    var section = parseSection(hash);
+    if (!section) return 'profile';
+    return SECTION_TAB[section] || section;
+  }
+
+  /* The square, centred, that is cut out of a picture of this size; the whole
+   * of the shorter side. Returns { x, y, side } in the picture's pixels. */
+  function squareCrop(width, height) {
+    var side = Math.min(width, height);
+    return { x: Math.floor((width - side) / 2), y: Math.floor((height - side) / 2), side: side };
+  }
+
+  /* The name typed for the avatar as the server will take it: one line, no
+   * surrounding spaces, at most MAX_DISPLAY_NAME letters. */
+  function cleanDisplayName(text) {
+    return Array.from(String(text).replace(/[\x00-\x1f\x7f]+/g, ' ').trim())
+      .slice(0, MAX_DISPLAY_NAME)
+      .join('')
+      .trim();
+  }
+
+  /* The name and the picture the settings give the avatar, or '' for each
+   * that is not set. Only a picture the server would also accept is shown. */
+  function profileOf(settings) {
+    var dashboard = (settings && settings.dashboard) || {};
+    var avatar = typeof dashboard.avatar === 'string' ? dashboard.avatar : '';
+    return {
+      name: typeof dashboard.display_name === 'string' ? dashboard.display_name : '',
+      avatar: /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(avatar) ? avatar : '',
+    };
+  }
+
   /* The fields of `desired` that differ from `current`. */
   function diffSettings(current, desired) {
     var changes = {};
@@ -826,6 +868,13 @@
     overlayUrl: overlayUrl,
     OVERLAY_THEMES: OVERLAY_THEMES,
     overlayTheme: overlayTheme,
+    ACCOUNT_TABS: ACCOUNT_TABS,
+    AVATAR_SIZE: AVATAR_SIZE,
+    MAX_DISPLAY_NAME: MAX_DISPLAY_NAME,
+    accountTab: accountTab,
+    squareCrop: squareCrop,
+    cleanDisplayName: cleanDisplayName,
+    profileOf: profileOf,
     roleKey: roleKey,
     initialState: initialState,
     reduce: reduce,

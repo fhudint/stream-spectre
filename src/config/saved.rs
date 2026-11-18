@@ -282,12 +282,21 @@ pub(crate) mod tests {
         let some = SavedSettings::changes(&base, &{
             let mut config = base.clone();
             config.moderation = changed_moderation();
-            config.dashboard = DashboardConfig { chat_history: 99 };
+            config.dashboard = DashboardConfig {
+                chat_history: 99,
+                ..DashboardConfig::default()
+            };
             config
         });
         assert_eq!(some.moderation, Some(changed_moderation()));
         assert_eq!(some.blacklist, None);
-        assert_eq!(some.dashboard, Some(DashboardConfig { chat_history: 99 }));
+        assert_eq!(
+            some.dashboard,
+            Some(DashboardConfig {
+                chat_history: 99,
+                ..DashboardConfig::default()
+            })
+        );
         assert_eq!(some.tables(), vec!["moderation", "dashboard"]);
     }
 
@@ -434,7 +443,10 @@ pub(crate) mod tests {
         let saved = SavedSettings {
             moderation: Some(changed_moderation()),
             blacklist: Some(changed_blacklist()),
-            dashboard: Some(DashboardConfig { chat_history: 0 }),
+            dashboard: Some(DashboardConfig {
+                chat_history: 0,
+                ..DashboardConfig::default()
+            }),
             overlay: Some(OverlayConfig {
                 mediashare: MediashareConfig {
                     theme: MediashareTheme::Struk,
@@ -473,7 +485,10 @@ pub(crate) mod tests {
         write(
             &path,
             &SavedSettings {
-                dashboard: Some(DashboardConfig { chat_history: 1 }),
+                dashboard: Some(DashboardConfig {
+                    chat_history: 1,
+                    ..DashboardConfig::default()
+                }),
                 ..SavedSettings::default()
             },
         )
@@ -481,14 +496,20 @@ pub(crate) mod tests {
         write(
             &path,
             &SavedSettings {
-                dashboard: Some(DashboardConfig { chat_history: 2 }),
+                dashboard: Some(DashboardConfig {
+                    chat_history: 2,
+                    ..DashboardConfig::default()
+                }),
                 ..SavedSettings::default()
             },
         )
         .unwrap();
         assert_eq!(
             read(&path).unwrap().unwrap().dashboard,
-            Some(DashboardConfig { chat_history: 2 })
+            Some(DashboardConfig {
+                chat_history: 2,
+                ..DashboardConfig::default()
+            })
         );
         let mut names: Vec<_> = std::fs::read_dir(&dir)
             .unwrap()
@@ -503,7 +524,10 @@ pub(crate) mod tests {
         let dir = temp_dir("failed");
         let path = dir.join("config.settings.toml");
         let old = SavedSettings {
-            dashboard: Some(DashboardConfig { chat_history: 3 }),
+            dashboard: Some(DashboardConfig {
+                chat_history: 3,
+                ..DashboardConfig::default()
+            }),
             ..SavedSettings::default()
         };
         write(&path, &old).unwrap();

@@ -1,7 +1,7 @@
 use super::error::ConfigError;
 use super::model::{
-    CommandConfig, Config, DashboardConfig, MAX_CHAT_HISTORY, ModerationConfig, TiktokConfig,
-    YoutubeChatConfig,
+    CommandConfig, Config, DashboardConfig, MAX_AVATAR_LEN, MAX_CHAT_HISTORY,
+    MAX_DISPLAY_NAME_CHARS, ModerationConfig, TiktokConfig, YoutubeChatConfig,
 };
 use super::secrets::Secrets;
 use crate::tiktok::TiktokVideoId;
@@ -119,8 +119,43 @@ impl DashboardConfig {
                 format!("must be at most {MAX_CHAT_HISTORY}"),
             ));
         }
+        if self.display_name.chars().count() > MAX_DISPLAY_NAME_CHARS
+            || self.display_name.chars().any(char::is_control)
+        {
+            return Err(ConfigError::invalid(
+                "dashboard.display_name",
+                format!("must be at most {MAX_DISPLAY_NAME_CHARS} characters, on one line"),
+            ));
+        }
+        if !self.avatar.is_empty() && !is_picture_address(&self.avatar) {
+            return Err(ConfigError::invalid(
+                "dashboard.avatar",
+                format!(
+                    "must be a base64 data:image/jpeg, png or webp address of at most {MAX_AVATAR_LEN} bytes"
+                ),
+            ));
+        }
         Ok(())
     }
+}
+
+/// Only a raster picture inlined as base64: nothing the page would fetch, and
+/// no SVG, which can carry script.
+fn is_picture_address(address: &str) -> bool {
+    const KINDS: [&str; 3] = ["jpeg", "png", "webp"];
+    address.len() <= MAX_AVATAR_LEN
+        && KINDS.iter().any(|kind| {
+            address
+                .strip_prefix("data:image/")
+                .and_then(|rest| rest.strip_prefix(kind))
+                .and_then(|rest| rest.strip_prefix(";base64,"))
+                .is_some_and(|data| {
+                    !data.is_empty()
+                        && data
+                            .bytes()
+                            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'+' | b'/' | b'='))
+                })
+        })
 }
 
 fn require_positive(field: &str, value: u64) -> Result<(), ConfigError> {
@@ -356,6 +391,43 @@ mod tests {
             field_of(c.validate().unwrap_err()),
             "dashboard.chat_history"
         );
+    }
+
+    #[test]
+    fn the_display_name_and_avatar_are_limited() {
+        let mut c = valid();
+        c.dashboard.display_name = "Rina \u{1F47B}".repeat(5);
+        c.validate().unwrap();
+        c.dashboard.avatar = "data:image/jpeg;base64,/9j/4AAQ+x==".to_owned();
+        c.validate().unwrap();
+
+        for name in [
+            "a".repeat(MAX_DISPLAY_NAME_CHARS + 1),
+            "two\nlines".to_owned(),
+        ] {
+            c.dashboard.display_name = name;
+            assert_eq!(
+                field_of(c.validate().unwrap_err()),
+                "dashboard.display_name"
+            );
+        }
+        c.dashboard.display_name.clear();
+        let too_long = format!("data:image/png;base64,{}", "A".repeat(MAX_AVATAR_LEN));
+        for avatar in [
+            "https://example.com/a.png",
+            "data:image/svg+xml;base64,PHN2Zz4=",
+            "data:image/png;base64,",
+            "data:image/png;base64,a b",
+            "data:image/gif;base64,AAAA",
+            too_long.as_str(),
+        ] {
+            c.dashboard.avatar = avatar.to_owned();
+            assert_eq!(
+                field_of(c.validate().unwrap_err()),
+                "dashboard.avatar",
+                "{avatar}"
+            );
+        }
     }
 
     #[test]

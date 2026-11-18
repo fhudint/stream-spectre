@@ -571,6 +571,51 @@ kbd { padding: 1px 6px; border-radius: 4px; background: var(--button); color: va
 
 .tab:hover { background: transparent; color: var(--text); }
 .tab[aria-pressed='true'] { color: var(--text); border-bottom-color: var(--text); }
+.tab[aria-selected='true'] { color: var(--text); border-bottom-color: var(--text); }
+
+/* --- the account dialog --- */
+.avatar img { width: 100%; height: 100%; border-radius: inherit; object-fit: cover; display: block; }
+.avatar-large { width: 72px; height: 72px; font-size: 28px; }
+
+.account-dialog {
+  width: min(640px, calc(100% - 32px));
+  max-height: min(86vh, 760px);
+  margin: auto;
+  padding: 22px;
+  border: 1px solid var(--rule);
+  border-radius: 20px;
+  background: var(--card);
+  color: var(--text);
+  overflow: auto;
+}
+.account-dialog { color-scheme: dark; scrollbar-color: #3a3f45 var(--card); scrollbar-width: thin; }
+.account-dialog[open] { display: flex; flex-direction: column; gap: 4px; }
+.account-dialog > * { flex: none; }
+.account-dialog::backdrop { background: rgba(0, 0, 0, 0.62); }
+.account-dialog .page-card { max-width: none; padding: 16px 0 0; }
+.account-dialog .page-card + .page-card { border-top: 1px solid var(--rule); margin-top: 16px; }
+.dialog-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.icon-button { width: 36px; padding: 0; display: inline-flex; align-items: center; justify-content: center; flex: none; }
+.account-dialog .tabs { border-bottom: 1px solid var(--rule); overflow-x: auto; }
+.account-dialog .tabs { align-items: stretch; }
+.account-dialog .tab { height: auto; min-height: 40px; margin-bottom: -1px; white-space: nowrap; flex: none; }
+
+.profile-row { display: flex; align-items: center; gap: 16px; }
+.profile-photo { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.button-like {
+  height: 36px;
+  padding: 0 16px;
+  border-radius: 999px;
+  background: var(--button);
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 500;
+  display: inline-flex;
+  align-items: center;
+  cursor: pointer;
+}
+.button-like:hover { background: #2b3036; }
+.profile-photo:focus-within .button-like { outline: 2px solid var(--text); outline-offset: 2px; }
 
 .toggle {
   height: 28px;

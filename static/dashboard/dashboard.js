@@ -25,10 +25,18 @@
   };
   /* Where the keyboard focus goes when #account/<part> is opened. */
   var SECTION_FOCUS = {
+    profile: 'profile-name',
     tiktok: 'tiktok-username',
     'youtube-chat': 'youtube-chat-video',
     youtube: 'youtube-key',
     token: 'token-heading',
+  };
+  /* The cards each tab of the account dialog shows. */
+  var ACCOUNT_PANELS = {
+    profile: ['account-profile'],
+    tiktok: ['account-tiktok'],
+    youtube: ['account-youtube-chat', 'account-youtube'],
+    token: ['account-token'],
   };
   /* What the server says went wrong with a credential, by its code. */
   var ACCOUNT_ERRORS = {
@@ -64,6 +72,9 @@
   var requestsDrawn = null; // the history and blacklist the requests page shows, or null
   var commandsOnly = false;
   var view = 'queue';
+  var lastView = 'queue'; // the page under the account dialog, which it returns to
+  var draftAvatar = null; // the picture chosen but not saved; '' means "remove"; null means no change
+  var painted = {}; // what each avatar shows now, so a picture is not set again for nothing
   var pane = 'queue'; // queue | chat | notices
   var selectedId = null; // the waiting request the keyboard acts on
   var selectedIndex = 0;
@@ -252,25 +263,209 @@
 
   // --- pages and panes ---
 
-  /* Shows one page and marks it in both menus (the account page has no menu
-   * entry: it is reached from the avatar). `section` is the part of the
-   * account page to bring the focus to, if any. */
-  function showView(name, focusHeading, section) {
-    view = name;
-    closeMenu(false);
-    core.VIEWS.forEach(function (candidate) {
-      $('view-' + candidate).classList[candidate === name ? 'remove' : 'add']('hidden');
-    });
+  function markMenu(name) {
     core.MENU_VIEWS.forEach(function (candidate) {
       ['nav-', 'bnav-'].forEach(function (prefix) {
         $(prefix + candidate).setAttribute('aria-current', candidate === name ? 'page' : 'false');
       });
     });
-    if (name === 'account') loadAccount();
+  }
+
+  /* Shows one page and marks it in both menus. The account is a dialog over
+   * the page that was open, not a page of its own; it has no menu entry and is
+   * reached from the avatar. `section` is the part of it to bring the focus
+   * to, if any. */
+  function showView(name, focusHeading, section) {
+    closeMenu(false);
+    if (name === 'account') {
+      view = name;
+      markMenu(lastView); // the page under the dialog, when the address opened it first
+      openAccount(core.accountTab(location.hash), focusHeading, section);
+      loadAccount();
+      renderRequests();
+      return;
+    }
+    view = name;
+    lastView = name;
+    closeAccount();
+    core.VIEWS.forEach(function (candidate) {
+      $('view-' + candidate).classList[candidate === name ? 'remove' : 'add']('hidden');
+    });
+    markMenu(name);
     renderRequests();
-    var target = $((section && SECTION_FOCUS[section]) || HEADINGS[name]);
+    var target = $(HEADINGS[name]);
     if (focusHeading && target && target.focus) target.focus();
   }
+
+  // --- the account dialog ---
+
+  /* Shows one tab of the account dialog and the cards that belong to it. */
+  function selectAccountTab(name) {
+    core.ACCOUNT_TABS.forEach(function (tab) {
+      var selected = tab === name;
+      var button = $('atab-' + tab);
+      button.setAttribute('aria-selected', selected ? 'true' : 'false');
+      button.setAttribute('tabindex', selected ? '0' : '-1');
+      ACCOUNT_PANELS[tab].forEach(function (id) {
+        $(id).classList[selected ? 'remove' : 'add']('hidden');
+      });
+    });
+  }
+
+  function openAccount(tab, focusTarget, section) {
+    var dialog = $('view-account');
+    dialog.classList.remove('hidden');
+    if (dialog.showModal && !dialog.open) dialog.showModal();
+    selectAccountTab(tab);
+    resetProfile();
+    var target = $((section && SECTION_FOCUS[section]) || HEADINGS.account);
+    if (focusTarget && target && target.focus) target.focus();
+  }
+
+  /* Closes the dialog without leaving the page: the 'close' event below takes
+   * the address back to the page under it. */
+  function closeAccount() {
+    var dialog = $('view-account');
+    dialog.classList.add('hidden');
+    if (dialog.close && dialog.open) dialog.close();
+  }
+
+  function dismissAccount() {
+    var dialog = $('view-account');
+    if (dialog.close && dialog.open) dialog.close();
+    else if (view === 'account') location.hash = '#' + lastView;
+  }
+
+  $('view-account').addEventListener('close', function () {
+    $('view-account').classList.add('hidden');
+    if (view === 'account') location.hash = '#' + lastView;
+  });
+  $('account-close').addEventListener('click', dismissAccount);
+  // A click on the dimmed page around the dialog (the dialog is the target
+  // only there and on its own padding).
+  $('view-account').addEventListener('click', function (event) {
+    var dialog = $('view-account');
+    if (event.target !== dialog || !dialog.getBoundingClientRect) return;
+    var box = dialog.getBoundingClientRect();
+    var outside =
+      event.clientX < box.left || event.clientX > box.right || event.clientY < box.top || event.clientY > box.bottom;
+    if (outside) dismissAccount();
+  });
+  core.ACCOUNT_TABS.forEach(function (tab, index) {
+    $('atab-' + tab).addEventListener('click', function () {
+      selectAccountTab(tab);
+    });
+    // The arrow keys move between the tabs, as in any tab list.
+    $('atab-' + tab).addEventListener('keydown', function (event) {
+      var step = event.key === 'ArrowRight' ? 1 : event.key === 'ArrowLeft' ? -1 : 0;
+      if (!step) return;
+      event.preventDefault();
+      var next = core.ACCOUNT_TABS[(index + step + core.ACCOUNT_TABS.length) % core.ACCOUNT_TABS.length];
+      selectAccountTab(next);
+      $('atab-' + next).focus();
+    });
+  });
+
+  // --- the profile: the name and the picture of the avatar ---
+
+  /* Puts a picture in an avatar, or the first letter of the name when there is
+   * none. Only when it differs from what it shows now. */
+  function paintAvatar(id, name, picture) {
+    var key = name + '\n' + picture;
+    if (painted[id] === key) return;
+    painted[id] = key;
+    var node = $(id);
+    if (picture) node.replaceChildren(h('img', { attrs: { src: picture, alt: '' } }));
+    else node.textContent = core.initial(name);
+  }
+
+  /* The picture the avatar will have: the one chosen, else the saved one. */
+  function profilePicture() {
+    return draftAvatar !== null ? draftAvatar : core.profileOf(state.settings).avatar;
+  }
+
+  function renderProfile() {
+    var typed = core.cleanDisplayName($('profile-name').value);
+    var picture = profilePicture();
+    paintAvatar('profile-preview', typed || t('dashboard.account.title'), picture);
+    $('profile-photo-remove').classList[picture ? 'remove' : 'add']('hidden');
+  }
+
+  /* Shows what is saved, dropping a picture chosen and not saved. */
+  function resetProfile() {
+    draftAvatar = null;
+    $('profile-name').value = core.profileOf(state.settings).name;
+    renderProfile();
+  }
+
+  $('profile-name').addEventListener('input', renderProfile);
+
+  /* Reads a photo as the small square picture that is kept: cut from the
+   * middle, shrunk to AVATAR_SIZE and saved as JPEG. Resolves with the
+   * data: address. (A blob: address would not pass the page's policy.) */
+  function readAvatar(file) {
+    return new Promise(function (resolve, reject) {
+      var reader = new FileReader();
+      reader.onerror = reject;
+      reader.onload = function () {
+        var picture = new Image();
+        picture.onerror = reject;
+        picture.onload = function () {
+          var size = core.AVATAR_SIZE;
+          var canvas = document.createElement('canvas');
+          canvas.width = size;
+          canvas.height = size;
+          var context = canvas.getContext('2d');
+          if (!context || !picture.naturalWidth || !picture.naturalHeight) {
+            reject(new Error('unreadable'));
+            return;
+          }
+          var crop = core.squareCrop(picture.naturalWidth, picture.naturalHeight);
+          context.fillStyle = '#ffffff'; // behind a transparent picture
+          context.fillRect(0, 0, size, size);
+          context.drawImage(picture, crop.x, crop.y, crop.side, crop.side, 0, 0, size, size);
+          resolve(canvas.toDataURL('image/jpeg', 0.85));
+        };
+        picture.src = String(reader.result);
+      };
+      reader.readAsDataURL(file);
+    });
+  }
+
+  $('profile-photo').addEventListener('change', function () {
+    var input = $('profile-photo');
+    var file = input.files && input.files[0];
+    if (!file) return;
+    readAvatar(file).then(
+      function (picture) {
+        draftAvatar = picture;
+        renderProfile();
+      },
+      function () {
+        showError(t('dashboard.profile.photo_bad'));
+      }
+    );
+    input.value = ''; // so that the same file can be chosen again
+  });
+
+  $('profile-photo-remove').addEventListener('click', function () {
+    draftAvatar = '';
+    renderProfile();
+  });
+
+  $('profile-form').addEventListener('submit', function (event) {
+    event.preventDefault();
+    var name = core.cleanDisplayName($('profile-name').value);
+    var body = { display_name: name };
+    if (draftAvatar !== null) body.avatar = draftAvatar;
+    act('PATCH', '/api/dashboard', body, function (result) {
+      adopt(result.data);
+      draftAvatar = null;
+      $('profile-name').value = name;
+      renderProfile();
+      flash(t('dashboard.profile.saved'));
+    });
+  });
 
   /* On a phone the queue page shows one of three panes at a time; on a wide
    * screen the queue is always shown and the side card shows chat or notices. */
@@ -311,6 +506,7 @@
       node.textContent = t(node.getAttribute('data-i18n'));
     });
     $('keys').setAttribute('aria-label', t('dashboard.keys.label'));
+    $('account-close').setAttribute('aria-label', t('dashboard.account.close'));
     document.title = t('dashboard.title');
     if (state.language) document.documentElement.lang = state.language;
   }
@@ -429,12 +625,14 @@
     var unset = known.length > 0 && known.every(isIdle);
     $('setup-hint').classList[unset ? 'remove' : 'add']('hidden');
     $('setup-hint-text').textContent = unset ? t('dashboard.setup.hint') : '';
-    // The avatar is always there: it opens the account menu. Without a
-    // channel it says "Account".
+    // The avatar is always there: it opens the account menu. It shows the
+    // name and picture chosen on the Profile tab (never a chat's channel),
+    // and without a name it says "Account".
     var channel = state.chat && typeof state.chat.channel === 'string' ? state.chat.channel : '';
-    var shownName = channel || t('dashboard.account.title');
+    var profile = core.profileOf(state.settings);
+    var shownName = profile.name || t('dashboard.account.title');
     $('channel-name').textContent = shownName;
-    $('channel-initial').textContent = core.initial(shownName);
+    paintAvatar('channel-initial', shownName, profile.avatar);
     $('menu-channel').textContent = channel;
     $('menu-channel').classList[channel ? 'remove' : 'add']('hidden');
     $('account-button').setAttribute('aria-label', t('dashboard.account.menu_label') + ': ' + shownName);

@@ -615,7 +615,7 @@ test('the username is read like the server reads it', () => {
 
 test('the part of the account page is read from the address, and only for the account page', () => {
   for (const part of core.ACCOUNT_SECTIONS) assert.equal(core.parseSection('#account/' + part), part);
-  assert.deepEqual(core.ACCOUNT_SECTIONS, ['tiktok', 'youtube-chat', 'youtube', 'token']);
+  assert.deepEqual(core.ACCOUNT_SECTIONS, ['profile', 'tiktok', 'youtube-chat', 'youtube', 'token']);
   for (const other of ['#account', '#account/', '#account/nope', '#account/youtube/x', '#queue/youtube', '#youtube', '', undefined, null, '#account/__proto__']) {
     assert.equal(core.parseSection(other), '', String(other));
   }
@@ -749,4 +749,40 @@ test('a role is named as the chat it was said in names it', () => {
   assert.equal(core.roleKey('follower', undefined), 'role.follower');
   const line = core.reduce(core.initialState(), { v: 1, seq: 1, type: 'hello', data: { chat_log: [{ name: 'a', text: 'x', role: 'subscriber', source: 'youtube' }, { name: 'b', text: 'y', source: 'weird' }] } }).messages;
   assert.deepEqual(line.map((l) => l.source), ['youtube', 'tiktok']);
+});
+
+test('every part of the account address belongs to a tab, and the profile is the default', () => {
+  assert.deepEqual(core.ACCOUNT_TABS, ['profile', 'tiktok', 'youtube', 'token']);
+  for (const part of core.ACCOUNT_SECTIONS) assert.ok(core.ACCOUNT_TABS.includes(core.accountTab('#account/' + part)), part);
+  assert.equal(core.accountTab('#account/youtube-chat'), 'youtube');
+  assert.equal(core.accountTab('#account/youtube'), 'youtube');
+  assert.equal(core.accountTab('#account/token'), 'token');
+  for (const other of ['#account', '#account/nope', '', undefined, null]) assert.equal(core.accountTab(other), 'profile', String(other));
+});
+
+test('the avatar picture is cut from the middle as a square', () => {
+  assert.deepEqual(core.squareCrop(400, 300), { x: 50, y: 0, side: 300 });
+  assert.deepEqual(core.squareCrop(300, 400), { x: 0, y: 50, side: 300 });
+  assert.deepEqual(core.squareCrop(128, 128), { x: 0, y: 0, side: 128 });
+  assert.deepEqual(core.squareCrop(101, 100), { x: 0, y: 0, side: 100 });
+});
+
+test('the display name is one trimmed line of at most 40 letters', () => {
+  assert.equal(core.cleanDisplayName('  Rina  '), 'Rina');
+  assert.equal(core.cleanDisplayName('two\nlines\tof it'), 'two lines of it');
+  assert.equal(core.cleanDisplayName('x'.repeat(60)), 'x'.repeat(core.MAX_DISPLAY_NAME));
+  assert.equal(core.cleanDisplayName('\u{1F47B}'.repeat(50)), '\u{1F47B}'.repeat(core.MAX_DISPLAY_NAME), 'by letters, not by code units');
+  assert.equal(core.cleanDisplayName('   '), '');
+});
+
+test('the profile comes from the dashboard settings, and only a safe picture is taken', () => {
+  const picture = 'data:image/jpeg;base64,/9j/4AAQ+x==';
+  assert.deepEqual(core.profileOf({ dashboard: { display_name: 'Rina', avatar: picture } }), { name: 'Rina', avatar: picture });
+  assert.deepEqual(core.profileOf({ dashboard: { chat_history: 20, display_name: '', avatar: '' } }), { name: '', avatar: '' });
+  for (const avatar of ['https://example.com/a.png', 'data:image/svg+xml;base64,PHN2Zz4=', 'javascript:alert(1)', 'data:image/png;base64,a"onerror="x', 7, null]) {
+    assert.equal(core.profileOf({ dashboard: { avatar } }).avatar, '', String(avatar));
+  }
+  for (const settings of [null, undefined, {}, { dashboard: null }, { dashboard: { display_name: 5 } }]) {
+    assert.deepEqual(core.profileOf(settings), { name: '', avatar: '' });
+  }
 });

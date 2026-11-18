@@ -235,6 +235,8 @@ impl Hello {
         self.queue.pending.clear();
         self.queue.approved.clear();
         self.settings.blacklist = BlacklistConfig::default();
+        // The avatar and its name are for the dashboard, not for a page in OBS.
+        self.settings.dashboard = DashboardConfig::default();
         self.chat = None;
         self.chats.clear();
         self.chat_log.clear();
@@ -683,7 +685,11 @@ mod tests {
                     channels: vec!["Secret Channel".to_owned()],
                     title_words: vec!["secretword".to_owned()],
                 },
-                dashboard: DashboardConfig::default(),
+                dashboard: DashboardConfig {
+                    display_name: "Secret Name".to_owned(),
+                    avatar: "data:image/png;base64,AAAA".to_owned(),
+                    ..DashboardConfig::default()
+                },
                 overlay: OverlayConfig::default(),
                 command: CommandConfig::default(),
                 chat: ChatSettingsView::default(),
@@ -736,6 +742,7 @@ mod tests {
         assert_eq!(overlay.queue.now_playing.as_ref().map(|i| i.id), Some(3));
         assert!(overlay.queue.pending.is_empty() && overlay.queue.approved.is_empty());
         assert_eq!(overlay.settings.blacklist, BlacklistConfig::default());
+        assert_eq!(overlay.settings.dashboard, DashboardConfig::default());
         assert!(overlay.chat.is_none() && overlay.chats.is_empty());
         assert!(overlay.history.is_empty());
         assert!(overlay.chat_log.is_empty());
@@ -747,6 +754,7 @@ mod tests {
 
         let json = serde_json::to_string(&overlay).unwrap();
         assert!(!json.contains("secretword") && !json.contains("Secret Channel"));
+        assert!(!json.contains("Secret Name") && !json.contains("base64"));
         assert!(!json.contains("Secret Viewer") && !json.contains("secret comment"));
     }
 

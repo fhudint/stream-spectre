@@ -1369,8 +1369,11 @@ mod tests {
         }
         let mut rx = p.subscribe();
 
-        p.update_dashboard(DashboardConfig { chat_history: 3 })
-            .unwrap();
+        p.update_dashboard(DashboardConfig {
+            chat_history: 3,
+            ..DashboardConfig::default()
+        })
+        .unwrap();
         let log = p.hello().chat_log;
         assert_eq!(
             log.iter().map(|l| l.text.as_str()).collect::<Vec<_>>(),
@@ -1386,8 +1389,11 @@ mod tests {
         assert_eq!(p.hello().chat_log.len(), 3);
 
         // Growing again does not bring old messages back.
-        p.update_dashboard(DashboardConfig { chat_history: 50 })
-            .unwrap();
+        p.update_dashboard(DashboardConfig {
+            chat_history: 50,
+            ..DashboardConfig::default()
+        })
+        .unwrap();
         assert_eq!(p.hello().chat_log.len(), 3);
     }
 
@@ -1426,6 +1432,7 @@ mod tests {
         let mut rx = p.subscribe();
         let too_big = DashboardConfig {
             chat_history: crate::config::MAX_CHAT_HISTORY + 1,
+            ..DashboardConfig::default()
         };
         assert!(p.update_dashboard(too_big).is_err());
         assert_eq!(p.hello().settings.dashboard.chat_history, 20);

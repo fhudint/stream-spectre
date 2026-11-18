@@ -296,13 +296,48 @@
           </form>
         </div>
       </section>
-      <section id="view-account" class="view hidden">
-        <div class="title-row">
-          <h1 id="account-heading" tabindex="-1" data-i18n="dashboard.account.title"></h1>
-          <p class="muted" data-i18n="dashboard.account.hint"></p>
+    </main>
+
+    <dialog id="view-account" class="view account-dialog hidden" aria-labelledby="account-heading">
+        <div class="dialog-head">
+          <div class="title-row">
+            <h1 id="account-heading" tabindex="-1" data-i18n="dashboard.account.title"></h1>
+            <p class="muted" data-i18n="dashboard.account.hint"></p>
+          </div>
+          <button id="account-close" type="button" class="icon-button">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8"/></svg>
+          </button>
         </div>
 
-        <div id="account-tiktok" class="card page-card">
+        <div id="account-tabs" class="tabs" role="tablist">
+          <button id="atab-profile" type="button" class="tab" role="tab" aria-controls="account-profile" data-tab="profile" data-i18n="dashboard.account.tab.profile"></button>
+          <button id="atab-tiktok" type="button" class="tab" role="tab" aria-controls="account-tiktok" data-tab="tiktok" data-i18n="dashboard.account.tab.tiktok"></button>
+          <button id="atab-youtube" type="button" class="tab" role="tab" aria-controls="account-youtube-chat account-youtube" data-tab="youtube" data-i18n="dashboard.account.tab.youtube"></button>
+          <button id="atab-token" type="button" class="tab" role="tab" aria-controls="account-token" data-tab="token" data-i18n="dashboard.account.tab.token"></button>
+        </div>
+
+        <div id="account-profile" class="page-card" data-panel="profile">
+          <form id="profile-form" class="form">
+            <div class="profile-row">
+              <span id="profile-preview" class="avatar avatar-large" aria-hidden="true"></span>
+              <div class="profile-photo">
+                <label class="button-like" for="profile-photo" data-i18n="dashboard.profile.photo"></label>
+                <input id="profile-photo" class="sr-only" type="file" accept="image/jpeg,image/png,image/webp">
+                <button id="profile-photo-remove" type="button" class="hidden" data-i18n="dashboard.profile.photo_remove"></button>
+              </div>
+            </div>
+            <div class="field">
+              <label for="profile-name" data-i18n="dashboard.profile.name"></label>
+              <input id="profile-name" type="text" autocomplete="off" spellcheck="false" maxlength="40">
+              <p class="muted small" data-i18n="dashboard.profile.hint"></p>
+            </div>
+            <div class="actions">
+              <button type="submit" class="primary" data-i18n="dashboard.profile.save"></button>
+            </div>
+          </form>
+        </div>
+
+        <div id="account-tiktok" class="page-card" data-panel="tiktok">
           <form id="tiktok-form" class="form">
             <h2 data-i18n="dashboard.tiktok.title"></h2>
             <div class="field">
@@ -321,7 +356,7 @@
           <p id="tiktok-status" class="muted small"></p>
         </div>
 
-        <div id="account-youtube-chat" class="card page-card">
+        <div id="account-youtube-chat" class="page-card" data-panel="youtube">
           <form id="youtube-chat-form" class="form">
             <h2 data-i18n="dashboard.youtube_chat.title"></h2>
             <div class="field">
@@ -340,7 +375,7 @@
           <p id="youtube-chat-status" class="muted small"></p>
         </div>
 
-        <div id="account-youtube" class="card page-card">
+        <div id="account-youtube" class="page-card" data-panel="youtube">
           <form id="key-form" class="form">
             <h2 data-i18n="dashboard.account.youtube.title"></h2>
             <p id="key-status" class="status-line"></p>
@@ -358,15 +393,14 @@
           </form>
         </div>
 
-        <div id="account-token" class="card page-card">
+        <div id="account-token" class="page-card" data-panel="token">
           <div class="form">
             <h2 id="token-heading" tabindex="-1" data-i18n="dashboard.account.token.title"></h2>
             <p id="token-status" class="status-line"></p>
             <p class="muted small" data-i18n="dashboard.account.token.hint"></p>
           </div>
         </div>
-      </section>
-    </main>
+    </dialog>
   </div>
 
   <nav id="bottom-nav" class="bottom-nav">

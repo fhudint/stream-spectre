@@ -1144,10 +1144,28 @@ test('the active rules are listed from the settings and follow changes', async (
   assert.deepEqual(chips(), ['Commands !v', 'Anyone may submit', 'Automatic approval', 'No cooldown', 'Max. 10:00', 'Queue of 20']);
 });
 
-test('the channel is shown in the top bar, with its first letter', async () => {
-  const page = await ready();
-  assert.equal(page.elements['channel-name'].textContent, 'streamer');
-  assert.equal(page.elements['channel-initial'].textContent, 'S');
+test('the top bar shows the name chosen on the profile, with its first letter, and not the chat channel', async () => {
+  const plain = await ready();
+  assert.equal(plain.elements['channel-name'].textContent, 'Account');
+  assert.equal(plain.elements['channel-initial'].textContent, 'A');
+
+  const body = snapshot();
+  body.settings.dashboard = { chat_history: 20, display_name: 'rina', avatar: '' };
+  const named = await ready({ routes: { 'GET /api/state': () => ({ status: 200, body }) } });
+  assert.equal(named.elements['channel-name'].textContent, 'rina');
+  assert.equal(named.elements['channel-initial'].textContent, 'R');
+  assert.equal(named.elements['account-button'].attrs['aria-label'], 'Account menu: rina');
+});
+
+test('the top bar shows the picture of the avatar when there is one', async () => {
+  const picture = 'data:image/jpeg;base64,/9j/4AAQ';
+  const body = snapshot();
+  body.settings.dashboard = { chat_history: 20, display_name: '', avatar: picture };
+  const page = await ready({ routes: { 'GET /api/state': () => ({ status: 200, body }) } });
+  const images = descendants(page.elements['channel-initial']).filter((n) => n.tag === 'img');
+  assert.equal(images.length, 1);
+  assert.equal(images[0].attrs.src, picture);
+  assert.equal(images[0].attrs.alt, '', 'decorative: the name is next to it');
 });
 
 // --- the card for the video that is playing ---
@@ -1518,7 +1536,8 @@ test('without a username the queue page says so and points to the settings', asy
 
   page.socket().receive(envelope(7, 'chat_status', { state: 'connected', channel: 'new_one', text: 'Connected to TikTok chat @new_one' }));
   assert.ok(page.elements['setup-hint'].hidden);
-  assert.equal(page.elements['channel-name'].textContent, 'new_one');
+  assert.equal(page.elements['channel-name'].textContent, 'Account', 'the chat channel is not the name');
+  assert.equal(page.elements['menu-channel'].textContent, 'new_one', 'the menu says which chat is read');
 });
 
 test('a page that starts without a username shows the hint at once', async () => {
@@ -1682,8 +1701,8 @@ test('the avatar opens a menu with the settings link and the disconnect item, an
   const button = page.elements['account-button'];
   assert.ok(!menuOpen(page));
   assert.match(html, /<button id="account-button"[^>]*aria-expanded="false"/, 'closed in the markup');
-  assert.equal(button.attrs['aria-label'], 'Account menu: streamer');
-  assert.equal(page.elements['channel-name'].textContent, 'streamer');
+  assert.equal(button.attrs['aria-label'], 'Account menu: Account');
+  assert.equal(page.elements['channel-name'].textContent, 'Account');
   assert.equal(page.elements['menu-channel'].textContent, 'streamer');
 
   page.click(button);
@@ -1740,12 +1759,11 @@ test('without a channel the avatar says Account, and still opens the menu', asyn
   assert.ok(menuOpen(page));
 });
 
-test('#account shows the account page, marks no menu entry, and loads what is set', async () => {
+test('#account opens the account dialog over the page, marks no menu entry, and loads what is set', async () => {
   const page = await ready({ hash: '#account' });
   await settle();
-  assert.deepEqual(shown(page), ['account']);
-  assert.deepEqual(current(page, 'nav'), []);
-  assert.deepEqual(current(page, 'bnav'), []);
+  assert.deepEqual(shown(page), ['queue', 'account'], 'a dialog over the page, not a page');
+  assert.deepEqual(current(page, 'nav'), ['queue'], 'the page under it stays marked');
   assert.equal(page.log.requests.filter((r) => r.path === '/api/account').length, 1);
   assert.equal(page.elements['key-status'].textContent, 'A key is set (it ends in rstu).');
 });
@@ -1753,7 +1771,7 @@ test('#account shows the account page, marks no menu entry, and loads what is se
 test('#account/<part> brings the keyboard to that part', async () => {
   const page = await ready();
   page.go('#account/youtube');
-  assert.deepEqual(shown(page), ['account']);
+  assert.deepEqual(shown(page), ['queue', 'account']);
   assert.ok(page.elements['youtube-key'].focused);
   page.go('#account/tiktok');
   assert.ok(page.elements['tiktok-username'].focused);
@@ -1953,8 +1971,8 @@ test('an answer that is not a proper account description is ignored', async () =
 test('the TikTok username form is on the account page, not on the settings page', () => {
   const part = (id) => {
     const start = html.indexOf(`id="${id}"`);
-    const next = html.indexOf('<section id="view-', start + 10);
-    return html.slice(start, next < 0 ? html.length : next);
+    const next = html.slice(start + 10).search(/<(section|dialog) id="view-/);
+    return html.slice(start, next < 0 ? html.length : start + 10 + next);
   };
   assert.ok(part('view-account').includes('id="tiktok-form"'));
   assert.ok(!part('view-settings').includes('id="tiktok-form"'));
@@ -2508,4 +2526,122 @@ test('a YouTube viewer is shown as a viewer or a member, a TikTok one as a follo
   assert.match(rows[0].textContent, /Member/);
   assert.match(rows[1].textContent, /Subscriber/);
   assert.match(rows[2].textContent, /Viewer/);
+});
+
+// --- the account dialog: tabs and the profile ---
+
+const panelsShown = (page) =>
+  ['account-profile', 'account-tiktok', 'account-youtube-chat', 'account-youtube', 'account-token'].filter((id) => !page.elements[id].hidden);
+const selectedTab = (page) =>
+  ['profile', 'tiktok', 'youtube', 'token'].filter((t) => page.elements[`atab-${t}`].attrs['aria-selected'] === 'true');
+
+test('the dialog opens on the profile tab, and the address can ask for another tab', async () => {
+  const page = await ready();
+  page.go('#account');
+  assert.deepEqual(selectedTab(page), ['profile']);
+  assert.deepEqual(panelsShown(page), ['account-profile']);
+  page.go('#account/tiktok');
+  assert.deepEqual(selectedTab(page), ['tiktok']);
+  assert.deepEqual(panelsShown(page), ['account-tiktok']);
+  page.go('#account/youtube-chat');
+  assert.deepEqual(selectedTab(page), ['youtube']);
+  assert.deepEqual(panelsShown(page), ['account-youtube-chat', 'account-youtube']);
+  page.go('#account/token');
+  assert.deepEqual(panelsShown(page), ['account-token']);
+});
+
+test('a tab can be chosen, and the arrow keys move between tabs', async () => {
+  const page = await ready();
+  page.go('#account');
+  page.click(page.elements['atab-youtube']);
+  assert.deepEqual(selectedTab(page), ['youtube']);
+  assert.equal(page.elements['atab-youtube'].attrs.tabindex, '0');
+  assert.equal(page.elements['atab-profile'].attrs.tabindex, '-1');
+  let prevented = false;
+  page.elements['atab-youtube'].fire('keydown', { key: 'ArrowRight', preventDefault: () => { prevented = true; } });
+  assert.deepEqual(selectedTab(page), ['token']);
+  assert.ok(prevented && page.elements['atab-token'].focused);
+  page.elements['atab-token'].fire('keydown', { key: 'ArrowRight' });
+  assert.deepEqual(selectedTab(page), ['profile'], 'wraps round');
+  page.elements['atab-profile'].fire('keydown', { key: 'Tab' });
+  assert.deepEqual(selectedTab(page), ['profile'], 'other keys are left alone');
+});
+
+test('closing the dialog goes back to the page under it, and opening another page closes it', async () => {
+  const page = await ready();
+  page.go('#rules');
+  page.go('#account');
+  assert.deepEqual(shown(page), ['rules', 'account']);
+  page.click(page.elements['account-close']);
+  assert.equal(page.location.hash, '#rules');
+  page.go(page.location.hash);
+  assert.deepEqual(shown(page), ['rules']);
+  page.go('#account');
+  page.go('#overlay');
+  assert.deepEqual(shown(page), ['overlay'], 'the dialog goes with the move');
+});
+
+test('saving the profile sends the name, and the picture only when it changed', async () => {
+  const page = await ready();
+  page.go('#account');
+  const updated = snapshot();
+  updated.settings.dashboard = { chat_history: 20, display_name: 'Rina', avatar: '' };
+  page.table['PATCH /api/dashboard'] = { status: 200, body: updated };
+  page.elements['profile-name'].value = '  Rina  ';
+  page.elements['profile-form'].fire('submit');
+  await settle();
+  const sent = page.log.requests.filter((r) => r.method === 'PATCH' && r.path === '/api/dashboard');
+  assert.deepEqual(sent.map((r) => r.body), [{ display_name: 'Rina' }], 'no avatar key: the saved picture stays');
+  assert.equal(page.elements['profile-name'].value, 'Rina');
+  assert.equal(page.elements.flash.textContent, 'Profile saved.');
+  assert.equal(page.elements['channel-name'].textContent, 'Rina');
+  assert.equal(page.elements['channel-initial'].textContent, 'R');
+});
+
+test('removing the photo is sent as an empty picture, and the name field shows what is saved on opening', async () => {
+  const picture = 'data:image/jpeg;base64,/9j/4AAQ';
+  const body = snapshot();
+  body.settings.dashboard = { chat_history: 20, display_name: 'Rina', avatar: picture };
+  const page = await ready({ routes: { 'GET /api/state': () => ({ status: 200, body }) } });
+  page.go('#account');
+  assert.equal(page.elements['profile-name'].value, 'Rina');
+  assert.ok(!page.elements['profile-photo-remove'].hidden, 'there is a photo to remove');
+  assert.equal(descendants(page.elements['profile-preview']).filter((n) => n.tag === 'img').length, 1);
+
+  page.click(page.elements['profile-photo-remove']);
+  assert.ok(page.elements['profile-photo-remove'].hidden);
+  assert.equal(descendants(page.elements['profile-preview']).filter((n) => n.tag === 'img').length, 0);
+  assert.equal(page.elements['profile-preview'].textContent, 'R');
+
+  const updated = snapshot();
+  updated.settings.dashboard = { chat_history: 20, display_name: 'Rina', avatar: '' };
+  page.table['PATCH /api/dashboard'] = { status: 200, body: updated };
+  page.elements['profile-form'].fire('submit');
+  await settle();
+  const sent = page.log.requests.filter((r) => r.method === 'PATCH' && r.path === '/api/dashboard');
+  assert.deepEqual(sent.map((r) => r.body), [{ display_name: 'Rina', avatar: '' }]);
+  assert.equal(descendants(page.elements['channel-initial']).filter((n) => n.tag === 'img').length, 0);
+});
+
+test('a picture chosen but not saved is dropped when the dialog is opened again', async () => {
+  const picture = 'data:image/jpeg;base64,/9j/4AAQ';
+  const body = snapshot();
+  body.settings.dashboard = { chat_history: 20, display_name: '', avatar: picture };
+  const page = await ready({ routes: { 'GET /api/state': () => ({ status: 200, body }) } });
+  page.go('#account');
+  page.click(page.elements['profile-photo-remove']);
+  page.go('#queue');
+  page.go('#account');
+  assert.ok(!page.elements['profile-photo-remove'].hidden, 'the saved photo is back');
+});
+
+test('the server refusing the profile is shown and nothing is claimed saved', async () => {
+  const page = await ready();
+  page.go('#account');
+  page.table['PATCH /api/dashboard'] = { status: 400, body: { error: 'dashboard.avatar must be a picture' } };
+  page.elements['profile-name'].value = 'Rina';
+  page.elements['profile-form'].fire('submit');
+  await settle();
+  assert.match(page.elements.error.textContent, /dashboard\.avatar/);
+  assert.notEqual(page.elements.flash.textContent, 'Profile saved.');
 });

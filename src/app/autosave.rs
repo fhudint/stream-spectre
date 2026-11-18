@@ -317,7 +317,10 @@ mod tests {
         let path = temp_file("back");
         let run = start(&baseline(), &path, Duration::from_millis(5));
         run.pipeline
-            .update_dashboard(DashboardConfig { chat_history: 99 })
+            .update_dashboard(DashboardConfig {
+                chat_history: 99,
+                ..DashboardConfig::default()
+            })
             .unwrap();
         run.pipeline
             .update_dashboard(DashboardConfig::default())
@@ -373,7 +376,10 @@ mod tests {
         ));
 
         pipeline
-            .update_dashboard(DashboardConfig { chat_history: 1 })
+            .update_dashboard(DashboardConfig {
+                chat_history: 1,
+                ..DashboardConfig::default()
+            })
             .unwrap();
         let notice = tokio::time::timeout(Duration::from_secs(5), async {
             loop {

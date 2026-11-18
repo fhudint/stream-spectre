@@ -106,6 +106,11 @@ title_words = []     # words that must not appear in a video title or in a viewe
 # How many recent chat messages the dashboard shows right after it is opened or
 # reloaded (0 to 200). Chat is only kept in memory, never written to disk.
 chat_history = 20
+# The name and the picture next to the avatar in the dashboard (set on the
+# Profile tab of the account dialog). Not read from any chat. The picture is a
+# small base64 data:image address; the overlay never gets either.
+# display_name = ""
+# avatar = ""
 
 [overlay.mediashare]
 # The look of the mediashare overlay: obsidian, kertas, brutal, terminal, permen, pixel,
