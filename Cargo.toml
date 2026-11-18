@@ -6,6 +6,8 @@ rust-version = "1.85"
 description = "OBS browser-source stream overlay with chat-driven YouTube mediashare"
 license = "AGPL-3.0-only"
 publish = false
+# Two binaries now (the window one needs a feature), so `cargo run` must be told.
+default-run = "stream-spectre"
 
 # The same program in a window of its own (see src/bin/window.rs). Off by
 # default: it needs GTK and WebKitGTK on Linux, which a plain build does not.
