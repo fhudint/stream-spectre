@@ -165,6 +165,10 @@
   "dashboard.overlay.theme.garis": "Garis",
   "dashboard.overlay.theme.struk": "Struk",
   "dashboard.overlay.theme.pesan": "Pesan",
+  "dashboard.overlay.theme.ticker": "Ticker",
+  "dashboard.overlay.theme.catatan": "Catatan",
+  "dashboard.overlay.chat": "Chat",
+  "dashboard.overlay.chat_hint": "Tambahkan alamat ini di OBS sebagai sumber Browser berukuran 360 x 640. Untuk bar Ticker, buat sumbernya selebar scene. Isinya chat dari semua sumber yang sedang dibaca.",
   "dashboard.tiktok.title": "Chat TikTok",
   "dashboard.tiktok.username": "Username TikTok (tanpa @)",
   "dashboard.tiktok.hint": "Program membaca chat langsung akun ini dan langsung mengikuti kalau diganti, tanpa restart. Kosongkan untuk berhenti membaca chat.",
@@ -269,5 +273,15 @@
   "overlay.left": "sisa {time}",
   "overlay.label.from": "Dari",
   "overlay.label.role": "Status",
-  "overlay.label.time": "Diputar"
+  "overlay.label.time": "Diputar",
+  "overlay.chat.title": "Chat langsung",
+  "overlay.chat.paper": "Percakapan",
+  "overlay.chat.live": "langsung",
+  "overlay.chat.name": "Chat",
+  "overlay.chat.receipt": "STRUK CHAT",
+  "overlay.chat.thanks": "TERIMA KASIH SUDAH NGOBROL",
+  "overlay.chat.command": "Permintaan video",
+  "overlay.chat.badge.subscriber": "Sub",
+  "overlay.chat.badge.member": "Member",
+  "overlay.chat.badge.moderator": "Mod"
 }

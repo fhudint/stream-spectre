@@ -118,3 +118,8 @@ chat_history = 20
 # also while streaming. Adding theme=name to the overlay's address in OBS
 # (after a ? or a &) gives that one source another look.
 theme = "obsidian"
+
+[overlay.chat]
+# The look of the chat overlay (/overlay/chat/): the ten above, and ticker (a bar
+# along the bottom) or catatan (sticky notes). Same way to change it.
+theme = "obsidian"

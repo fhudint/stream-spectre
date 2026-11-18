@@ -786,3 +786,15 @@ test('the profile comes from the dashboard settings, and only a safe picture is 
     assert.deepEqual(core.profileOf(settings), { name: '', avatar: '' });
   }
 });
+
+test('the chat overlay has its own address and its twelve looks', () => {
+  assert.equal(core.overlayUrl('http:', '127.0.0.1:8787', '', 'chat'), 'http://localhost:8787/overlay/chat/');
+  assert.equal(core.overlayUrl('https:', 'x.example', 'a b', 'chat'), 'https://x.example/overlay/chat/?token=a%20b');
+  assert.equal(core.overlayUrl('http:', 'x', '', 'nope'), 'http://x/overlay/mediashare/', 'an unknown overlay is the mediashare one');
+  assert.deepEqual(core.CHAT_THEMES, [...core.OVERLAY_THEMES, 'ticker', 'catatan']);
+  assert.equal(core.chatTheme({ overlay: { chat: { theme: 'ticker' } } }), 'ticker');
+  for (const bad of [null, {}, { overlay: {} }, { overlay: { chat: { theme: 'neon' } } }, { overlay: { mediashare: { theme: 'pixel' } } }]) {
+    assert.equal(core.chatTheme(bad), 'obsidian', JSON.stringify(bad));
+  }
+  assert.equal(core.chatTheme({ overlay: { mediashare: { theme: 'pixel' }, chat: { theme: 'kertas' } } }), 'kertas');
+});

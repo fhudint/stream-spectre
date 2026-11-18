@@ -197,6 +197,19 @@ pub async fn mediashare<S: VideoSource + 'static>(
     Ok(Json(state.pipeline.hello()))
 }
 
+/// `PATCH /api/overlay/chat`: changes the chat overlay's `theme`. An unknown
+/// theme is refused and nothing changes.
+pub async fn chat_overlay<S: VideoSource + 'static>(
+    State(state): State<ServerState<S>>,
+    Json(patch): Json<Value>,
+) -> ApiResult<Json<Hello>> {
+    let current = state.pipeline.hello().settings.overlay.chat;
+    state
+        .pipeline
+        .update_chat_overlay(merge_patch(&current, patch)?);
+    Ok(Json(state.pipeline.hello()))
+}
+
 /// `PATCH /api/commands`: changes the chat commands (`prefix` and/or
 /// `commands`, the whole list of `{name, source}`) and keeps the rest. Invalid
 /// values are refused and nothing changes.

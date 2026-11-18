@@ -1240,29 +1240,31 @@
     var shown = core.overlayUrl(location.protocol, location.host, '').replace(/^https?:\/\//, '');
     $('overlay-address').textContent = shown;
     $('overlay-shown').textContent = shown;
+    $('chat-overlay-shown').textContent = core.overlayUrl(location.protocol, location.host, '', 'chat').replace(/^https?:\/\//, '');
     var theme = core.overlayTheme(state.settings);
+    var chat = core.chatTheme(state.settings);
     themeInputs.forEach(function (entry) {
-      entry.input.checked = entry.name === theme;
+      entry.input.checked = entry.name === (entry.overlay === 'chat' ? chat : theme);
     });
   }
 
-  /* One choice per look of the overlay; the change is saved at once and the
+  /* One choice per look of an overlay; the change is saved at once and the
    * overlay in OBS follows without a reload. */
   var themeInputs = [];
-  function buildThemes() {
-    core.OVERLAY_THEMES.forEach(function (name) {
+  function buildThemePicker(box, overlay, names) {
+    names.forEach(function (name) {
       var input = h('input', {
-        attrs: { type: 'radio', name: 'overlay-theme', value: name },
+        attrs: { type: 'radio', name: overlay + '-theme', value: name },
         on: {
           change: function () {
-            act('PATCH', '/api/overlay/mediashare', { theme: name }, function (result) {
+            act('PATCH', '/api/overlay/' + overlay, { theme: name }, function (result) {
               adopt(result.data);
             });
           },
         },
       });
-      themeInputs.push({ name: name, input: input });
-      $('themes').appendChild(
+      themeInputs.push({ name: name, overlay: overlay, input: input });
+      box.appendChild(
         h('label', { className: 'theme', attrs: { 'data-theme': name } }, [
           input,
           h('span', { className: 'swatch', text: 'Aa', attrs: { 'aria-hidden': 'true' } }),
@@ -1270,6 +1272,11 @@
         ])
       );
     });
+  }
+
+  function buildThemes() {
+    buildThemePicker($('themes'), 'mediashare', core.OVERLAY_THEMES);
+    buildThemePicker($('chat-themes'), 'chat', core.CHAT_THEMES);
     renderOverlay();
   }
 
@@ -1658,9 +1665,13 @@
   function copyOverlay() {
     copyText(core.overlayUrl(location.protocol, location.host, token), 'dashboard.overlay.copied');
   }
+  function copyChatOverlay() {
+    copyText(core.overlayUrl(location.protocol, location.host, token, 'chat'), 'dashboard.overlay.copied');
+  }
 
   $('copy-overlay').addEventListener('click', copyOverlay);
   $('copy-overlay-page').addEventListener('click', copyOverlay);
+  $('copy-chat-overlay').addEventListener('click', copyChatOverlay);
 
   // --- keyboard ---
 

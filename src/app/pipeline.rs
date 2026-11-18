@@ -8,15 +8,15 @@ use super::bus::EventBus;
 use super::events::ChatSettingsView;
 use super::events::{
     ChatLineView, ChatState, ChatStatusView, Envelope, Event, Hello, ItemView, NoticeLevel,
-    OverlayKind, QueueView, SettingsView, SkipReason, StatsView, unix_ms,
+    OverlayKind, QueueView, SettingsView, SkipReason, StatsView, ThemeName, unix_ms,
 };
 use super::history::{History, HistoryEntry, RequestStatus, Subject};
 use crate::chat::{ChatEvent, ChatMessage, ChatSource, ChatStatus, Sender};
 use crate::command::{CommandParser, InvalidReason, Parsed};
 use crate::config::{
-    BlacklistConfig, ChatSourceKind, CommandConfig, CommandSource, Config, ConfigError,
-    DashboardConfig, MediashareConfig, ModerationConfig, OverlayConfig, Secret, TiktokConfig,
-    YoutubeChatConfig,
+    BlacklistConfig, ChatOverlayConfig, ChatSourceKind, CommandConfig, CommandSource, Config,
+    ConfigError, DashboardConfig, MediashareConfig, ModerationConfig, OverlayConfig, Secret,
+    TiktokConfig, YoutubeChatConfig,
 };
 use crate::i18n::I18n;
 use crate::queue::{
@@ -671,7 +671,23 @@ impl<S: VideoSource> Pipeline<S> {
             .publish(Event::SettingsUpdated(Self::settings_view(&inner)));
         self.bus.publish(Event::OverlayTheme {
             overlay: OverlayKind::Mediashare,
-            theme: new.theme,
+            theme: ThemeName::Mediashare(new.theme),
+        });
+    }
+
+    /// Changes how the chat overlay looks; announced like
+    /// [`update_mediashare`](Self::update_mediashare).
+    pub fn update_chat_overlay(&self, new: ChatOverlayConfig) {
+        let mut inner = self.lock();
+        if inner.overlay.chat == new {
+            return;
+        }
+        inner.overlay.chat = new;
+        self.bus
+            .publish(Event::SettingsUpdated(Self::settings_view(&inner)));
+        self.bus.publish(Event::OverlayTheme {
+            overlay: OverlayKind::Chat,
+            theme: ThemeName::Chat(new.theme),
         });
     }
 

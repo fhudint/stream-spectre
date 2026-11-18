@@ -2522,6 +2522,37 @@ test('the server refusing a look is shown and the choice stays where it was', as
   assert.match(page.elements.error.textContent, /unknown variant/);
 });
 
+// --- the look of the chat overlay ---
+
+const chatThemeInputs = (page) => descendants(page.elements['chat-themes']).filter((n) => n.tag === 'input');
+
+test('the chat overlay has its own address, its twelve looks and its own choice', async () => {
+  const body = snapshot();
+  body.settings.overlay = { mediashare: { theme: 'pixel' }, chat: { theme: 'ticker' } };
+  const page = await ready({ stored: 'tok en', routes: { 'GET /api/state': () => ({ status: 200, body }) } });
+  assert.equal(page.elements['chat-overlay-shown'].textContent, 'localhost:8787/overlay/chat/');
+  const inputs = chatThemeInputs(page);
+  assert.deepEqual(inputs.map((i) => i.attrs.value), core.CHAT_THEMES);
+  assert.equal(inputs.length, 12);
+  assert.deepEqual(inputs.filter((i) => i.checked).map((i) => i.attrs.value), ['ticker']);
+  assert.deepEqual(themeInputs(page).filter((i) => i.checked).map((i) => i.attrs.value), ['pixel'], 'the other overlay keeps its own');
+  assert.notEqual(inputs[0].attrs.name, themeInputs(page)[0].attrs.name, 'two groups of radio buttons');
+
+  page.click(page.elements['copy-chat-overlay']);
+  assert.equal(page.log.clipboard, 'http://localhost:8787/overlay/chat/?token=tok%20en');
+
+  const updated = snapshot();
+  updated.settings.overlay = { mediashare: { theme: 'pixel' }, chat: { theme: 'catatan' } };
+  page.table['PATCH /api/overlay/chat'] = { status: 200, body: updated };
+  inputs.find((i) => i.attrs.value === 'catatan').fire('change');
+  await settle();
+  const patch = page.log.requests.find((r) => r.path === '/api/overlay/chat');
+  assert.equal(patch.method, 'PATCH');
+  assert.deepEqual(patch.body, { theme: 'catatan' });
+  assert.deepEqual(chatThemeInputs(page).filter((i) => i.checked).map((i) => i.attrs.value), ['catatan']);
+  assert.ok(!page.log.requests.some((r) => r.path === '/api/overlay/mediashare'));
+});
+
 // --- what the viewer wrote after the link ---
 
 test('a viewer\'s message is shown as plain text in the waiting list, on the playing card and in the requests', async () => {

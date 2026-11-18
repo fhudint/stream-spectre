@@ -203,6 +203,14 @@ page (see below): a live has a new link each time.
    `theme=pixel` (any look's name) to its address, after a `?` or a `&`.
    A tall source (for example 9:16) suits TikTok videos; the video takes
    whatever room the card leaves.
+6. Optional, the chat on stream: add a second Browser source with
+   `http://localhost:8787/overlay/chat/` (360 x 640 suits most looks; the bar
+   look, Ticker, wants a source as wide as the scene). It shows the chat of every
+   source being read, YouTube and TikTok together, with a badge for subscribers
+   and moderators; a line that is a video command also says it is a video
+   request. Twelve looks (the ten above, Ticker and Notes), chosen on the
+   Overlay page like the first one's. It shows the chat the program remembers
+   (the **Settings** page) when OBS reloads it, so with 0 there it starts empty.
 
 Open <http://localhost:8787/dashboard/> in a normal browser (for you or your
 moderators) to approve, reject and skip requests, and to change the settings
@@ -446,5 +454,6 @@ The dashboard includes the fonts Inter and Fira Code (latin subsets), under the
 SIL Open Font License 1.1. Their license texts are in
 [`static/dashboard/fonts/`](static/dashboard/fonts/). The overlay's looks include
 Space Mono, Archivo Black, IBM Plex Mono, Fredoka, Press Start 2P, Bangers, Comic
-Neue, Courier Prime and Instrument Serif (latin subsets), under the same license;
+Neue, Courier Prime, Instrument Serif, Inter, Fira Code, Barlow Condensed and Caveat (latin
+subsets), under the same license;
 the texts are in [`static/overlay/shared/fonts/OFL.txt`](static/overlay/shared/fonts/OFL.txt).

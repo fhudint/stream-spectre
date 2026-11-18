@@ -656,9 +656,10 @@
   /* The overlay's address to give to OBS. A loopback IP is turned into
    * `localhost`: YouTube's player refuses every video on a page opened by an
    * IP address. The token, when there is one, goes in the query. */
-  function overlayUrl(protocol, host, token) {
+  function overlayUrl(protocol, host, token, overlay) {
     var shown = String(host).replace(/^(127\.0\.0\.1|\[::1\])(?=:|$)/, 'localhost');
-    return protocol + '//' + shown + '/overlay/mediashare/' + (token ? '?token=' + encodeURIComponent(token) : '');
+    var name = overlay === 'chat' ? 'chat' : 'mediashare';
+    return protocol + '//' + shown + '/overlay/' + name + '/' + (token ? '?token=' + encodeURIComponent(token) : '');
   }
 
   /* The looks of the overlay, as the server names them. */
@@ -672,11 +673,21 @@
     return source === 'youtube' && YOUTUBE_ROLES.indexOf(role) >= 0 ? 'role.youtube.' + role : 'role.' + role;
   }
 
+  /* The chat overlay has two more looks than the mediashare one. */
+  var CHAT_THEMES = OVERLAY_THEMES.concat(['ticker', 'catatan']);
+
   /* The look the settings say the mediashare overlay has; the first when they say none. */
   function overlayTheme(settings) {
     var look = settings && settings.overlay && settings.overlay.mediashare;
     var name = look && look.theme;
     return OVERLAY_THEMES.indexOf(name) >= 0 ? name : OVERLAY_THEMES[0];
+  }
+
+  /* The same for the chat overlay. */
+  function chatTheme(settings) {
+    var look = settings && settings.overlay && settings.overlay.chat;
+    var name = look && look.theme;
+    return CHAT_THEMES.indexOf(name) >= 0 ? name : CHAT_THEMES[0];
   }
 
   /* The tab an address like '#account/youtube-chat' opens: the profile when it
@@ -868,6 +879,8 @@
     overlayUrl: overlayUrl,
     OVERLAY_THEMES: OVERLAY_THEMES,
     overlayTheme: overlayTheme,
+    CHAT_THEMES: CHAT_THEMES,
+    chatTheme: chatTheme,
     ACCOUNT_TABS: ACCOUNT_TABS,
     AVATAR_SIZE: AVATAR_SIZE,
     MAX_DISPLAY_NAME: MAX_DISPLAY_NAME,

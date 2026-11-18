@@ -165,6 +165,10 @@
   "dashboard.overlay.theme.garis": "Outline",
   "dashboard.overlay.theme.struk": "Receipt",
   "dashboard.overlay.theme.pesan": "Messages",
+  "dashboard.overlay.theme.ticker": "Ticker",
+  "dashboard.overlay.theme.catatan": "Notes",
+  "dashboard.overlay.chat": "Chat",
+  "dashboard.overlay.chat_hint": "Add this address in OBS as a Browser source of 360 x 640. For the Ticker bar make the source as wide as the scene. It shows the chat of every source that is being read.",
   "dashboard.tiktok.title": "TikTok chat",
   "dashboard.tiktok.username": "TikTok username (without @)",
   "dashboard.tiktok.hint": "The program reads the live chat of this account and follows a change at once, without a restart. Leave it empty to stop reading chat.",
@@ -269,5 +273,15 @@
   "overlay.left": "{time} left",
   "overlay.label.from": "From",
   "overlay.label.role": "Status",
-  "overlay.label.time": "Played"
+  "overlay.label.time": "Played",
+  "overlay.chat.title": "Live chat",
+  "overlay.chat.paper": "Conversation",
+  "overlay.chat.live": "live",
+  "overlay.chat.name": "Chat",
+  "overlay.chat.receipt": "CHAT RECEIPT",
+  "overlay.chat.thanks": "THANKS FOR CHATTING",
+  "overlay.chat.command": "Video request",
+  "overlay.chat.badge.subscriber": "Sub",
+  "overlay.chat.badge.member": "Member",
+  "overlay.chat.badge.moderator": "Mod"
 }

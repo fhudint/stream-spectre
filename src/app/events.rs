@@ -10,8 +10,8 @@ use serde::{Deserialize, Serialize};
 use super::history::HistoryEntry;
 use crate::chat::{ChatStatus, Role};
 use crate::config::{
-    BlacklistConfig, ChatSourceKind, CommandConfig, CommandSource, DashboardConfig, Language,
-    MediashareTheme, ModerationConfig, OverlayConfig, TiktokConfig, YoutubeChatConfig,
+    BlacklistConfig, ChatSourceKind, ChatTheme, CommandConfig, CommandSource, DashboardConfig,
+    Language, MediashareTheme, ModerationConfig, OverlayConfig, TiktokConfig, YoutubeChatConfig,
 };
 use crate::queue::{Media, QueueItem, QueueSnapshot};
 
@@ -244,6 +244,20 @@ impl Hello {
         self.stats = StatsView::default();
         self
     }
+
+    /// The version sent to the chat overlay: the look it has and the chat
+    /// lines it may show. Nothing about the queue, the requests, the settings
+    /// of the moderation or the dashboard.
+    pub fn for_chat(mut self) -> Self {
+        self = self.for_mediashare();
+        self.queue.now_playing = None;
+        self.volume = 0;
+        self.playback_paused = false;
+        self.settings.moderation = ModerationConfig::default();
+        self.settings.command = CommandConfig::default();
+        self.settings.chat = ChatSettingsView::default();
+        self
+    }
 }
 
 /// The overlays there are.
@@ -251,6 +265,15 @@ impl Hello {
 #[serde(rename_all = "snake_case")]
 pub enum OverlayKind {
     Mediashare,
+    Chat,
+}
+
+/// The look of an overlay, by the name its page knows (`"pixel"`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(untagged)]
+pub enum ThemeName {
+    Mediashare(MediashareTheme),
+    Chat(ChatTheme),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -297,7 +320,7 @@ pub enum Event {
     /// The look of an overlay changed (that overlay and the dashboard).
     OverlayTheme {
         overlay: OverlayKind,
-        theme: MediashareTheme,
+        theme: ThemeName,
     },
     /// A message for the moderators, in the configured language.
     Notice {

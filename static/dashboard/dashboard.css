@@ -717,6 +717,8 @@ input[type='text'].short { max-width: 120px; }
 .theme[data-theme='garis'] { --sw-bg: #5a5f68; --sw-ink: #fff; --sw-accent: #fff; }
 .theme[data-theme='struk'] { --sw-bg: #fffdf6; --sw-ink: #1d1d1b; --sw-accent: #1d1d1b; }
 .theme[data-theme='pesan'] { --sw-bg: #0f1112; --sw-ink: #fff; --sw-accent: #3ddc84; }
+.theme[data-theme='ticker'] { --sw-bg: #111214; --sw-ink: #fff; --sw-accent: #e63946; }
+.theme[data-theme='catatan'] { --sw-bg: #ffe9b0; --sw-ink: #3b2f1e; --sw-accent: #3b2f1e; }
 
 /* --- phones and narrow windows --- */
 

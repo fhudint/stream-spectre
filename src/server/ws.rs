@@ -15,7 +15,7 @@ use axum::response::{IntoResponse, Response};
 use tokio::sync::broadcast::error::RecvError;
 
 use super::ServerState;
-use crate::app::{Envelope, Event, OverlayMessage, PROTOCOL_VERSION, unix_ms};
+use crate::app::{Envelope, Event, OverlayKind, OverlayMessage, PROTOCOL_VERSION, unix_ms};
 use crate::queue::ItemId;
 use crate::youtube::VideoSource;
 
@@ -35,6 +35,7 @@ const SEND_TIMEOUT: Duration = Duration::from_secs(10);
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Kind {
     Mediashare,
+    Chat,
     Dashboard,
 }
 
@@ -49,8 +50,19 @@ impl Kind {
                     | Event::Skip { .. }
                     | Event::Stop {}
                     | Event::Volume { .. }
-                    | Event::OverlayTheme { .. }
+                    | Event::OverlayTheme {
+                        overlay: OverlayKind::Mediashare,
+                        ..
+                    }
                     | Event::PlaybackPaused { .. }
+            ),
+            Self::Chat => matches!(
+                event,
+                Event::ChatMessage(_)
+                    | Event::OverlayTheme {
+                        overlay: OverlayKind::Chat,
+                        ..
+                    }
             ),
         }
     }
@@ -82,6 +94,13 @@ pub async fn mediashare<S: VideoSource + 'static>(
     upgrade: WebSocketUpgrade,
 ) -> Response {
     accept(state, upgrade, Kind::Mediashare)
+}
+
+pub async fn chat<S: VideoSource + 'static>(
+    State(state): State<ServerState<S>>,
+    upgrade: WebSocketUpgrade,
+) -> Response {
+    accept(state, upgrade, Kind::Chat)
 }
 
 pub async fn dashboard<S: VideoSource + 'static>(
@@ -122,6 +141,7 @@ async fn send_hello<S: VideoSource + 'static>(
     let seq = hello.seq;
     let hello = match kind {
         Kind::Mediashare => hello.for_mediashare(),
+        Kind::Chat => hello.for_chat(),
         Kind::Dashboard => hello,
     };
     let envelope = Envelope {
@@ -270,7 +290,7 @@ mod tests {
             Event::Volume { volume: 5 },
             Event::OverlayTheme {
                 overlay: crate::app::OverlayKind::Mediashare,
-                theme: crate::config::MediashareTheme::Komik,
+                theme: crate::app::ThemeName::Mediashare(crate::config::MediashareTheme::Komik),
             },
         ];
         for event in &screen {
@@ -294,6 +314,49 @@ mod tests {
             assert!(!Kind::Mediashare.wants(event), "{event:?}");
             assert!(Kind::Dashboard.wants(event));
         }
+    }
+
+    #[test]
+    fn the_chat_overlay_gets_the_chat_and_its_look_and_nothing_else() {
+        let line = crate::app::ChatLineView {
+            name: "a".to_owned(),
+            role: Role::Follower,
+            source: crate::config::ChatSourceKind::Tiktok,
+            text: "hi".to_owned(),
+            at_ms: 1,
+            command: false,
+            skipped: 0,
+        };
+        let wanted = [
+            Event::ChatMessage(line),
+            Event::OverlayTheme {
+                overlay: crate::app::OverlayKind::Chat,
+                theme: crate::app::ThemeName::Chat(crate::config::ChatTheme::Ticker),
+            },
+        ];
+        for event in &wanted {
+            assert!(Kind::Chat.wants(event), "{event:?}");
+        }
+        let unwanted = [
+            play(),
+            Event::Stop {},
+            Event::Volume { volume: 5 },
+            Event::Notice {
+                level: crate::app::NoticeLevel::Info,
+                code: "x".to_owned(),
+                text: "y".to_owned(),
+                sender: None,
+            },
+        ];
+        for event in &unwanted {
+            assert!(!Kind::Chat.wants(event), "{event:?}");
+        }
+        // Each overlay hears of its own look only.
+        let other = Event::OverlayTheme {
+            overlay: crate::app::OverlayKind::Mediashare,
+            theme: crate::app::ThemeName::Mediashare(crate::config::MediashareTheme::Pixel),
+        };
+        assert!(!Kind::Chat.wants(&other) && Kind::Mediashare.wants(&other));
     }
 
     #[test]

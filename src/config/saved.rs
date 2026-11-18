@@ -451,6 +451,7 @@ pub(crate) mod tests {
                 mediashare: MediashareConfig {
                     theme: MediashareTheme::Struk,
                 },
+                ..OverlayConfig::default()
             }),
             command: Some(changed_commands()),
             chat: Some(SavedChat {

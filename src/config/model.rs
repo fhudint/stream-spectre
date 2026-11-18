@@ -356,9 +356,36 @@ pub struct MediashareConfig {
     pub theme: MediashareTheme,
 }
 
-/// The overlays, one table each (`[overlay.mediashare]`).
+/// How the chat overlay looks (`static/overlay/chat/chat.css`); the names there
+/// must match these.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ChatTheme {
+    #[default]
+    Obsidian,
+    Kertas,
+    Brutal,
+    Terminal,
+    Permen,
+    Pixel,
+    Komik,
+    Garis,
+    Struk,
+    Pesan,
+    Ticker,
+    Catatan,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, Serialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct ChatOverlayConfig {
+    pub theme: ChatTheme,
+}
+
+/// The overlays, one table each (`[overlay.mediashare]`, `[overlay.chat]`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct OverlayConfig {
     pub mediashare: MediashareConfig,
+    pub chat: ChatOverlayConfig,
 }

@@ -64,6 +64,10 @@ pub async fn mediashare_index() -> Response {
     respond(Section::Overlay, "mediashare/index.html")
 }
 
+pub async fn chat_index() -> Response {
+    respond(Section::Overlay, "chat/index.html")
+}
+
 pub async fn overlay_file(Path(path): Path<String>) -> Response {
     respond(Section::Overlay, &path)
 }
@@ -91,6 +95,11 @@ pub async fn to_dashboard() -> Redirect {
 /// lacks the slash its own files need. The query (token, theme) goes along.
 pub async fn to_mediashare(RawQuery(query): RawQuery) -> Response {
     redirect_with_query("/overlay/mediashare/", query)
+}
+
+/// `/overlay/chat` lacks the slash its own files need.
+pub async fn to_chat(RawQuery(query): RawQuery) -> Response {
+    redirect_with_query("/overlay/chat/", query)
 }
 
 fn redirect_with_query(path: &str, query: Option<String>) -> Response {
