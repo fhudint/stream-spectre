@@ -58,6 +58,8 @@
   "dashboard.notices.empty": "Belum ada catatan",
   "dashboard.chat.title": "Chat",
   "dashboard.chat.empty": "Belum ada pesan",
+  "dashboard.chat.source.tiktok": "TikTok",
+  "dashboard.chat.source.youtube": "YouTube",
   "dashboard.chat.hint": "Chat langsung dari semua sumber yang sedang dibaca, begitu masuk.",
   "dashboard.nav.chat": "Chat",
   "dashboard.chat.commands_only": "Hanya permintaan video",

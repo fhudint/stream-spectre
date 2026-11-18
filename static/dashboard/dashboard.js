@@ -1043,6 +1043,11 @@
     main.push(h('span', { className: line.command ? 'chat-text chat-cmd' : 'chat-text', text: line.text }));
     box.appendChild(
       h('li', { className: line.command ? 'chat-line chat-command' : 'chat-line' }, [
+        // The chat it came from: an icon in the style sheet, named for screen readers.
+        h('span', {
+          className: 'chat-source source-' + line.source,
+          attrs: { role: 'img', 'aria-label': t('dashboard.chat.source.' + line.source), title: t('dashboard.chat.source.' + line.source) },
+        }),
         h('span', { className: 'chat-time', text: core.formatClock(line.at_ms) }),
         h('div', { className: 'chat-main' }, main),
       ])

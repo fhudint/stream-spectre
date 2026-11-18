@@ -849,6 +849,19 @@ test('the chat shows the history the server sends, commands marked', async () =>
   assert.ok(page.elements['chat-empty'].hidden);
 });
 
+test('each chat line says which chat it came from', async () => {
+  const log = [line('from tiktok'), line('from youtube', { source: 'youtube', role: 'everyone' }), line('old server', { source: undefined })];
+  const page = await ready({ routes: { 'GET /api/state': () => ({ status: 200, body: snapshot({ chat_log: log }) }) } });
+  const badge = (li) => descendants(li).find((n) => n.classes.has('chat-source'));
+  const items = chatItems(page);
+  assert.deepEqual(items.map((li) => badge(li).attrs['aria-label']), ['TikTok', 'YouTube', 'TikTok'], 'a line with no source is from before there were two');
+  assert.equal(items[0].children[0], badge(items[0]), 'the icon is the first thing in the line, at its left');
+  assert.equal(badge(items[1]).attrs.role, 'img');
+  assert.ok(badge(items[1]).classes.has('source-youtube') && badge(items[0]).classes.has('source-tiktok'));
+  page.socket().receive(envelope(6, 'chat_message', line('live one', { source: 'youtube' })));
+  assert.equal(badge(chatItems(page).at(-1)).attrs['aria-label'], 'YouTube');
+});
+
 test('an empty chat says so', async () => {
   const page = await ready();
   assert.equal(chatItems(page).length, 0);
@@ -1452,6 +1465,8 @@ test('the style sheet loads its fonts from this server only', () => {
   const urls = [...css.matchAll(/url\(([^)]+)\)/g)].map((m) => m[1].replace(/['"]/g, ''));
   assert.ok(urls.length >= 2);
   for (const url of urls) {
+    // The chat icons are small SVG pictures inlined in the sheet; nothing is fetched.
+    if (/^data:image\/svg\+xml,%3Csvg /.test(url)) continue;
     assert.match(url, /^fonts\/[a-z0-9-]+\.woff2$/);
     assert.ok(fs.existsSync(path.join(root, 'static/dashboard', url)), `${url} is missing`);
   }

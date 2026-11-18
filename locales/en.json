@@ -58,6 +58,8 @@
   "dashboard.notices.empty": "No notices yet",
   "dashboard.chat.title": "Chat",
   "dashboard.chat.empty": "No messages yet",
+  "dashboard.chat.source.tiktok": "TikTok",
+  "dashboard.chat.source.youtube": "YouTube",
   "dashboard.chat.hint": "The live chat of every source that is being read, as it comes in.",
   "dashboard.nav.chat": "Chat",
   "dashboard.chat.commands_only": "Only video requests",
