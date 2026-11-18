@@ -360,7 +360,9 @@ async fn main() -> anyhow::Result<()> {
         None,
         token.is_some(),
     ));
-    server::serve(listener, pipeline, credentials, token, stopped).await?;
+    // The demo asks nobody about newer versions.
+    let updates = Arc::new(stream_spectre::update::Updates::new(false)?);
+    server::serve(listener, pipeline, credentials, updates, token, stopped).await?;
     let _ = feeder.await;
     Ok(())
 }

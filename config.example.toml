@@ -26,6 +26,11 @@
 [general]
 # Language of the dashboard and overlay: "id" or "en".
 language = "en"
+# Look on GitHub for a newer version when the program starts and then once a day,
+# and say so in the dashboard. Only the program's name and version are sent (as
+# any browser would send its own); nothing is installed by itself. The "Check for
+# updates" button on the Settings page works whatever this says.
+check_updates = true
 
 [server]
 # Address for the dashboard and the OBS overlay. Keep 127.0.0.1 unless you need

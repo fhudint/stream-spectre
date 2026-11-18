@@ -17,6 +17,7 @@ use crate::chat::{tiktok_source, youtube_source};
 use crate::config::{ChatSourceKind, KeySource, Loaded};
 use crate::i18n::I18n;
 use crate::server;
+use crate::update::Updates;
 use crate::youtube::YoutubeClient;
 
 /// Runs the whole program for `loaded` until `shutdown` completes: the server,
@@ -105,6 +106,14 @@ pub async fn serve(
 
     let (stop, stopped) = watch::channel(false);
 
+    // Looks for a newer version now and then (unless switched off).
+    let updates = Arc::new(Updates::new(config.general.check_updates)?);
+    let update_check = {
+        let updates = Arc::clone(&updates);
+        let stopped = stopped.clone();
+        tokio::spawn(async move { updates.run(stopped).await })
+    };
+
     // One reading loop for each chat source; each waits by itself until it
     // has something to read.
     let tiktok_chat = {
@@ -153,10 +162,12 @@ pub async fn serve(
         listener,
         pipeline,
         credentials,
+        updates,
         secrets.dashboard_token.clone(),
         stopped,
     )
     .await?;
+    let _ = update_check.await;
     let _ = tiktok_chat.await;
     let _ = youtube_chat.await;
     // Writes any change that was still waiting to be saved.

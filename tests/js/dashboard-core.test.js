@@ -862,3 +862,19 @@ test('the two chat overlays have their own addresses and their own looks', () =>
   }
   assert.deepEqual(core.OVERLAY_TABS, ['mediashare', 'chat-panel', 'chat-float']);
 });
+
+test('what the server says about updates is read, and only this project\'s links are taken', () => {
+  const link = 'https://github.com/fhudint/stream-spectre/releases/tag/v0.2.0';
+  assert.deepEqual(
+    core.updateOf({ current: '0.1.0', enabled: true, checked: true, latest: { version: '0.2.0', url: link } }),
+    { current: '0.1.0', enabled: true, checked: true, latest: { version: '0.2.0', url: link } }
+  );
+  assert.deepEqual(core.updateOf({ current: '0.1.0', enabled: false, checked: false, latest: null }), {
+    current: '0.1.0', enabled: false, checked: false, latest: null,
+  });
+  for (const url of ['https://evil.example/fhudint/stream-spectre/', 'http://github.com/fhudint/stream-spectre/x', 'javascript:alert(1)', 'https://github.com/other/repo/', 5, null]) {
+    assert.equal(core.updateOf({ current: '0.1.0', latest: { version: '9', url } }).latest, null, String(url));
+  }
+  assert.equal(core.updateOf({ current: '0.1.0', latest: { version: 9, url: link } }).latest, null);
+  for (const bad of [null, undefined, 'x', [], {}, { current: 1 }]) assert.equal(core.updateOf(bad), null, JSON.stringify(bad));
+});

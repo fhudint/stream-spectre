@@ -1602,6 +1602,47 @@
     });
   });
 
+  // --- a newer version ---
+
+  var updateState = null; // what /api/update said, as core.updateOf reads it
+
+  function renderUpdate() {
+    var latest = updateState && updateState.latest;
+    $('update-banner').classList[latest ? 'remove' : 'add']('hidden');
+    $('update-text').textContent = latest ? tf('dashboard.update.available', { version: latest.version }) : '';
+    if (latest) $('update-link').setAttribute('href', latest.url);
+    $('update-version').textContent = updateState
+      ? tf('dashboard.update.current', { version: updateState.current })
+      : '';
+    $('update-off').classList[updateState && !updateState.enabled ? 'remove' : 'add']('hidden');
+  }
+
+  function loadUpdate() {
+    return api('GET', '/api/update').then(function (result) {
+      if (!result.ok) return;
+      updateState = core.updateOf(result.data) || updateState;
+      renderUpdate();
+    });
+  }
+
+  $('update-check').addEventListener('click', function () {
+    var status = $('update-status');
+    status.textContent = t('dashboard.update.checking');
+    api('POST', '/api/update/check').then(function (result) {
+      var read = result.ok ? core.updateOf(result.data) : null;
+      if (!read) {
+        status.textContent = result.status === 401 ? '' : t('dashboard.update.failed');
+        if (result.status === 401) showLogin(false);
+        return;
+      }
+      updateState = read;
+      renderUpdate();
+      status.textContent = read.latest
+        ? tf('dashboard.update.available', { version: read.latest.version })
+        : t('dashboard.update.up_to_date');
+    });
+  });
+
   // --- the account menu and page ---
 
   function openMenu() {
@@ -1912,6 +1953,7 @@
         showView(core.parseView(location.hash), false, core.parseSection(location.hash));
         setPane(pane);
         render();
+        loadUpdate();
         if (!started) {
           started = true;
           connect();

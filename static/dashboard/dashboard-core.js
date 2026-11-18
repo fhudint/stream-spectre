@@ -760,6 +760,22 @@
     return CHAT_FLOAT_THEMES.indexOf(name) >= 0 ? name : CHAT_FLOAT_THEMES[0];
   }
 
+  /* What /api/update says, in the shape the page uses; null for anything else.
+   * The link comes from the network: only one of this project's pages on GitHub
+   * is taken. */
+  function updateOf(data) {
+    if (!isObject(data) || typeof data.current !== 'string') return null;
+    var latest = data.latest;
+    var found =
+      isObject(latest) &&
+      typeof latest.version === 'string' &&
+      typeof latest.url === 'string' &&
+      /^https:\/\/github\.com\/fhudint\/stream-spectre\//.test(latest.url)
+        ? { version: latest.version, url: latest.url }
+        : null;
+    return { current: data.current, enabled: data.enabled !== false, checked: data.checked === true, latest: found };
+  }
+
   /* The tab an address like '#account/youtube-chat' opens: the profile when it
    * names none. */
   function accountTab(hash) {
@@ -981,6 +997,7 @@
     RULES_TABS: RULES_TABS,
     OVERLAY_TABS: OVERLAY_TABS,
     ACCOUNT_TABS: ACCOUNT_TABS,
+    updateOf: updateOf,
     AVATAR_SIZE: AVATAR_SIZE,
     MAX_DISPLAY_NAME: MAX_DISPLAY_NAME,
     accountTab: accountTab,

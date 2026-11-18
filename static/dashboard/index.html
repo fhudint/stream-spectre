@@ -104,6 +104,10 @@
 
     <p id="error" class="banner banner-error hidden" role="alert"></p>
     <p id="flash" class="banner banner-ok hidden" role="status"></p>
+    <p id="update-banner" class="banner banner-ok hidden" role="status">
+      <span id="update-text"></span>
+      <a id="update-link" class="link" target="_blank" rel="noopener noreferrer" data-i18n="dashboard.update.download"></a>
+    </p>
 
     <main>
       <section id="view-queue" class="view queue-view" data-pane="queue">
@@ -341,6 +345,17 @@
               <button type="submit" class="primary" data-i18n="dashboard.chat.history_save"></button>
             </div>
           </form>
+        </div>
+        <div class="card page-card">
+          <div class="form">
+            <h2 data-i18n="dashboard.update.title"></h2>
+            <p id="update-version" class="muted"></p>
+            <p id="update-off" class="muted small hidden" data-i18n="dashboard.update.off"></p>
+            <div class="actions">
+              <button id="update-check" type="button" data-i18n="dashboard.update.check"></button>
+            </div>
+            <p id="update-status" class="status-line" role="status"></p>
+          </div>
         </div>
       </section>
     </main>

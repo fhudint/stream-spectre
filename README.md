@@ -85,6 +85,16 @@ program `stream-spectre` is installed beside it.
 
 `SHA256SUMS` lists the checksum of each file.
 
+**Updates.** The program looks on this project's GitHub page for a newer version
+when it starts and then once a day, and says so in the dashboard (a banner with a
+link; the window opens the link in your browser). The **Settings** page has a
+**Check for updates** button too. Nothing is installed by itself: you get the
+new installer, or update through `apt` or `dnf`. A release candidate is told of
+newer candidates and of the release; a stable version is never sent to a
+candidate. The request is the one a browser makes for the releases page, and
+sends only the program's name and version; `check_updates = false` in
+`config.toml` turns the daily check off (the button still works).
+
 **They are not signed.** There is no certificate behind them yet, so Windows
 SmartScreen says "Windows protected your PC" (More info, then Run anyway) and
 macOS says the app cannot be checked (right-click the app, Open, then Open

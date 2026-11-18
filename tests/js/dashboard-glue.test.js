@@ -2544,6 +2544,70 @@ test('the server refusing a look is shown and the choice stays where it was', as
   assert.match(page.elements.error.textContent, /unknown variant/);
 });
 
+// --- a newer version ---
+
+const RELEASE = 'https://github.com/fhudint/stream-spectre/releases/tag/v0.2.0';
+const updateBody = (extra = {}) => ({ current: '0.1.0-rc1', enabled: true, checked: true, latest: null, ...extra });
+
+test('a newer version is shown in a banner with a link, and nothing when there is none', async () => {
+  const none = await ready({ routes: { 'GET /api/update': () => ({ status: 200, body: updateBody() }) } });
+  await settle();
+  assert.ok(none.elements['update-banner'].hidden);
+  assert.equal(none.elements['update-version'].textContent, 'You have version 0.1.0-rc1.');
+  assert.ok(none.elements['update-off'].hidden);
+
+  const found = await ready({
+    routes: { 'GET /api/update': () => ({ status: 200, body: updateBody({ latest: { version: '0.2.0', url: RELEASE } }) }) },
+  });
+  await settle();
+  assert.ok(!found.elements['update-banner'].hidden);
+  assert.equal(found.elements['update-text'].textContent, 'Version 0.2.0 is available.');
+  assert.equal(found.elements['update-link'].attrs.href, RELEASE);
+  assert.equal(found.elements['update-link'].attrs.target, undefined, 'set in the markup, not by the script');
+  assert.match(html, /id="update-link"[^>]*target="_blank"[^>]*rel="noopener noreferrer"/);
+});
+
+test('a link that is not this project\'s is not shown, and a server without the endpoint is fine', async () => {
+  const evil = await ready({
+    routes: { 'GET /api/update': () => ({ status: 200, body: updateBody({ latest: { version: '9.9.9', url: 'https://evil.example/x' } }) }) },
+  });
+  await settle();
+  assert.ok(evil.elements['update-banner'].hidden);
+  const old = await ready({ routes: { 'GET /api/update': () => ({ status: 404, body: { error: 'x' } }) } });
+  await settle();
+  assert.ok(old.elements['update-banner'].hidden);
+  assert.equal(old.elements['update-version'].textContent, '');
+});
+
+test('when the automatic check is off the page says so', async () => {
+  const page = await ready({ routes: { 'GET /api/update': () => ({ status: 200, body: updateBody({ enabled: false, checked: false }) }) } });
+  await settle();
+  assert.ok(!page.elements['update-off'].hidden);
+});
+
+test('the button asks now and says what it found, newer version, none, or no answer', async () => {
+  const page = await ready({ routes: { 'GET /api/update': () => ({ status: 200, body: updateBody() }) } });
+  await settle();
+
+  page.table['POST /api/update/check'] = { status: 200, body: updateBody({ latest: { version: '0.2.0', url: RELEASE } }) };
+  page.click(page.elements['update-check']);
+  await settle();
+  assert.equal(page.elements['update-status'].textContent, 'Version 0.2.0 is available.');
+  assert.ok(!page.elements['update-banner'].hidden, 'the banner follows');
+
+  page.table['POST /api/update/check'] = { status: 200, body: updateBody() };
+  page.click(page.elements['update-check']);
+  await settle();
+  assert.equal(page.elements['update-status'].textContent, 'You have the latest version.');
+  assert.ok(page.elements['update-banner'].hidden);
+
+  page.table['POST /api/update/check'] = { status: 502, body: { error: 'cannot ask GitHub', code: 'update_unavailable' } };
+  page.click(page.elements['update-check']);
+  await settle();
+  assert.equal(page.elements['update-status'].textContent, 'Could not check. Is this computer online?');
+  assert.equal(page.log.requests.filter((r) => r.method === 'POST' && r.path === '/api/update/check').length, 3);
+});
+
 // --- the looks of the two chat overlays ---
 
 const pickerInputs = (page, box) => descendants(page.elements[box]).filter((n) => n.tag === 'input');

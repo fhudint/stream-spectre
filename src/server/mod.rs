@@ -32,6 +32,7 @@ use tokio::sync::watch;
 
 use crate::app::{Credentials, Pipeline};
 use crate::config::Secret;
+use crate::update::Updates;
 use crate::youtube::VideoSource;
 
 pub use guard::Guard;
@@ -64,6 +65,7 @@ pub struct ServerState<S> {
     pub(crate) credentials: Arc<Credentials>,
     pub(crate) shutdown: watch::Receiver<bool>,
     pub(crate) connections: Arc<AtomicUsize>,
+    pub(crate) updates: Arc<Updates>,
 }
 
 impl<S> Clone for ServerState<S> {
@@ -73,6 +75,7 @@ impl<S> Clone for ServerState<S> {
             credentials: Arc::clone(&self.credentials),
             shutdown: self.shutdown.clone(),
             connections: Arc::clone(&self.connections),
+            updates: Arc::clone(&self.updates),
         }
     }
 }
@@ -117,6 +120,8 @@ pub fn router<S: VideoSource + 'static>(state: ServerState<S>, guard: Arc<Guard>
         .route("/api/chat/tiktok", patch(api::tiktok::<S>))
         .route("/api/chat/youtube", patch(api::youtube_chat::<S>))
         .route("/api/chat/connection", put(api::chat_connection::<S>))
+        .route("/api/update", get(api::update_status::<S>))
+        .route("/api/update/check", post(api::update_check::<S>))
         .route("/api/account", get(api::account::<S>))
         .route(
             "/api/account/youtube-key",
@@ -135,6 +140,7 @@ pub async fn serve<S: VideoSource + 'static>(
     listener: TcpListener,
     pipeline: Arc<Pipeline<S>>,
     credentials: Arc<Credentials>,
+    updates: Arc<Updates>,
     token: Option<Secret>,
     shutdown: watch::Receiver<bool>,
 ) -> io::Result<()> {
@@ -145,6 +151,7 @@ pub async fn serve<S: VideoSource + 'static>(
         credentials,
         shutdown: shutdown.clone(),
         connections: Arc::new(AtomicUsize::new(0)),
+        updates,
     };
     let app = router(state, guard);
 
@@ -303,6 +310,8 @@ mod tests {
             listener,
             Arc::clone(&pipeline),
             Arc::clone(&credentials),
+            // Never asks anyone: a test must not reach the network.
+            Arc::new(Updates::with_url(false, "http://127.0.0.1:9/").unwrap()),
             token.map(Secret::new),
             rx,
         ));
@@ -925,6 +934,72 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn the_update_state_is_served_and_a_check_that_cannot_reach_github_is_a_502() {
+        let server = start(None).await;
+        let state: Value = server
+            .http
+            .get(server.url("/api/update"))
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        assert_eq!(state["current"], crate::APP_VERSION);
+        assert_eq!(state["enabled"], false);
+        assert_eq!(state["checked"], false);
+        assert!(state["latest"].is_null());
+
+        // The test server's checker points at a closed port.
+        let refused = server
+            .http
+            .post(server.url("/api/update/check"))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(refused.status(), 502);
+        let body: Value = refused.json().await.unwrap();
+        assert_eq!(body["code"], "update_unavailable");
+    }
+
+    #[tokio::test]
+    async fn a_check_that_finds_a_newer_version_is_answered_with_it() {
+        use axum::extract::State;
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let github = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}/releases", github.local_addr().unwrap());
+        tokio::spawn(async move {
+            let (mut socket, _) = github.accept().await.unwrap();
+            let _ = socket.read(&mut [0u8; 2048]).await;
+            let body = r#"[{"tag_name":"v99.0.0","html_url":"https://github.com/fhudint/stream-spectre/releases/tag/v99.0.0","prerelease":false,"draft":false}]"#;
+            let head = format!(
+                "HTTP/1.1 200 OK\r\ncontent-length: {}\r\nconnection: close\r\n\r\n",
+                body.len()
+            );
+            socket.write_all(head.as_bytes()).await.unwrap();
+            socket.write_all(body.as_bytes()).await.unwrap();
+        });
+        let server = start(None).await;
+        let state = ServerState {
+            pipeline: Arc::clone(&server.pipeline),
+            credentials: Arc::clone(&server.credentials),
+            shutdown: server.stop.subscribe(),
+            connections: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+            updates: Arc::new(Updates::with_url(true, &url).unwrap()),
+        };
+        let answer = api::update_check(State(state.clone())).await.unwrap();
+        assert_eq!(answer.0["latest"]["version"], "99.0.0");
+        assert_eq!(
+            answer.0["latest"]["url"],
+            "https://github.com/fhudint/stream-spectre/releases/tag/v99.0.0"
+        );
+        assert_eq!(answer.0["checked"], true);
+        let again = api::update_status(State(state)).await;
+        assert_eq!(again.0, answer.0, "kept until the next check");
+    }
+
+    #[tokio::test]
     async fn a_connection_from_the_network_may_look_but_not_change() {
         use axum::extract::{ConnectInfo, State};
         use axum::response::IntoResponse;
@@ -935,6 +1010,7 @@ mod tests {
             credentials: Arc::clone(&server.credentials),
             shutdown: server.stop.subscribe(),
             connections: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+            updates: Arc::new(Updates::with_url(false, "http://127.0.0.1:9/").unwrap()),
         };
         let lan: SocketAddr = "192.168.1.5:50000".parse().unwrap();
 

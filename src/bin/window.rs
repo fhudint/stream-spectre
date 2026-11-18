@@ -173,7 +173,14 @@ fn start(loaded: config::Loaded) -> anyhow::Result<()> {
     .with_navigation_handler(move |url| {
         url.starts_with(&origin) || url.starts_with("data:") || url.starts_with("about:")
     })
-    .with_new_window_req_handler(|_, _| wry::NewWindowResponse::Deny);
+    // The one link the dashboard has that leads away (to a new version) opens in
+    // the browser of the system; any other new window is refused.
+    .with_new_window_req_handler(|url, _| {
+        if may_open_in_browser(&url) {
+            open_in_browser(&url);
+        }
+        wry::NewWindowResponse::Deny
+    });
 
     let _webview = attach(builder, &window)?;
 
@@ -215,6 +222,27 @@ fn start(loaded: config::Loaded) -> anyhow::Result<()> {
             _ => {}
         }
     })
+}
+
+/// Only this project's own pages on GitHub are handed to the system.
+fn may_open_in_browser(url: &str) -> bool {
+    url.starts_with("https://github.com/fhudint/stream-spectre/")
+        && !url.chars().any(|c| c.is_control() || c.is_whitespace())
+}
+
+/// Opens `url` in the default browser. Failing is not worth stopping for.
+fn open_in_browser(url: &str) {
+    #[cfg(target_os = "windows")]
+    let result = std::process::Command::new("rundll32")
+        .args(["url.dll,FileProtocolHandler", url])
+        .spawn();
+    #[cfg(target_os = "macos")]
+    let result = std::process::Command::new("open").arg(url).spawn();
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+    let result = std::process::Command::new("xdg-open").arg(url).spawn();
+    if let Err(error) = result {
+        tracing::warn!(%error, "cannot open the link in a browser");
+    }
 }
 
 /// Runs the program until `stop_requested` fires (the window was closed) or the
@@ -284,6 +312,26 @@ mod tests {
 
     fn address() -> SocketAddr {
         ([127, 0, 0, 1], 8787).into()
+    }
+
+    #[test]
+    fn only_this_projects_github_pages_are_opened_in_the_browser() {
+        assert!(may_open_in_browser(
+            "https://github.com/fhudint/stream-spectre/releases/tag/v0.2.0"
+        ));
+        for url in [
+            "http://github.com/fhudint/stream-spectre/",
+            "https://github.com/fhudint/stream-spectre-evil/",
+            "https://github.com/someone/else/",
+            "https://evil.example/https://github.com/fhudint/stream-spectre/",
+            "file:///etc/passwd",
+            "javascript:alert(1)",
+            "https://github.com/fhudint/stream-spectre/ --flag",
+            "https://github.com/fhudint/stream-spectre/\nx",
+            "",
+        ] {
+            assert!(!may_open_in_browser(url), "{url:?}");
+        }
     }
 
     #[test]

@@ -15,6 +15,7 @@ pub mod run;
 pub mod server;
 pub mod text;
 pub mod tiktok;
+pub mod update;
 pub mod youtube;
 
 /// Application name, taken from `Cargo.toml`.

@@ -256,6 +256,15 @@ mod tests {
     }
 
     #[test]
+    fn looking_for_updates_is_on_unless_it_is_switched_off() {
+        assert!(parse_str(USER).unwrap().general.check_updates);
+        assert!(GeneralConfig::default().check_updates);
+        let off = parse_str(&format!("{USER}\n[general]\ncheck_updates = false\n")).unwrap();
+        assert!(!off.general.check_updates);
+        assert!(parse_str("[general]\ncheck_updates = \"no\"").is_err());
+    }
+
+    #[test]
     fn a_first_run_writes_the_default_config_and_starts_with_it() {
         let user = test_temp_dir("first-run");
         let loaded = load_in(

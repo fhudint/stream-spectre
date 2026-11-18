@@ -302,6 +302,41 @@ fn account_body(view: &AccountView, peer: SocketAddr) -> Value {
     body
 }
 
+fn update_body(status: &crate::update::Status) -> Value {
+    json!({
+        "current": status.current,
+        "enabled": status.enabled,
+        "checked": status.checked,
+        "latest": status.latest.as_ref().map(|update| json!({
+            "version": update.version,
+            "url": update.url,
+        })),
+    })
+}
+
+/// `GET /api/update`: the version this is, and the newer one found, if any.
+pub async fn update_status<S: VideoSource + 'static>(
+    State(state): State<ServerState<S>>,
+) -> Json<Value> {
+    Json(update_body(&state.updates.status()))
+}
+
+/// `POST /api/update/check`: asks GitHub now (the button on the Settings
+/// page) and answers like `GET /api/update`. `502` when GitHub cannot be
+/// reached or does not answer as expected.
+pub async fn update_check<S: VideoSource + 'static>(
+    State(state): State<ServerState<S>>,
+) -> ApiResult<Json<Value>> {
+    match state.updates.check().await {
+        Ok(status) => Ok(Json(update_body(&status))),
+        Err(error) => {
+            tracing::debug!(%error, "could not check for a newer version");
+            Err(ApiError::new(StatusCode::BAD_GATEWAY, error.to_string())
+                .coded("update_unavailable"))
+        }
+    }
+}
+
 /// `GET /api/account`: what is set (never the secrets themselves), and
 /// whether this connection may change it.
 pub async fn account<S: VideoSource + 'static>(

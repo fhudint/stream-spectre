@@ -28,10 +28,22 @@ pub enum Language {
     En,
 }
 
-#[derive(Debug, Clone, PartialEq, Default, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct GeneralConfig {
     pub language: Language,
+    /// Look on GitHub for a newer version when the program starts and then once
+    /// a day, and say so in the dashboard. Nothing is installed by itself.
+    pub check_updates: bool,
+}
+
+impl Default for GeneralConfig {
+    fn default() -> Self {
+        Self {
+            language: Language::default(),
+            check_updates: true,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
