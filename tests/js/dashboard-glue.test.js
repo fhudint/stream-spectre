@@ -1020,7 +1020,7 @@ test('every text the page uses exists in both languages', () => {
 
 // --- the pages of the menu ---
 
-const MENU_VIEWS = ['queue', 'requests', 'blacklist', 'rules', 'overlay', 'settings'];
+const MENU_VIEWS = ['queue', 'chat', 'requests', 'blacklist', 'rules', 'overlay', 'settings'];
 const VIEWS = [...MENU_VIEWS, 'account'];
 const shown = (page) => VIEWS.filter((v) => !page.elements[`view-${v}`].hidden);
 const current = (page, prefix) => MENU_VIEWS.filter((v) => page.elements[`${prefix}-${v}`].attrs['aria-current'] === 'page');
@@ -1058,23 +1058,42 @@ test('a token in the address is not taken for a page', async () => {
   assert.deepEqual(shown(page), ['queue']);
 });
 
-test('the phone tabs choose what the queue page shows, and both tab bars agree', async () => {
+test('the phone tabs choose between the queue and the notices on the queue page', async () => {
   const page = await ready();
-  const pressed = () => ['tab-queue', 'tab-chat', 'tab-notices', 'rail-chat', 'rail-notices']
-    .filter((id) => page.elements[id].attrs['aria-pressed'] === 'true');
+  const pressed = () => ['tab-queue', 'tab-notices'].filter((id) => page.elements[id].attrs['aria-pressed'] === 'true');
   assert.equal(page.elements['view-queue'].attrs['data-pane'], 'queue');
-  assert.deepEqual(pressed(), ['tab-queue', 'rail-chat'], 'a wide screen shows the chat beside the queue');
+  assert.deepEqual(pressed(), ['tab-queue']);
 
-  page.elements['tab-chat'].fire('click');
-  assert.equal(page.elements['view-queue'].attrs['data-pane'], 'chat');
-  assert.deepEqual(pressed(), ['tab-chat', 'rail-chat']);
-
-  page.elements['rail-notices'].fire('click');
+  page.elements['tab-notices'].fire('click');
   assert.equal(page.elements['view-queue'].attrs['data-pane'], 'notices');
-  assert.deepEqual(pressed(), ['tab-notices', 'rail-notices']);
+  assert.deepEqual(pressed(), ['tab-notices']);
 
   page.elements['tab-queue'].fire('click');
   assert.equal(page.elements['view-queue'].attrs['data-pane'], 'queue');
+});
+
+test('the chat has a page of its own, with its own menu entries, and not on the queue page', async () => {
+  const part = (id) => {
+    const start = html.indexOf(`id="${id}"`);
+    const next = html.slice(start + 10).search(/<(section|dialog) id="view-/);
+    return html.slice(start, next < 0 ? html.length : start + 10 + next);
+  };
+  assert.ok(part('view-chat').includes('id="chat-log"') && part('view-chat').includes('id="chat-commands-only"'));
+  assert.ok(!part('view-queue').includes('id="chat-log"'));
+  assert.ok(part('view-queue').includes('id="notices"'), 'the notices stay on the queue page');
+  assert.match(html, /id="nav-chat"[^>]*href="#chat"/);
+  assert.match(html, /id="bnav-chat" href="#chat"/);
+
+  const page = await ready();
+  page.go('#chat');
+  assert.deepEqual(shown(page), ['chat']);
+  assert.deepEqual(current(page, 'nav'), ['chat']);
+  assert.deepEqual(current(page, 'bnav'), ['chat']);
+  assert.ok(page.elements['chat-heading'].focused);
+  page.elements['chat-log'].scrollHeight = 900;
+  page.go('#queue');
+  page.go('#chat');
+  assert.equal(page.elements['chat-log'].scrollTop, 900, 'the newest line is shown on opening');
 });
 
 // --- the queue page: summary, counters, rules, channel ---

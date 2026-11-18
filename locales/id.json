@@ -58,6 +58,8 @@
   "dashboard.notices.empty": "Belum ada catatan",
   "dashboard.chat.title": "Chat",
   "dashboard.chat.empty": "Belum ada pesan",
+  "dashboard.chat.hint": "Chat langsung dari semua sumber yang sedang dibaca, begitu masuk.",
+  "dashboard.nav.chat": "Chat",
   "dashboard.chat.commands_only": "Hanya permintaan video",
   "dashboard.chat.skipped": "{count} pesan tidak ditampilkan (chat terlalu cepat)",
   "dashboard.chat.history": "Pesan yang disimpan untuk reload (0 sampai 200)",

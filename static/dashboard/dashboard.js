@@ -16,6 +16,7 @@
   /* The heading each page moves the keyboard focus to when it is opened. */
   var HEADINGS = {
     queue: 'queue-heading',
+    chat: 'chat-heading',
     requests: 'requests-heading',
     blacklist: 'blacklist-heading',
     rules: 'settings-heading',
@@ -75,7 +76,7 @@
   var lastView = 'queue'; // the page under the account dialog, which it returns to
   var draftAvatar = null; // the picture chosen but not saved; '' means "remove"; null means no change
   var painted = {}; // what each avatar shows now, so a picture is not set again for nothing
-  var pane = 'queue'; // queue | chat | notices
+  var pane = 'queue'; // queue | notices
   var selectedId = null; // the waiting request the keyboard acts on
   var selectedIndex = 0;
   var clockOffset = 0; // browser clock minus server clock, in milliseconds
@@ -293,6 +294,9 @@
     });
     markMenu(name);
     renderRequests();
+    // Lines that came in while the page was hidden were drawn with no size to
+    // measure: show the newest.
+    if (name === 'chat') $('chat-log').scrollTop = $('chat-log').scrollHeight;
     var target = $(HEADINGS[name]);
     if (focusHeading && target && target.focus) target.focus();
   }
@@ -467,17 +471,14 @@
     });
   });
 
-  /* On a phone the queue page shows one of three panes at a time; on a wide
-   * screen the queue is always shown and the side card shows chat or notices. */
+  /* On a phone the queue page shows one of two panes at a time, the queue or
+   * the notices; on a wide screen both are always shown, side by side. */
   function setPane(name) {
     pane = name;
     $('view-queue').setAttribute('data-pane', name);
     [
       ['tab-queue', name === 'queue'],
-      ['tab-chat', name === 'chat'],
       ['tab-notices', name === 'notices'],
-      ['rail-chat', name !== 'notices'],
-      ['rail-notices', name === 'notices'],
     ].forEach(function (entry) {
       $(entry[0]).setAttribute('aria-pressed', entry[1] ? 'true' : 'false');
     });
@@ -489,10 +490,7 @@
 
   [
     ['tab-queue', 'queue'],
-    ['tab-chat', 'chat'],
     ['tab-notices', 'notices'],
-    ['rail-chat', 'chat'],
-    ['rail-notices', 'notices'],
   ].forEach(function (entry) {
     $(entry[0]).addEventListener('click', function () {
       setPane(entry[1]);

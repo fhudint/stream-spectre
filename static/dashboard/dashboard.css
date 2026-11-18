@@ -554,6 +554,18 @@ kbd { padding: 1px 6px; border-radius: 4px; background: var(--button); color: va
 .chat-card { flex: 1; min-height: 360px; display: flex; flex-direction: column; overflow: hidden; }
 .chat-card .card-head { min-height: 52px; padding-top: 0; padding-bottom: 0; }
 
+/* The chat page: one tall card that fills what is left of the window. */
+.chat-page {
+  height: calc(100dvh - 210px);
+  min-height: 320px;
+  max-width: 900px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.chat-page .card-head { min-height: 52px; padding-top: 0; padding-bottom: 0; justify-content: flex-end; }
+.chat-page .chat-log { max-height: none; }
+
 .tabs { display: flex; align-items: center; gap: 18px; align-self: stretch; }
 
 .tab {
@@ -738,7 +750,7 @@ input[type='text'].short { max-width: 120px; }
   /* One pane at a time: the queue, or the chat card showing chat or notices. */
   .queue-view[data-pane='queue'] .rail { display: none; }
   .queue-view:not([data-pane='queue']) .queue-card { display: none; }
-  .chat-card .tabs { display: none; }
+  .chat-page { height: calc(100dvh - 270px); }
   .chat-card { min-height: 0; }
   .chat-log, .notices { max-height: none; }
 

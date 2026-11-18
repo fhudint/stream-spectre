@@ -34,10 +34,10 @@
   var TIKTOK_ACCOUNT = /^[A-Za-z0-9_.]{1,64}$/;
   var TIKTOK_SHORT_CODE = /^[A-Za-z0-9]{6,12}$/;
   /* The pages of the dashboard, in the order of the menu. */
-  var VIEWS = ['queue', 'requests', 'blacklist', 'rules', 'overlay', 'settings', 'account'];
+  var VIEWS = ['queue', 'chat', 'requests', 'blacklist', 'rules', 'overlay', 'settings', 'account'];
   /* The ones with an entry in the side menu. The account page is reached from
    * the avatar instead. */
-  var MENU_VIEWS = ['queue', 'requests', 'blacklist', 'rules', 'overlay', 'settings'];
+  var MENU_VIEWS = ['queue', 'chat', 'requests', 'blacklist', 'rules', 'overlay', 'settings'];
   /* The parts of the account page: #account/tiktok and so on. */
   var ACCOUNT_SECTIONS = ['profile', 'tiktok', 'youtube-chat', 'youtube', 'token'];
   /* The tab of the account dialog each part belongs to; the YouTube chat and

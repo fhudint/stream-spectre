@@ -212,17 +212,18 @@ writes and `config.toml` never is. See [Saved settings](#saved-settings).
 
 #### Using the dashboard
 
-The menu has six pages: **Queue** (the video playing and how far it has got,
+The menu has seven pages: **Queue** (the video playing and how far it has got,
 the requests waiting for a decision, the play queue, the rules in force, the
-chat, and counters for this session), **Requests** (every request viewers sent,
+notices, and counters for this session), **Chat** (the live chat, with a switch
+to show only video requests), **Requests** (every request viewers sent,
 newest first, with what became of it: waiting, in the play queue, playing,
 played, skipped, rejected, could not play, or refused by the rules with the
 reason), **Blacklist**, **Rules** (the moderation settings), **Overlay** (the
 address to copy into OBS, its look, and the volume) and **Settings** (how much chat the
-dashboard remembers). Each page has its own address (`#queue`, `#requests`,
+dashboard remembers). Each page has its own address (`#queue`, `#chat`, `#requests`,
 `#blacklist`, `#rules`, `#overlay`, `#settings`). On a phone the menu is at the
-bottom and the queue page shows the waiting requests, the chat and the notices
-as three tabs.
+bottom and the queue page shows the waiting requests and the notices as two
+tabs.
 
 On the **Requests** page, **Copy link** puts a link to the video on the
 clipboard (YouTube's watch page, TikTok's video page, or the short link when the

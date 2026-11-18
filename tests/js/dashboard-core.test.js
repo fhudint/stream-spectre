@@ -554,9 +554,9 @@ test('the rules in force are listed as short texts', () => {
 
 test('the address bar picks a page, and anything else means the queue', () => {
   for (const view of core.VIEWS) assert.equal(core.parseView('#' + view), view);
-  assert.deepEqual(core.VIEWS, ['queue', 'requests', 'blacklist', 'rules', 'overlay', 'settings', 'account']);
-  // The account page is reached from the avatar, so it is not in the side menu.
-  assert.deepEqual(core.MENU_VIEWS, ['queue', 'requests', 'blacklist', 'rules', 'overlay', 'settings']);
+  assert.deepEqual(core.VIEWS, ['queue', 'chat', 'requests', 'blacklist', 'rules', 'overlay', 'settings', 'account']);
+  // The account dialog is reached from the avatar, so it is not in the side menu.
+  assert.deepEqual(core.MENU_VIEWS, ['queue', 'chat', 'requests', 'blacklist', 'rules', 'overlay', 'settings']);
   assert.equal(core.parseView('#account/youtube'), 'account');
   assert.equal(core.parseView('#queue/anything'), 'queue');
   for (const other of ['', '#', '#token=abc', '#nope', '#QUEUE', '#queue?x=1', undefined, null, '#__proto__', '#constructor']) {
