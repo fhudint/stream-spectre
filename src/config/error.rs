@@ -15,6 +15,13 @@ pub enum ConfigError {
         source: std::io::Error,
     },
 
+    #[error("cannot create {}: {source}", .path.display())]
+    Create {
+        path: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+
     #[error("invalid TOML in {}{location}: {message}", .path.display())]
     Parse {
         path: PathBuf,

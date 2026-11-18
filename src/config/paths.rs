@@ -13,7 +13,23 @@ pub const ENV_CONFIG_PATH: &str = "STREAM_SPECTRE_CONFIG";
 /// An explicit path (`--config`) or `STREAM_SPECTRE_CONFIG` is used on its own
 /// with no fallback, so a typo is reported instead of silently ignored.
 /// Otherwise: `./config.toml`, then the per-user config directory.
+#[cfg(test)]
 pub fn config_candidates(
+    explicit: Option<PathBuf>,
+    env_value: Option<String>,
+    user_config_dir: Option<&Path>,
+) -> Vec<PathBuf> {
+    config_candidates_with(
+        PathBuf::from(CONFIG_FILE_NAME),
+        explicit,
+        env_value,
+        user_config_dir,
+    )
+}
+
+/// [`config_candidates`], with the place of the "current directory" file given.
+pub fn config_candidates_with(
+    local: PathBuf,
     explicit: Option<PathBuf>,
     env_value: Option<String>,
     user_config_dir: Option<&Path>,
@@ -24,7 +40,7 @@ pub fn config_candidates(
     if let Some(value) = env_value.filter(|v| !v.trim().is_empty()) {
         return vec![PathBuf::from(value)];
     }
-    let mut list = vec![PathBuf::from(CONFIG_FILE_NAME)];
+    let mut list = vec![local];
     if let Some(dir) = user_config_dir {
         list.push(dir.join(APP_DIR_NAME).join(CONFIG_FILE_NAME));
     }

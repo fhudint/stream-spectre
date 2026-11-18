@@ -4,6 +4,12 @@
 //!
 //! Closing the window stops the program, after the settings and the request
 //! history have been written. Build it with `--features window`.
+//!
+//! On Windows it is built without a console window; whatever stops it from
+//! starting (a config that cannot be read, a port that is taken) is then said in
+//! a window instead.
+
+#![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
 use std::net::SocketAddr;
 use std::process::ExitCode;
@@ -17,9 +23,9 @@ use stream_spectre::{APP_NAME, platform, run, server};
 use tao::dpi::LogicalSize;
 use tao::event::{Event, WindowEvent};
 use tao::event_loop::{ControlFlow, EventLoopBuilder};
-use tao::window::WindowBuilder;
+use tao::window::{Window, WindowBuilder};
 use tracing_subscriber::EnvFilter;
-use wry::WebViewBuilder;
+use wry::{WebView, WebViewBuilder};
 
 /// How long to wait for the server to start listening.
 const START_TIMEOUT: Duration = Duration::from_secs(10);
@@ -36,7 +42,20 @@ fn main() -> ExitCode {
         )
         .init();
 
-    match start() {
+    let loaded = match prepare() {
+        Ok(Some(loaded)) => loaded,
+        Ok(None) => return ExitCode::SUCCESS,
+        Err(err) => {
+            let message = format!("{err:#}");
+            tracing::error!("{message}");
+            // No console to read it in: say it in a window.
+            if let Err(err) = show_error(&message) {
+                tracing::error!("{err:#}");
+            }
+            return ExitCode::FAILURE;
+        }
+    };
+    match start(loaded) {
         Ok(()) => ExitCode::SUCCESS,
         Err(err) => {
             tracing::error!("{err:#}");
@@ -45,15 +64,17 @@ fn main() -> ExitCode {
     }
 }
 
-fn start() -> anyhow::Result<()> {
+/// Reads the command line and the config. `None` when there is nothing to run
+/// (`--help`, `--version`).
+fn prepare() -> anyhow::Result<Option<config::Loaded>> {
     let config_path = match cli::parse(std::env::args_os().skip(1))? {
         Command::Help => {
             print!("{}", cli::HELP);
-            return Ok(());
+            return Ok(None);
         }
         Command::Version => {
             println!("{APP_NAME} {}", stream_spectre::APP_VERSION);
-            return Ok(());
+            return Ok(None);
         }
         Command::Run { config } => config,
     };
@@ -61,7 +82,51 @@ fn start() -> anyhow::Result<()> {
         explicit_path: config_path,
     })?;
     tracing::info!(path = %loaded.path.display(), "config loaded");
+    Ok(Some(loaded))
+}
 
+/// A window that only says why the program did not start, until it is closed.
+fn show_error(message: &str) -> anyhow::Result<()> {
+    let event_loop = EventLoopBuilder::new().build();
+    let window = WindowBuilder::new()
+        .with_title("Stream Spectre")
+        .with_inner_size(LogicalSize::new(640.0, 300.0))
+        .build(&event_loop)
+        .context("cannot open the window")?;
+    let _webview = attach(
+        WebViewBuilder::new().with_html(error_page(message)),
+        &window,
+    )?;
+    event_loop.run(move |event, _, control_flow| {
+        *control_flow = ControlFlow::Wait;
+        if let Event::WindowEvent {
+            event: WindowEvent::CloseRequested,
+            ..
+        } = event
+        {
+            *control_flow = ControlFlow::Exit;
+        }
+    })
+}
+
+/// Puts the web view in the window.
+fn attach(builder: WebViewBuilder, window: &Window) -> anyhow::Result<WebView> {
+    #[cfg(any(target_os = "windows", target_os = "macos"))]
+    {
+        builder.build(window).context("cannot open the web view")
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+    {
+        use tao::platform::unix::WindowExtUnix;
+        use wry::WebViewBuilderExtUnix;
+        let vbox = window
+            .default_vbox()
+            .ok_or_else(|| anyhow!("the window has no container for the web view"))?;
+        builder.build_gtk(vbox).context("cannot open the web view")
+    }
+}
+
+fn start(loaded: config::Loaded) -> anyhow::Result<()> {
     let address = SocketAddr::new(loaded.config.server.bind, loaded.config.server.port);
     let host = server::browser_host(address);
     // A token is only set when the server is open beyond this computer.
@@ -110,19 +175,7 @@ fn start() -> anyhow::Result<()> {
     })
     .with_new_window_req_handler(|_, _| wry::NewWindowResponse::Deny);
 
-    #[cfg(any(target_os = "windows", target_os = "macos"))]
-    let _webview = builder.build(&window).context("cannot open the web view")?;
-    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
-    let _webview = {
-        use tao::platform::unix::WindowExtUnix;
-        use wry::WebViewBuilderExtUnix;
-        let vbox = window
-            .default_vbox()
-            .ok_or_else(|| anyhow!("the window has no container for the web view"))?;
-        builder
-            .build_gtk(vbox)
-            .context("cannot open the web view")?
-    };
+    let _webview = attach(builder, &window)?;
 
     // A window that only says why nothing started stays until it is closed.
     let failed = startup.is_err();

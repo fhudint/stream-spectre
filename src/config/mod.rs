@@ -66,16 +66,50 @@ pub struct LoadOptions {
     pub explicit_path: Option<PathBuf>,
 }
 
-/// Locates, reads and validates the configuration and secrets.
-pub fn load(options: LoadOptions) -> Result<Loaded, ConfigError> {
-    let user_dir = platform::config_dir();
+/// The commented config file the repository ships, which is also what a first
+/// run writes for the user.
+const DEFAULT_CONFIG: &str = include_str!("../../config.example.toml");
 
-    let candidates = paths::config_candidates(
-        options.explicit_path,
+/// Locates, reads and validates the configuration and secrets.
+///
+/// On a first run, when no config was named and none is found, the commented
+/// example is written to the user's config directory first, so a program
+/// started from an application menu has something to start from.
+pub fn load(options: LoadOptions) -> Result<Loaded, ConfigError> {
+    load_in(
+        options,
+        PathBuf::from(paths::CONFIG_FILE_NAME),
         std::env::var(ENV_CONFIG_PATH).ok(),
+        platform::config_dir(),
+    )
+}
+
+/// `load` with its surroundings given: where "the current directory" config
+/// is, the environment's value, and the user's config directory.
+fn load_in(
+    options: LoadOptions,
+    local: PathBuf,
+    env_config: Option<String>,
+    user_dir: Option<PathBuf>,
+) -> Result<Loaded, ConfigError> {
+    // A path that was asked for is never replaced by a default: a typo is
+    // reported.
+    let named = options.explicit_path.is_some()
+        || env_config.as_deref().is_some_and(|v| !v.trim().is_empty());
+    let candidates = paths::config_candidates_with(
+        local,
+        options.explicit_path,
+        env_config,
         user_dir.as_deref(),
     );
-    let path = paths::locate(&candidates, Path::is_file)?;
+    let path = match paths::locate(&candidates, Path::is_file) {
+        Ok(path) => path,
+        Err(ConfigError::NotFound { .. }) if !named && user_dir.is_some() => {
+            let dir = user_dir.as_deref().unwrap_or(Path::new("."));
+            create_first_config(&dir.join(paths::APP_DIR_NAME))?
+        }
+        Err(error) => return Err(error),
+    };
 
     let text = std::fs::read_to_string(&path).map_err(|source| ConfigError::Read {
         path: path.clone(),
@@ -109,6 +143,33 @@ pub fn load(options: LoadOptions) -> Result<Loaded, ConfigError> {
         api_key_source,
         env_api_key,
     })
+}
+
+/// Writes the example config into `dir` (made private, as secrets are saved
+/// there too) and returns its path. Never overwrites a file.
+fn create_first_config(dir: &Path) -> Result<PathBuf, ConfigError> {
+    fn create(path: &Path) -> impl FnOnce(std::io::Error) -> ConfigError + use<'_> {
+        move |source| ConfigError::Create {
+            path: path.to_owned(),
+            source,
+        }
+    }
+    std::fs::create_dir_all(dir).map_err(create(dir))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))
+            .map_err(create(dir))?;
+    }
+    let path = dir.join(paths::CONFIG_FILE_NAME);
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&path)
+        .map_err(create(&path))?;
+    std::io::Write::write_all(&mut file, DEFAULT_CONFIG.as_bytes()).map_err(create(&path))?;
+    tracing::info!(path = %path.display(), "first run: wrote a default config");
+    Ok(path)
 }
 
 /// `baseline` with the tables from the saved settings file put on top, if the
@@ -192,6 +253,77 @@ mod tests {
 
     fn parse_str(text: &str) -> Result<Config, ConfigError> {
         parse(text, Path::new("config.toml"))
+    }
+
+    #[test]
+    fn a_first_run_writes_the_default_config_and_starts_with_it() {
+        let user = test_temp_dir("first-run");
+        let loaded = load_in(
+            LoadOptions::default(),
+            user.join("none.toml"),
+            None,
+            Some(user.clone()),
+        )
+        .unwrap();
+        let expected = user.join("stream-spectre").join("config.toml");
+        assert_eq!(loaded.path, expected);
+        assert_eq!(std::fs::read_to_string(&expected).unwrap(), DEFAULT_CONFIG);
+        // It runs as it is: nothing to read yet, set from the dashboard.
+        assert!(loaded.config.chat.tiktok.username.is_empty());
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(expected.parent().unwrap())
+                .unwrap()
+                .permissions()
+                .mode();
+            assert_eq!(
+                mode & 0o777,
+                0o700,
+                "private, like the secrets saved beside it"
+            );
+        }
+
+        // The second run finds it, and an edit of it is kept.
+        std::fs::write(&expected, "[general]\nlanguage = \"id\"\n").unwrap();
+        let again = load_in(
+            LoadOptions::default(),
+            user.join("none.toml"),
+            None,
+            Some(user),
+        )
+        .unwrap();
+        assert_eq!(again.path, expected);
+        assert_eq!(again.config.general.language, Language::Id);
+    }
+
+    #[test]
+    fn a_config_that_was_asked_for_is_never_replaced_by_a_default() {
+        let user = test_temp_dir("first-run-named");
+        let missing = user.join("typo.toml");
+        for (explicit, env) in [
+            (Some(missing.clone()), None),
+            (None, Some(missing.display().to_string())),
+        ] {
+            let result = load_in(
+                LoadOptions {
+                    explicit_path: explicit,
+                },
+                user.join("none.toml"),
+                env,
+                Some(user.clone()),
+            );
+            assert!(matches!(result, Err(ConfigError::NotFound { .. })));
+        }
+        assert!(!user.join("stream-spectre").exists(), "nothing was written");
+        // Without a user directory there is nowhere to write: the old message.
+        let none = load_in(
+            LoadOptions::default(),
+            PathBuf::from("nowhere/none.toml"),
+            None,
+            None,
+        );
+        assert!(matches!(none, Err(ConfigError::NotFound { .. })));
     }
 
     #[test]
