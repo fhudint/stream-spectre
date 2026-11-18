@@ -14,9 +14,9 @@ use super::history::{History, HistoryEntry, RequestStatus, Subject};
 use crate::chat::{ChatEvent, ChatMessage, ChatSource, ChatStatus, Sender};
 use crate::command::{CommandParser, InvalidReason, Parsed};
 use crate::config::{
-    BlacklistConfig, ChatOverlayConfig, ChatSourceKind, CommandConfig, CommandSource, Config,
-    ConfigError, DashboardConfig, MediashareConfig, ModerationConfig, OverlayConfig, Secret,
-    TiktokConfig, YoutubeChatConfig,
+    BlacklistConfig, ChatFloatConfig, ChatPanelConfig, ChatSourceKind, CommandConfig,
+    CommandSource, Config, ConfigError, DashboardConfig, MediashareConfig, ModerationConfig,
+    OverlayConfig, Secret, TiktokConfig, YoutubeChatConfig,
 };
 use crate::i18n::I18n;
 use crate::queue::{
@@ -675,19 +675,34 @@ impl<S: VideoSource> Pipeline<S> {
         });
     }
 
-    /// Changes how the chat overlay looks; announced like
+    /// Changes how the chat overlay with a background looks; announced like
     /// [`update_mediashare`](Self::update_mediashare).
-    pub fn update_chat_overlay(&self, new: ChatOverlayConfig) {
+    pub fn update_chat_panel(&self, new: ChatPanelConfig) {
         let mut inner = self.lock();
-        if inner.overlay.chat == new {
+        if inner.overlay.chat_panel == new {
             return;
         }
-        inner.overlay.chat = new;
+        inner.overlay.chat_panel = new;
         self.bus
             .publish(Event::SettingsUpdated(Self::settings_view(&inner)));
         self.bus.publish(Event::OverlayTheme {
-            overlay: OverlayKind::Chat,
-            theme: ThemeName::Chat(new.theme),
+            overlay: OverlayKind::ChatPanel,
+            theme: ThemeName::ChatPanel(new.theme),
+        });
+    }
+
+    /// The same for the transparent chat overlay.
+    pub fn update_chat_float(&self, new: ChatFloatConfig) {
+        let mut inner = self.lock();
+        if inner.overlay.chat_float == new {
+            return;
+        }
+        inner.overlay.chat_float = new;
+        self.bus
+            .publish(Event::SettingsUpdated(Self::settings_view(&inner)));
+        self.bus.publish(Event::OverlayTheme {
+            overlay: OverlayKind::ChatFloat,
+            theme: ThemeName::ChatFloat(new.theme),
         });
     }
 

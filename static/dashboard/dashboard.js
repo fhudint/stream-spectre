@@ -370,6 +370,41 @@
     });
   });
 
+  // --- the tabs of the Rules and Overlay pages ---
+
+  /* The tabs of a page: one group of cards shown at a time. `prefix` is the
+   * start of the tab buttons' ids, `tabs` their names, `panels` the ids of the
+   * cards of each. Arrow keys move between the tabs. Returns the function that
+   * chooses one. */
+  function pageTabs(prefix, tabs, panels) {
+    function select(name) {
+      tabs.forEach(function (tab) {
+        var on = tab === name;
+        var button = $(prefix + tab);
+        button.setAttribute('aria-selected', on ? 'true' : 'false');
+        button.setAttribute('tabindex', on ? '0' : '-1');
+        panels[tab].forEach(function (id) {
+          $(id).classList[on ? 'remove' : 'add']('hidden');
+        });
+      });
+    }
+    tabs.forEach(function (tab, index) {
+      $(prefix + tab).addEventListener('click', function () {
+        select(tab);
+      });
+      $(prefix + tab).addEventListener('keydown', function (event) {
+        var step = event.key === 'ArrowRight' ? 1 : event.key === 'ArrowLeft' ? -1 : 0;
+        if (!step) return;
+        event.preventDefault();
+        var next = tabs[(index + step + tabs.length) % tabs.length];
+        select(next);
+        $(prefix + next).focus();
+      });
+    });
+    select(tabs[0]);
+    return select;
+  }
+
   // --- the profile: the name and the picture of the avatar ---
 
   /* Puts a picture in an avatar, or the first letter of the name when there is
@@ -1100,7 +1135,10 @@
     }
     core.SETTINGS_FIELDS.forEach(function (field) {
       var input = $('setting-' + field.key);
-      if (input !== document.activeElement) input.value = String(moderation[field.key]);
+      // A server from before a setting existed does not send it.
+      if (input !== document.activeElement && moderation[field.key] !== undefined) {
+        input.value = String(moderation[field.key]);
+      }
     });
     core.BLACKLIST_FIELDS.forEach(function (field) {
       var input = $('blacklist-' + field.key);
@@ -1237,34 +1275,41 @@
 
   /* The address OBS needs, as shown (no token) and as copied (with it). */
   function renderOverlay() {
-    var shown = core.overlayUrl(location.protocol, location.host, '').replace(/^https?:\/\//, '');
-    $('overlay-address').textContent = shown;
-    $('overlay-shown').textContent = shown;
-    $('chat-overlay-shown').textContent = core.overlayUrl(location.protocol, location.host, '', 'chat').replace(/^https?:\/\//, '');
-    var theme = core.overlayTheme(state.settings);
-    var chat = core.chatTheme(state.settings);
+    var shown = function (overlay) {
+      return core.overlayUrl(location.protocol, location.host, '', overlay).replace(/^https?:\/\//, '');
+    };
+    $('overlay-address').textContent = shown();
+    $('overlay-shown').textContent = shown();
+    $('chat-panel-shown').textContent = shown('chat-panel');
+    $('chat-float-shown').textContent = shown('chat-float');
     themeInputs.forEach(function (entry) {
-      entry.input.checked = entry.name === (entry.overlay === 'chat' ? chat : theme);
+      entry.input.checked = entry.name === entry.picker.current(state.settings);
     });
   }
 
   /* One choice per look of an overlay; the change is saved at once and the
    * overlay in OBS follows without a reload. */
   var themeInputs = [];
-  function buildThemePicker(box, overlay, names) {
-    names.forEach(function (name) {
+  var THEME_PICKERS = [
+    { box: 'themes', radio: 'mediashare', path: '/api/overlay/mediashare', names: core.OVERLAY_THEMES, current: core.overlayTheme },
+    { box: 'chat-panel-themes', radio: 'chat-panel', path: '/api/overlay/chat/panel', names: core.CHAT_PANEL_THEMES, current: core.chatPanelTheme },
+    { box: 'chat-float-themes', radio: 'chat-float', path: '/api/overlay/chat/float', names: core.CHAT_FLOAT_THEMES, current: core.chatFloatTheme },
+  ];
+
+  function buildThemePicker(picker) {
+    picker.names.forEach(function (name) {
       var input = h('input', {
-        attrs: { type: 'radio', name: overlay + '-theme', value: name },
+        attrs: { type: 'radio', name: picker.radio + '-theme', value: name },
         on: {
           change: function () {
-            act('PATCH', '/api/overlay/' + overlay, { theme: name }, function (result) {
+            act('PATCH', picker.path, { theme: name }, function (result) {
               adopt(result.data);
             });
           },
         },
       });
-      themeInputs.push({ name: name, overlay: overlay, input: input });
-      box.appendChild(
+      themeInputs.push({ name: name, picker: picker, input: input });
+      $(picker.box).appendChild(
         h('label', { className: 'theme', attrs: { 'data-theme': name } }, [
           input,
           h('span', { className: 'swatch', text: 'Aa', attrs: { 'aria-hidden': 'true' } }),
@@ -1275,8 +1320,7 @@
   }
 
   function buildThemes() {
-    buildThemePicker($('themes'), 'mediashare', core.OVERLAY_THEMES);
-    buildThemePicker($('chat-themes'), 'chat', core.CHAT_THEMES);
+    THEME_PICKERS.forEach(buildThemePicker);
     renderOverlay();
   }
 
@@ -1318,6 +1362,12 @@
     buildThemes();
 
     var settingsForm = $('settings-form');
+    // One group of fields per tab; the one Save button below them saves all.
+    var rulesPanels = {};
+    core.RULES_TABS.forEach(function (tab) {
+      rulesPanels[tab] = h('div', { className: 'form', attrs: { id: 'rules-' + tab } });
+      settingsForm.appendChild(rulesPanels[tab]);
+    });
     core.SETTINGS_FIELDS.forEach(function (spec) {
       var id = 'setting-' + spec.key;
       var control =
@@ -1332,7 +1382,7 @@
           : h('input', {
               attrs: { id: id, name: spec.key, type: 'number', min: '0', step: '1', inputmode: 'numeric' },
             });
-      settingsForm.appendChild(field(id, spec.label, control));
+      rulesPanels[spec.tab].appendChild(field(id, spec.label, control));
     });
     settingsForm.appendChild(submitButton('dashboard.settings.save'));
     settingsForm.addEventListener('submit', function (event) {
@@ -1364,6 +1414,17 @@
     blacklistForm.addEventListener('submit', function (event) {
       event.preventDefault();
       saveBlacklist();
+    });
+
+    pageTabs('rtab-', core.RULES_TABS, {
+      general: ['rules-general', 'rules-commands'],
+      youtube: ['rules-youtube'],
+      tiktok: ['rules-tiktok'],
+    });
+    pageTabs('otab-', core.OVERLAY_TABS, {
+      mediashare: ['overlay-mediashare'],
+      'chat-panel': ['overlay-chat-panel'],
+      'chat-float': ['overlay-chat-float'],
     });
   }
 
@@ -1665,13 +1726,17 @@
   function copyOverlay() {
     copyText(core.overlayUrl(location.protocol, location.host, token), 'dashboard.overlay.copied');
   }
-  function copyChatOverlay() {
-    copyText(core.overlayUrl(location.protocol, location.host, token, 'chat'), 'dashboard.overlay.copied');
+  function copyChatPanel() {
+    copyText(core.overlayUrl(location.protocol, location.host, token, 'chat-panel'), 'dashboard.overlay.copied');
+  }
+  function copyChatFloat() {
+    copyText(core.overlayUrl(location.protocol, location.host, token, 'chat-float'), 'dashboard.overlay.copied');
   }
 
   $('copy-overlay').addEventListener('click', copyOverlay);
   $('copy-overlay-page').addEventListener('click', copyOverlay);
-  $('copy-chat-overlay').addEventListener('click', copyChatOverlay);
+  $('copy-chat-panel').addEventListener('click', copyChatPanel);
+  $('copy-chat-float').addEventListener('click', copyChatFloat);
 
   // --- keyboard ---
 

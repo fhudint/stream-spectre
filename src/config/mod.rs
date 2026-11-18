@@ -14,10 +14,11 @@ use std::path::{Path, PathBuf};
 
 pub use error::ConfigError;
 pub use model::{
-    BlacklistConfig, ChatConfig, ChatOverlayConfig, ChatSourceKind, ChatTheme, CommandConfig,
-    CommandEntry, CommandSource, Config, DashboardConfig, GeneralConfig, Language, MAX_AVATAR_LEN,
-    MAX_CHAT_HISTORY, MAX_DISPLAY_NAME_CHARS, MediashareConfig, MediashareTheme, ModerationConfig,
-    ModerationMode, OverlayConfig, ServerConfig, TiktokConfig, YoutubeChatConfig, YoutubeConfig,
+    BlacklistConfig, ChatConfig, ChatFloatConfig, ChatFloatTheme, ChatPanelConfig, ChatPanelTheme,
+    ChatSourceKind, CommandConfig, CommandEntry, CommandSource, Config, DashboardConfig,
+    GeneralConfig, Language, MAX_AVATAR_LEN, MAX_CHAT_HISTORY, MAX_DISPLAY_NAME_CHARS,
+    MediashareConfig, MediashareTheme, ModerationConfig, ModerationMode, OverlayConfig,
+    ServerConfig, TiktokConfig, YoutubeChatConfig, YoutubeConfig,
 };
 pub use paths::{CONFIG_FILE_NAME, ENV_CONFIG_PATH};
 /// A new empty folder under the system temp folder, for tests.

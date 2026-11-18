@@ -81,9 +81,13 @@ request_timeout_secs = 10
 # "manual": every request waits for approval in the dashboard.
 # "auto": requests that pass validation are approved automatically.
 mode = "manual"
-# Minimum role allowed to submit: "everyone", "follower", "subscriber" or "moderator".
+# Minimum role allowed to submit from the TikTok chat: "everyone", "follower",
+# "subscriber" or "moderator".
 min_role = "follower"
-# Minimum TikTok gifter level and fan club level. 0 turns the check off.
+# The same for the YouTube chat, where "follower" is any viewer and "subscriber"
+# a paying member.
+youtube_min_role = "follower"
+# Minimum TikTok gifter level and fan club level (not asked of YouTube). 0 turns the check off.
 min_gifter_level = 0
 min_fan_club_level = 0
 # Seconds a user must wait between submissions. 0 turns it off.
@@ -119,7 +123,13 @@ chat_history = 20
 # (after a ? or a &) gives that one source another look.
 theme = "obsidian"
 
-[overlay.chat]
-# The look of the chat overlay (/overlay/chat/): the ten above, and ticker (a bar
-# along the bottom) or catatan (sticky notes). Same way to change it.
+[overlay.chat_panel]
+# The look of the chat overlay with a background (/overlay/chat/panel/): obsidian,
+# kertas, brutal, terminal, permen, pixel, struk, pesan or ticker (a bar along the
+# bottom). Changed the same way.
 theme = "obsidian"
+
+[overlay.chat_float]
+# The look of the transparent chat overlay (/overlay/chat/float/): garis, komik or
+# catatan (sticky notes). Changed the same way.
+theme = "garis"

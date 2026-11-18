@@ -237,10 +237,15 @@
         <div class="title-row">
           <h1 id="settings-heading" tabindex="-1" data-i18n="dashboard.nav.rules"></h1>
         </div>
+        <div id="rules-tabs" class="tabs page-tabs" role="tablist">
+          <button id="rtab-general" type="button" class="tab" role="tab" aria-controls="rules-general" data-i18n="dashboard.rules.tab.general"></button>
+          <button id="rtab-youtube" type="button" class="tab" role="tab" aria-controls="rules-youtube" data-i18n="dashboard.rules.tab.youtube"></button>
+          <button id="rtab-tiktok" type="button" class="tab" role="tab" aria-controls="rules-tiktok" data-i18n="dashboard.rules.tab.tiktok"></button>
+        </div>
         <div class="card page-card">
           <form id="settings-form" class="form"></form>
         </div>
-        <div class="card page-card">
+        <div id="rules-commands" class="card page-card">
           <form id="commands-form" class="form">
             <h2 data-i18n="dashboard.commands.title"></h2>
             <p class="muted small" data-i18n="dashboard.commands.hint"></p>
@@ -263,7 +268,12 @@
           <h1 id="overlay-heading" tabindex="-1" data-i18n="dashboard.overlay.title"></h1>
           <p class="muted" data-i18n="dashboard.overlay.hint"></p>
         </div>
-        <div class="card page-card">
+        <div id="overlay-tabs" class="tabs page-tabs" role="tablist">
+          <button id="otab-mediashare" type="button" class="tab" role="tab" aria-controls="overlay-mediashare" data-i18n="dashboard.overlay.tab.mediashare"></button>
+          <button id="otab-chat-panel" type="button" class="tab" role="tab" aria-controls="overlay-chat-panel" data-i18n="dashboard.overlay.tab.chat_panel"></button>
+          <button id="otab-chat-float" type="button" class="tab" role="tab" aria-controls="overlay-chat-float" data-i18n="dashboard.overlay.tab.chat_float"></button>
+        </div>
+        <div id="overlay-mediashare" class="card page-card">
           <h2 data-i18n="dashboard.overlay.mediashare"></h2>
           <div class="field">
             <span class="field-label" data-i18n="dashboard.overlay.address"></span>
@@ -285,19 +295,34 @@
             </div>
           </div>
         </div>
-        <div class="card page-card">
-          <h2 data-i18n="dashboard.overlay.chat"></h2>
-          <p class="muted" data-i18n="dashboard.overlay.chat_hint"></p>
+        <div id="overlay-chat-panel" class="card page-card">
+          <h2 data-i18n="dashboard.overlay.chat_panel"></h2>
+          <p class="muted" data-i18n="dashboard.overlay.chat_panel_hint"></p>
           <div class="field">
             <span class="field-label" data-i18n="dashboard.overlay.address"></span>
-            <code id="chat-overlay-shown" class="address"></code>
+            <code id="chat-panel-shown" class="address"></code>
           </div>
           <div class="actions">
-            <button id="copy-chat-overlay" type="button" class="primary" data-i18n="dashboard.overlay.copy"></button>
+            <button id="copy-chat-panel" type="button" class="primary" data-i18n="dashboard.overlay.copy"></button>
           </div>
           <fieldset class="field themes-field">
             <legend class="field-label" data-i18n="dashboard.overlay.theme"></legend>
-            <div id="chat-themes" class="themes"></div>
+            <div id="chat-panel-themes" class="themes"></div>
+          </fieldset>
+        </div>
+        <div id="overlay-chat-float" class="card page-card">
+          <h2 data-i18n="dashboard.overlay.chat_float"></h2>
+          <p class="muted" data-i18n="dashboard.overlay.chat_float_hint"></p>
+          <div class="field">
+            <span class="field-label" data-i18n="dashboard.overlay.address"></span>
+            <code id="chat-float-shown" class="address"></code>
+          </div>
+          <div class="actions">
+            <button id="copy-chat-float" type="button" class="primary" data-i18n="dashboard.overlay.copy"></button>
+          </div>
+          <fieldset class="field themes-field">
+            <legend class="field-label" data-i18n="dashboard.overlay.theme"></legend>
+            <div id="chat-float-themes" class="themes"></div>
           </fieldset>
         </div>
       </section>

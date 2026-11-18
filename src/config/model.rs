@@ -244,8 +244,11 @@ pub enum ModerationMode {
 #[serde(default, deny_unknown_fields)]
 pub struct ModerationConfig {
     pub mode: ModerationMode,
-    /// Minimum role allowed to submit videos.
+    /// Minimum role allowed to submit videos from the TikTok chat.
     pub min_role: Role,
+    /// The same for the YouTube chat (`follower` is any viewer there,
+    /// `subscriber` a paying member).
+    pub youtube_min_role: Role,
     /// Minimum TikTok gifter level; 0 disables the check.
     pub min_gifter_level: u32,
     /// Minimum TikTok fan club level; 0 disables the check.
@@ -277,6 +280,7 @@ impl Default for ModerationConfig {
         Self {
             mode: ModerationMode::Manual,
             min_role: Role::Follower,
+            youtube_min_role: Role::Follower,
             min_gifter_level: 0,
             min_fan_club_level: 0,
             cooldown_secs: 60,
@@ -356,11 +360,12 @@ pub struct MediashareConfig {
     pub theme: MediashareTheme,
 }
 
-/// How the chat overlay looks (`static/overlay/chat/chat.css`); the names there
+/// How the chat overlay with a background looks (`/overlay/chat/panel/`). Each
+/// look is a block of styles in `static/overlay/chat/chat.css`; the names there
 /// must match these.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
-pub enum ChatTheme {
+pub enum ChatPanelTheme {
     #[default]
     Obsidian,
     Kertas,
@@ -368,24 +373,40 @@ pub enum ChatTheme {
     Terminal,
     Permen,
     Pixel,
-    Komik,
-    Garis,
     Struk,
     Pesan,
     Ticker,
+}
+
+/// How the transparent chat overlay looks (`/overlay/chat/float/`): the lines
+/// float over the scene, with no panel behind them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ChatFloatTheme {
+    #[default]
+    Garis,
+    Komik,
     Catatan,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
-pub struct ChatOverlayConfig {
-    pub theme: ChatTheme,
+pub struct ChatPanelConfig {
+    pub theme: ChatPanelTheme,
 }
 
-/// The overlays, one table each (`[overlay.mediashare]`, `[overlay.chat]`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, Serialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct ChatFloatConfig {
+    pub theme: ChatFloatTheme,
+}
+
+/// The overlays, one table each (`[overlay.mediashare]`, `[overlay.chat_panel]`,
+/// `[overlay.chat_float]`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct OverlayConfig {
     pub mediashare: MediashareConfig,
-    pub chat: ChatOverlayConfig,
+    pub chat_panel: ChatPanelConfig,
+    pub chat_float: ChatFloatConfig,
 }

@@ -4,7 +4,7 @@ use super::blacklist::{Blacklist, BlacklistHit};
 use super::cooldown::Cooldowns;
 use super::item::TiktokDetails;
 use crate::chat::{Role, Sender};
-use crate::config::ModerationConfig;
+use crate::config::{ChatSourceKind, ModerationConfig};
 use crate::i18n::I18n;
 use crate::youtube::{Rejection, VideoDetails, VideoPolicy, check_video};
 
@@ -14,6 +14,8 @@ pub enum Denial {
     /// The sender's role is below the configured minimum.
     RoleTooLow {
         min: Role,
+        /// The chat the sender wrote in, which has its own minimum.
+        source: ChatSourceKind,
     },
     /// The gifter or fan club level is below the configured minimum.
     LevelTooLow,
@@ -59,12 +61,16 @@ impl Denial {
     /// Message for the sender or moderators, in the language of `i18n`.
     pub fn message(&self, i18n: &I18n) -> String {
         match self {
-            Self::RoleTooLow { min } => {
-                let role_key = match min {
-                    Role::Everyone => "role.everyone",
-                    Role::Follower => "role.follower",
-                    Role::Subscriber => "role.subscriber",
-                    Role::Moderator => "role.moderator",
+            Self::RoleTooLow { min, source } => {
+                // A YouTube chat has its own words for the roles.
+                let role_key = match (source, min) {
+                    (_, Role::Everyone) => "role.everyone",
+                    (ChatSourceKind::Youtube, Role::Follower) => "role.youtube.follower",
+                    (ChatSourceKind::Youtube, Role::Subscriber) => "role.youtube.subscriber",
+                    (ChatSourceKind::Youtube, Role::Moderator) => "role.youtube.moderator",
+                    (_, Role::Follower) => "role.follower",
+                    (_, Role::Subscriber) => "role.subscriber",
+                    (_, Role::Moderator) => "role.moderator",
                 };
                 i18n.t_with("reject.role_too_low", &[("role", i18n.t(role_key))])
             }
@@ -215,16 +221,24 @@ impl Gatekeeper {
 
 /// Role and level requirements.
 ///
-/// The role must reach `min_role`. The gifter and fan club levels must each
-/// reach their minimum (0 disables a check); all configured requirements
-/// apply together. Moderators are exempt from the level requirements.
+/// The role must reach the minimum of the chat the sender wrote in
+/// (`min_role` for TikTok, `youtube_min_role` for YouTube). On TikTok the
+/// gifter and fan club levels must each reach their minimum (0 disables a
+/// check); a YouTube chat has no such levels, so they are not asked of it. All
+/// configured requirements apply together. Moderators are exempt from the
+/// level requirements.
 fn check_sender(settings: &ModerationConfig, sender: &Sender) -> Result<(), Denial> {
-    if !settings.min_role.allows(sender.role) {
+    let min = match sender.source {
+        ChatSourceKind::Tiktok => settings.min_role,
+        ChatSourceKind::Youtube => settings.youtube_min_role,
+    };
+    if !min.allows(sender.role) {
         return Err(Denial::RoleTooLow {
-            min: settings.min_role,
+            min,
+            source: sender.source,
         });
     }
-    if sender.role >= Role::Moderator {
+    if sender.role >= Role::Moderator || sender.source != ChatSourceKind::Tiktok {
         return Ok(());
     }
     if sender.gifter_level < settings.min_gifter_level
@@ -284,7 +298,8 @@ mod tests {
         assert_eq!(
             g.admit(&viewer, &id(), 0, now),
             Err(Denial::RoleTooLow {
-                min: Role::Follower
+                min: Role::Follower,
+                source: ChatSourceKind::Tiktok,
             })
         );
     }
@@ -308,7 +323,8 @@ mod tests {
         assert_eq!(
             subs_only.admit(&follower(), &id(), 0, now),
             Err(Denial::RoleTooLow {
-                min: Role::Subscriber
+                min: Role::Subscriber,
+                source: ChatSourceKind::Tiktok,
             })
         );
         assert_eq!(subs_only.admit(&sub, &id(), 0, now), Ok(()));
@@ -520,6 +536,78 @@ mod tests {
         assert_eq!(g.vet(&details()), Err(Denial::BlacklistedVideo));
     }
 
+    #[test]
+    fn each_chat_has_its_own_minimum_role() {
+        let now = Instant::now();
+        let mut g = gatekeeper(ModerationConfig {
+            min_role: Role::Follower,
+            youtube_min_role: Role::Subscriber,
+            cooldown_secs: 0,
+            ..settings()
+        });
+        let tiktok_follower = Sender::new("t", "Tia", Role::Follower);
+        let youtube_viewer = Sender::new("y", "Yan", Role::Follower).on(ChatSourceKind::Youtube);
+        let youtube_member = Sender::new("m", "Mia", Role::Subscriber).on(ChatSourceKind::Youtube);
+        assert_eq!(g.admit(&tiktok_follower, &id(), 0, now), Ok(()));
+        assert_eq!(
+            g.admit(&youtube_viewer, &id(), 0, now),
+            Err(Denial::RoleTooLow {
+                min: Role::Subscriber,
+                source: ChatSourceKind::Youtube,
+            })
+        );
+        assert_eq!(g.admit(&youtube_member, &id(), 0, now), Ok(()));
+
+        // And the other way round: TikTok can ask more than YouTube does.
+        let mut g = gatekeeper(ModerationConfig {
+            min_role: Role::Subscriber,
+            youtube_min_role: Role::Everyone,
+            cooldown_secs: 0,
+            ..settings()
+        });
+        assert!(g.admit(&tiktok_follower, &id(), 0, now).is_err());
+        assert_eq!(g.admit(&youtube_viewer, &id(), 0, now), Ok(()));
+    }
+
+    #[test]
+    fn the_tiktok_levels_are_not_asked_of_a_youtube_viewer() {
+        let now = Instant::now();
+        let mut g = gatekeeper(ModerationConfig {
+            min_gifter_level: 5,
+            min_fan_club_level: 2,
+            cooldown_secs: 0,
+            ..settings()
+        });
+        let youtube_viewer = Sender::new("y", "Yan", Role::Follower).on(ChatSourceKind::Youtube);
+        assert_eq!(g.admit(&youtube_viewer, &id(), 0, now), Ok(()));
+        let tiktok_viewer = Sender::new("t", "Tia", Role::Follower);
+        assert_eq!(
+            g.admit(&tiktok_viewer, &id(), 0, now),
+            Err(Denial::LevelTooLow)
+        );
+    }
+
+    #[test]
+    fn the_role_message_uses_the_words_of_the_chat() {
+        let i18n = I18n::load(Language::En).unwrap();
+        let youtube = Denial::RoleTooLow {
+            min: Role::Subscriber,
+            source: ChatSourceKind::Youtube,
+        };
+        assert_eq!(
+            youtube.message(&i18n),
+            "Only Member and above can submit videos"
+        );
+        let tiktok = Denial::RoleTooLow {
+            min: Role::Subscriber,
+            source: ChatSourceKind::Tiktok,
+        };
+        assert_eq!(
+            tiktok.message(&i18n),
+            "Only Subscriber and above can submit videos"
+        );
+    }
+
     // --- messages ---
 
     #[test]
@@ -527,6 +615,7 @@ mod tests {
         let denials = [
             Denial::RoleTooLow {
                 min: Role::Subscriber,
+                source: ChatSourceKind::Tiktok,
             },
             Denial::LevelTooLow,
             Denial::QueueFull,
@@ -562,6 +651,7 @@ mod tests {
             (
                 Denial::RoleTooLow {
                     min: Role::Follower,
+                    source: ChatSourceKind::Tiktok,
                 },
                 true,
             ),
@@ -599,7 +689,8 @@ mod tests {
         assert_eq!(
             g.check_sender(&viewer),
             Err(Denial::RoleTooLow {
-                min: Role::Follower
+                min: Role::Follower,
+                source: ChatSourceKind::Tiktok,
             })
         );
         assert_eq!(g.check_sender(&follower()), Ok(()));
@@ -610,7 +701,8 @@ mod tests {
         let en = I18n::load(Language::En).unwrap();
         assert_eq!(
             Denial::RoleTooLow {
-                min: Role::Subscriber
+                min: Role::Subscriber,
+                source: ChatSourceKind::Tiktok,
             }
             .message(&en),
             "Only Subscriber and above can submit videos"
@@ -618,7 +710,8 @@ mod tests {
         let id = I18n::load(Language::Id).unwrap();
         assert_eq!(
             Denial::RoleTooLow {
-                min: Role::Everyone
+                min: Role::Everyone,
+                source: ChatSourceKind::Tiktok,
             }
             .message(&id),
             "Hanya Semua orang ke atas yang boleh mengirim video"

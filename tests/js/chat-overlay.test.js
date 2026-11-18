@@ -19,13 +19,22 @@ const indonesian = JSON.parse(fs.readFileSync(path.join(root, 'locales/id.json')
 
 const say = (extra = {}) => ({ name: 'fajar_gg', role: 'everyone', source: 'tiktok', text: 'halo semua', at_ms: 0, command: false, skipped: 0, ...extra });
 const envelope = (seq, type, data) => ({ v: 1, seq, ts: 0, type, data });
-const hello = (seq, theme, chat_log = []) =>
-  envelope(seq, 'hello', { settings: { overlay: { chat: { theme } } }, chat_log });
+const hello = (seq, theme, chat_log = [], kind = 'panel') =>
+  envelope(seq, 'hello', { settings: { overlay: { ['chat_' + kind]: { theme } } }, chat_log });
+const look = (theme, kind = 'panel') => ({ overlay: 'chat_' + kind, theme });
 
 // --- the logic ---
 
-test('the looks are the twelve of the style sheet, and each has a limit', () => {
+test('the looks are the twelve of the style sheet, nine with a background and three without', () => {
   assert.equal(core.THEMES.length, 12);
+  assert.deepEqual(core.PANEL_THEMES, ['obsidian', 'kertas', 'brutal', 'terminal', 'permen', 'pixel', 'struk', 'pesan', 'ticker']);
+  assert.deepEqual(core.FLOAT_THEMES, ['garis', 'komik', 'catatan']);
+  assert.deepEqual(core.themesOf('float'), core.FLOAT_THEMES);
+  assert.deepEqual(core.themesOf('panel'), core.PANEL_THEMES);
+  assert.deepEqual(core.themesOf('nope'), core.PANEL_THEMES);
+  assert.ok(core.isTheme('komik', 'float') && !core.isTheme('komik', 'panel'));
+  assert.ok(core.isTheme('obsidian', 'panel') && !core.isTheme('obsidian', 'float'));
+  assert.ok(core.isTheme('komik') && core.isTheme('obsidian'), 'either, when no overlay is named');
   for (const name of core.THEMES) {
     assert.ok(core.isTheme(name));
     assert.ok(core.LIMITS[name] >= 1 && core.LIMITS[name] <= core.MAX_LINES, name);
@@ -37,8 +46,8 @@ test('the looks are the twelve of the style sheet, and each has a limit', () => 
 });
 
 test('every text the page asks for exists in both languages', () => {
-  const keys = [...source.matchAll(/'(overlay\.chat\.[a-z.]+)'/g)].map((m) => m[1]);
-  for (const key of [...keys, 'overlay.chat.command', 'overlay.chat.badge.subscriber', 'overlay.chat.badge.member', 'overlay.chat.badge.moderator']) {
+  const keys = [...source.matchAll(/'(overlay\.chat\.[a-z]+(?:\.[a-z]+)*[a-z])'/g)].map((m) => m[1]);
+  for (const key of [...keys, 'overlay.chat.source.youtube', 'overlay.chat.source.tiktok', 'overlay.chat.command', 'overlay.chat.badge.subscriber', 'overlay.chat.badge.member', 'overlay.chat.badge.moderator']) {
     assert.ok(english[key], `${key} (en)`);
     assert.ok(indonesian[key], `${key} (id)`);
   }
@@ -122,9 +131,9 @@ test('a change of look redraws, keeps the lines, and trims to the new limit', ()
   c.handle(hello(1, 'obsidian'));
   for (let i = 1; i <= 7; i += 1) c.handle(envelope(1 + i, 'chat_message', say({ text: `m${i}` })));
   assert.equal(last()[1].length, 7);
-  c.handle(envelope(9, 'overlay_theme', { overlay: 'chat', theme: 'catatan' }));
-  assert.deepEqual(calls.at(-2), ['theme', 'catatan']);
-  assert.deepEqual(last()[1], ['m3', 'm4', 'm5', 'm6', 'm7']);
+  c.handle(envelope(9, 'overlay_theme', look('pesan')));
+  assert.deepEqual(calls.at(-2), ['theme', 'pesan']);
+  assert.deepEqual(last()[1], ['m2', 'm3', 'm4', 'm5', 'm6', 'm7'], 'six fit the messages look');
 });
 
 test('the look of another overlay, an unknown look and old events are ignored', () => {
@@ -132,28 +141,33 @@ test('the look of another overlay, an unknown look and old events are ignored', 
   c.handle(hello(10, 'obsidian'));
   const before = calls.length;
   c.handle(envelope(11, 'overlay_theme', { overlay: 'mediashare', theme: 'pixel' }));
-  c.handle(envelope(12, 'overlay_theme', { overlay: 'chat', theme: 'neon' }));
+  c.handle(envelope(11, 'overlay_theme', look('garis', 'float'))); // the other chat overlay's look
+  c.handle(envelope(11, 'overlay_theme', look('komik'))); // a look this overlay does not have
+  c.handle(envelope(12, 'overlay_theme', look('neon')));
   c.handle(envelope(13, 'chat_message', say({ name: '' })));
   c.handle(envelope(9, 'chat_message', say({ text: 'older than the snapshot' })));
   c.handle(envelope(14, 'volume', { volume: 3 }));
   c.handle({ v: 2, seq: 15, type: 'chat_message', data: say() });
   c.handle(null);
   c.handle('x');
-  assert.equal(calls.filter((x) => x[0] === 'render').length, 1 + 1, 'only the redraw of the unknown look, which keeps the old one');
+  assert.equal(calls.filter((x) => x[0] === 'render').length, 1, 'nothing was drawn again');
   assert.equal(c.state().theme, 'obsidian');
   assert.equal(c.state().lines.length, 0);
-  assert.equal(calls.length, before + 1);
+  assert.equal(calls.length, before);
 });
 
 test('a look forced in the address wins over the dashboard', () => {
   const { c, calls } = controller({ forcedTheme: 'brutal' });
   c.handle(hello(1, 'obsidian'));
   assert.deepEqual(calls[0], ['theme', 'brutal']);
-  c.handle(envelope(2, 'overlay_theme', { overlay: 'chat', theme: 'pixel' }));
+  c.handle(envelope(2, 'overlay_theme', look('pixel')));
   assert.equal(c.state().theme, 'brutal');
   const bad = controller({ forcedTheme: 'neon' });
   bad.c.handle(hello(1, 'pixel'));
   assert.equal(bad.c.state().theme, 'pixel', 'a look that does not exist is not forced');
+  const wrongOverlay = controller({ forcedTheme: 'komik' });
+  wrongOverlay.c.handle(hello(1, 'pixel'));
+  assert.equal(wrongOverlay.c.state().theme, 'pixel', 'nor a look of the other overlay');
 });
 
 test('a new hello starts the list again', () => {
@@ -162,6 +176,29 @@ test('a new hello starts the list again', () => {
   c.handle(envelope(2, 'chat_message', say({ text: 'b' })));
   c.handle(hello(9, 'obsidian', [say({ text: 'c' })]));
   assert.deepEqual(c.state().lines.map((l) => l.text), ['c']);
+});
+
+test('the transparent overlay has its own looks, its own settings and its own events', () => {
+  const { c, calls } = controller({ kind: 'float' });
+  c.handle(hello(1, 'catatan', [say({ text: 'one' })], 'float'));
+  assert.deepEqual(calls.slice(0, 1), [['theme', 'catatan']]);
+  assert.equal(c.state().theme, 'catatan');
+  c.handle(envelope(2, 'overlay_theme', look('komik', 'float')));
+  assert.equal(c.state().theme, 'komik');
+  c.handle(envelope(3, 'overlay_theme', look('ticker')));
+  assert.equal(c.state().theme, 'komik', 'the panel look is not its own');
+  const fresh = controller({ kind: 'float' });
+  fresh.c.handle(hello(1, 'obsidian', [], 'float'));
+  assert.equal(fresh.c.state().theme, 'garis', 'a panel look in its settings is refused: it keeps its first');
+  const nothing = controller({ kind: 'float' });
+  nothing.c.handle(envelope(1, 'hello', { settings: {}, chat_log: [] }));
+  assert.equal(nothing.c.state().theme, 'garis');
+});
+
+test('a line says which chat it is from', () => {
+  assert.equal(core.lineOf(say(), 1, {}).source, 'tiktok');
+  assert.equal(core.lineOf(say({ source: 'youtube' }), 1, {}).source, 'youtube');
+  assert.equal(core.lineOf(say({ source: undefined }), 1, {}).source, 'tiktok');
 });
 
 // --- the page ---
@@ -209,7 +246,7 @@ class FakeNode {
 
 const descendants = (node) => node.children.flatMap((child) => [child, ...descendants(child)]);
 
-function load({ search = '', protocol = 'http:', fetchBody = {} } = {}) {
+function load({ search = '', protocol = 'http:', fetchBody = {}, pathname = '/overlay/chat/panel/' } = {}) {
   const log = { sockets: [], fetches: [], timeouts: [] };
   class FakeWebSocket {
     constructor(url) {
@@ -232,7 +269,7 @@ function load({ search = '', protocol = 'http:', fetchBody = {} } = {}) {
   const sandbox = {
     window: {},
     document: { getElementById: (id) => elements[id], createElement: (tag) => new FakeNode(tag) },
-    location: { search, protocol, host: '127.0.0.1:8787' },
+    location: { search, protocol, host: '127.0.0.1:8787', pathname },
     URLSearchParams,
     WebSocket: FakeWebSocket,
     fetch: (url, options) => {
@@ -256,9 +293,11 @@ const part = (li, name) => descendants(li).find((n) => n.classes.has(name));
 
 test('the page connects to the chat socket, with the token encoded, over wss on https', () => {
   const page = load({ search: '?token=a%26b' });
-  assert.equal(page.socket().url, 'ws://127.0.0.1:8787/ws/overlay/chat?token=a%26b');
-  assert.equal(load({ protocol: 'https:' }).socket().url, 'wss://127.0.0.1:8787/ws/overlay/chat');
+  assert.equal(page.socket().url, 'ws://127.0.0.1:8787/ws/overlay/chat/panel?token=a%26b');
+  assert.equal(load({ protocol: 'https:' }).socket().url, 'wss://127.0.0.1:8787/ws/overlay/chat/panel');
   assert.equal(page.log.fetches[0].url, '/api/i18n');
+  assert.equal(load({ pathname: '/overlay/chat/float/' }).socket().url, 'ws://127.0.0.1:8787/ws/overlay/chat/float');
+  assert.equal(load({ pathname: '/overlay/chat/float' }).socket().url, 'ws://127.0.0.1:8787/ws/overlay/chat/float');
   const headers = (p) => JSON.parse(JSON.stringify(p.log.fetches[0].options.headers));
   assert.deepEqual(headers(page), { Authorization: 'Bearer a&b' });
   assert.deepEqual(headers(load()), {});
@@ -300,8 +339,8 @@ test('a command line says what it is, and the dashboard\'s look changes at once'
   const line = items(page)[0];
   assert.ok(line.classes.has('cmd'));
   assert.equal(part(line, 'status').textContent, 'Permintaan video');
-  page.socket().receive(envelope(3, 'overlay_theme', { overlay: 'chat', theme: 'komik' }));
-  assert.equal(page.elements.root.attrs['data-theme'], 'komik');
+  page.socket().receive(envelope(3, 'overlay_theme', look('pesan')));
+  assert.equal(page.elements.root.attrs['data-theme'], 'pesan');
 });
 
 test('the words around the lines come from the texts, with English defaults', async () => {
@@ -313,13 +352,30 @@ test('the words around the lines come from the texts, with English defaults', as
   assert.equal(translated.elements.title.textContent, 'Chat langsung');
 });
 
-test('?theme= forces a look for one source', () => {
+test('?theme= forces a look for one source, if the overlay has it', () => {
   const page = load({ search: '?theme=pixel' });
   page.socket().receive(hello(1, 'obsidian'));
   assert.equal(page.elements.root.attrs['data-theme'], 'pixel');
   const wrong = load({ search: '?theme=neon' });
   wrong.socket().receive(hello(1, 'kertas'));
   assert.equal(wrong.elements.root.attrs['data-theme'], 'kertas');
+  const other = load({ search: '?theme=komik' });
+  other.socket().receive(hello(1, 'kertas'));
+  assert.equal(other.elements.root.attrs['data-theme'], 'kertas', 'komik is not a look of the panel overlay');
+  const float = load({ search: '?theme=komik', pathname: '/overlay/chat/float/' });
+  float.socket().receive(hello(1, 'garis', [], 'float'));
+  assert.equal(float.elements.root.attrs['data-theme'], 'komik');
+});
+
+test('each line has an icon of the chat it is from, as the first part of its head', () => {
+  const page = load();
+  page.socket().receive(hello(1, 'obsidian', [say(), say({ source: 'youtube', name: 'budi' })]));
+  const icons = items(page).map((li) => part(li, 'src'));
+  assert.deepEqual(icons.map((n) => n.attrs['aria-label']), ['TikTok', 'YouTube']);
+  assert.ok(icons[0].classes.has('source-tiktok') && icons[1].classes.has('source-youtube'));
+  assert.ok(icons.every((n) => n.attrs.role === 'img' && n.textContent === ''));
+  assert.equal(part(items(page)[0], 'head').children[0], icons[0]);
+  assert.ok(css.includes('.source-youtube') && css.includes('.source-tiktok'));
 });
 
 test('it reconnects with a growing delay, up to ten seconds', () => {

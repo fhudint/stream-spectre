@@ -15,21 +15,11 @@
   'use strict';
 
   /* The looks of the overlay; each is a block of styles in chat.css and a
-   * name of ChatTheme in the server. */
-  var THEMES = [
-    'obsidian',
-    'kertas',
-    'brutal',
-    'terminal',
-    'permen',
-    'pixel',
-    'komik',
-    'garis',
-    'struk',
-    'pesan',
-    'ticker',
-    'catatan',
-  ];
+   * name of ChatPanelTheme or ChatFloatTheme in the server. The panel
+   * overlay has a background behind the lines, the float one is transparent. */
+  var PANEL_THEMES = ['obsidian', 'kertas', 'brutal', 'terminal', 'permen', 'pixel', 'struk', 'pesan', 'ticker'];
+  var FLOAT_THEMES = ['garis', 'komik', 'catatan'];
+  var THEMES = PANEL_THEMES.concat(FLOAT_THEMES);
   /* How many lines a look keeps on screen: what fits in a source of the
    * usual size (360 x 640), or what a bar can hold. */
   var LIMITS = {
@@ -55,8 +45,15 @@
   var MAX_TEXT = 300;
   var ROTATIONS = [-1.2, 1, -0.8, 1.4, -1.5, 0.9, -1];
 
-  function isTheme(value) {
-    return typeof value === 'string' && THEMES.indexOf(value) >= 0;
+  /* The looks of one overlay: 'panel' (with a background) or 'float'
+   * (transparent). Anything else is the panel's. */
+  function themesOf(kind) {
+    return kind === 'float' ? FLOAT_THEMES : PANEL_THEMES;
+  }
+
+  /* Whether `value` is a look of the overlay `kind`; of either when none is given. */
+  function isTheme(value, kind) {
+    return typeof value === 'string' && (kind ? themesOf(kind) : THEMES).indexOf(value) >= 0;
   }
 
   function limitOf(theme) {
@@ -120,6 +117,7 @@
     var tint = tintIndex(name);
     return {
       id: serial,
+      source: source,
       who: '@' + shorten(name, MAX_NAME),
       initial: initial(name),
       tint: tint,
@@ -133,10 +131,12 @@
   }
 
   /* `ui` has setTheme(name) and render(lines, newestId). `texts()` returns
-   * the translated words. */
+   * the translated words. `kind` is 'panel' or 'float': which overlay this is,
+   * so which looks it has and which of the server's events are its own. */
   function createController(deps) {
     var ui = deps.ui;
-    var theme = THEMES[0];
+    var kind = deps.kind === 'float' ? 'float' : 'panel';
+    var theme = themesOf(kind)[0];
     var lines = [];
     var serial = 0;
     var snapshotSeq = 0;
@@ -156,13 +156,15 @@
     }
 
     // ?theme=name shows that look whatever the dashboard chose, for one source.
-    var forced = isTheme(deps.forcedTheme) ? deps.forcedTheme : '';
+    var forced = isTheme(deps.forcedTheme, kind) ? deps.forcedTheme : '';
 
+    /* Whether the look was taken: one this overlay does not have is not. */
     function setTheme(name) {
-      if (!forced && !isTheme(name)) return;
+      if (!forced && !isTheme(name, kind)) return false;
       theme = forced || name;
       ui.setTheme(theme);
       keep();
+      return true;
     }
 
     function handle(message) {
@@ -173,7 +175,7 @@
           if (!data || typeof data !== 'object') return;
           snapshotSeq = typeof message.seq === 'number' ? message.seq : 0;
           lines = [];
-          var chat = data.settings && data.settings.overlay && data.settings.overlay.chat;
+          var chat = data.settings && data.settings.overlay && data.settings.overlay['chat_' + kind];
           setTheme(chat && chat.theme);
           (Array.isArray(data.chat_log) ? data.chat_log : []).forEach(add);
           ui.render(lines, 0);
@@ -186,10 +188,7 @@
           break;
         }
         case 'overlay_theme':
-          if (data && data.overlay === 'chat') {
-            setTheme(data.theme);
-            ui.render(lines, 0);
-          }
+          if (data && data.overlay === 'chat_' + kind && setTheme(data.theme)) ui.render(lines, 0);
           break;
         default:
           break;
@@ -206,6 +205,9 @@
 
   return {
     THEMES: THEMES,
+    PANEL_THEMES: PANEL_THEMES,
+    FLOAT_THEMES: FLOAT_THEMES,
+    themesOf: themesOf,
     LIMITS: LIMITS,
     TINTS: TINTS,
     MAX_LINES: MAX_LINES,

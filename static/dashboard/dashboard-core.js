@@ -61,9 +61,22 @@
   var THUMBNAIL = /^https:\/\/i\.ytimg\.com\/vi\/[A-Za-z0-9_-]{11}\/[A-Za-z0-9_]+\.jpg$/;
 
   /* The moderation settings the form edits (volume has its own slider). */
+  var YOUTUBE_ROLE_OPTIONS = [
+    { value: 'everyone', label: 'role.everyone' },
+    { value: 'follower', label: 'role.youtube.follower' },
+    { value: 'subscriber', label: 'role.youtube.subscriber' },
+    { value: 'moderator', label: 'role.youtube.moderator' },
+  ];
+  /* The tabs of the Rules page, and of the Overlay page. */
+  var RULES_TABS = ['general', 'youtube', 'tiktok'];
+  var OVERLAY_TABS = ['mediashare', 'chat-panel', 'chat-float'];
+
+  /* The fields of the Rules page, each on the tab of the rules it belongs to:
+   * the general ones, those of the YouTube chat and those of the TikTok chat. */
   var SETTINGS_FIELDS = [
     {
       key: 'mode',
+      tab: 'general',
       kind: 'select',
       label: 'dashboard.settings.mode',
       options: [
@@ -71,8 +84,20 @@
         { value: 'auto', label: 'dashboard.settings.mode.auto' },
       ],
     },
+    { key: 'cooldown_secs', tab: 'general', kind: 'number', label: 'dashboard.settings.cooldown_secs' },
+    { key: 'max_duration_secs', tab: 'general', kind: 'number', label: 'dashboard.settings.max_duration_secs' },
+    { key: 'max_queue_len', tab: 'general', kind: 'number', label: 'dashboard.settings.max_queue_len' },
+    { key: 'max_volume', tab: 'general', kind: 'number', label: 'dashboard.settings.max_volume' },
+    {
+      key: 'youtube_min_role',
+      tab: 'youtube',
+      kind: 'select',
+      label: 'dashboard.settings.youtube_min_role',
+      options: YOUTUBE_ROLE_OPTIONS,
+    },
     {
       key: 'min_role',
+      tab: 'tiktok',
       kind: 'select',
       label: 'dashboard.settings.min_role',
       options: [
@@ -82,12 +107,8 @@
         { value: 'moderator', label: 'role.moderator' },
       ],
     },
-    { key: 'min_gifter_level', kind: 'number', label: 'dashboard.settings.min_gifter_level' },
-    { key: 'min_fan_club_level', kind: 'number', label: 'dashboard.settings.min_fan_club_level' },
-    { key: 'cooldown_secs', kind: 'number', label: 'dashboard.settings.cooldown_secs' },
-    { key: 'max_duration_secs', kind: 'number', label: 'dashboard.settings.max_duration_secs' },
-    { key: 'max_queue_len', kind: 'number', label: 'dashboard.settings.max_queue_len' },
-    { key: 'max_volume', kind: 'number', label: 'dashboard.settings.max_volume' },
+    { key: 'min_gifter_level', tab: 'tiktok', kind: 'number', label: 'dashboard.settings.min_gifter_level' },
+    { key: 'min_fan_club_level', tab: 'tiktok', kind: 'number', label: 'dashboard.settings.min_fan_club_level' },
   ];
 
   /* The three blacklist lists, in the order they are shown. */
@@ -656,9 +677,11 @@
   /* The overlay's address to give to OBS. A loopback IP is turned into
    * `localhost`: YouTube's player refuses every video on a page opened by an
    * IP address. The token, when there is one, goes in the query. */
+  var OVERLAY_PATHS = { 'chat-panel': 'chat/panel', 'chat-float': 'chat/float' };
+
   function overlayUrl(protocol, host, token, overlay) {
     var shown = String(host).replace(/^(127\.0\.0\.1|\[::1\])(?=:|$)/, 'localhost');
-    var name = overlay === 'chat' ? 'chat' : 'mediashare';
+    var name = OVERLAY_PATHS[overlay] || 'mediashare';
     return protocol + '//' + shown + '/overlay/' + name + '/' + (token ? '?token=' + encodeURIComponent(token) : '');
   }
 
@@ -673,8 +696,9 @@
     return source === 'youtube' && YOUTUBE_ROLES.indexOf(role) >= 0 ? 'role.youtube.' + role : 'role.' + role;
   }
 
-  /* The chat overlay has two more looks than the mediashare one. */
-  var CHAT_THEMES = OVERLAY_THEMES.concat(['ticker', 'catatan']);
+  /* The two chat overlays: one with a background, one transparent. */
+  var CHAT_PANEL_THEMES = ['obsidian', 'kertas', 'brutal', 'terminal', 'permen', 'pixel', 'struk', 'pesan', 'ticker'];
+  var CHAT_FLOAT_THEMES = ['garis', 'komik', 'catatan'];
 
   /* The look the settings say the mediashare overlay has; the first when they say none. */
   function overlayTheme(settings) {
@@ -683,11 +707,17 @@
     return OVERLAY_THEMES.indexOf(name) >= 0 ? name : OVERLAY_THEMES[0];
   }
 
-  /* The same for the chat overlay. */
-  function chatTheme(settings) {
-    var look = settings && settings.overlay && settings.overlay.chat;
+  /* The same for the chat overlay with a background, and the transparent one. */
+  function chatPanelTheme(settings) {
+    var look = settings && settings.overlay && settings.overlay.chat_panel;
     var name = look && look.theme;
-    return CHAT_THEMES.indexOf(name) >= 0 ? name : CHAT_THEMES[0];
+    return CHAT_PANEL_THEMES.indexOf(name) >= 0 ? name : CHAT_PANEL_THEMES[0];
+  }
+
+  function chatFloatTheme(settings) {
+    var look = settings && settings.overlay && settings.overlay.chat_float;
+    var name = look && look.theme;
+    return CHAT_FLOAT_THEMES.indexOf(name) >= 0 ? name : CHAT_FLOAT_THEMES[0];
   }
 
   /* The tab an address like '#account/youtube-chat' opens: the profile when it
@@ -879,8 +909,12 @@
     overlayUrl: overlayUrl,
     OVERLAY_THEMES: OVERLAY_THEMES,
     overlayTheme: overlayTheme,
-    CHAT_THEMES: CHAT_THEMES,
-    chatTheme: chatTheme,
+    CHAT_PANEL_THEMES: CHAT_PANEL_THEMES,
+    CHAT_FLOAT_THEMES: CHAT_FLOAT_THEMES,
+    chatPanelTheme: chatPanelTheme,
+    chatFloatTheme: chatFloatTheme,
+    RULES_TABS: RULES_TABS,
+    OVERLAY_TABS: OVERLAY_TABS,
     ACCOUNT_TABS: ACCOUNT_TABS,
     AVATAR_SIZE: AVATAR_SIZE,
     MAX_DISPLAY_NAME: MAX_DISPLAY_NAME,

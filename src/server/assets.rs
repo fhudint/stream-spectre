@@ -64,6 +64,7 @@ pub async fn mediashare_index() -> Response {
     respond(Section::Overlay, "mediashare/index.html")
 }
 
+/// The page of both chat overlays: it asks its own address which one it is.
 pub async fn chat_index() -> Response {
     respond(Section::Overlay, "chat/index.html")
 }
@@ -97,9 +98,20 @@ pub async fn to_mediashare(RawQuery(query): RawQuery) -> Response {
     redirect_with_query("/overlay/mediashare/", query)
 }
 
-/// `/overlay/chat` lacks the slash its own files need.
-pub async fn to_chat(RawQuery(query): RawQuery) -> Response {
-    redirect_with_query("/overlay/chat/", query)
+/// `/overlay/chat` and `/overlay/chat/` were the address of the chat overlay
+/// before there were two; they go to the one with a background.
+pub async fn to_chat_panel(RawQuery(query): RawQuery) -> Response {
+    redirect_with_query("/overlay/chat/panel/", query)
+}
+
+/// `/overlay/chat/panel` lacks the slash its own files need.
+pub async fn to_chat_panel_slash(RawQuery(query): RawQuery) -> Response {
+    redirect_with_query("/overlay/chat/panel/", query)
+}
+
+/// `/overlay/chat/float` lacks the slash its own files need.
+pub async fn to_chat_float_slash(RawQuery(query): RawQuery) -> Response {
+    redirect_with_query("/overlay/chat/float/", query)
 }
 
 fn redirect_with_query(path: &str, query: Option<String>) -> Response {

@@ -1,10 +1,11 @@
 /* Chat overlay page: connects the WebSocket and the DOM to the logic in
  * chat-core.js.
  *
- * Open it as /overlay/chat/ (add ?token=... when a dashboard token is set,
- * and theme=name to give this one source a look of its own). Size the OBS
- * browser source to what the look needs: 360 x 640 for most, the width of the
- * scene for the bar (ticker).
+ * Open it as /overlay/chat/panel/ (with a background behind the lines) or
+ * /overlay/chat/float/ (transparent); add ?token=... when a dashboard token
+ * is set, and theme=name to give this one source a look of its own. Size the
+ * OBS browser source to what the look needs: 360 x 640 for most, the width of
+ * the scene for the bar (ticker).
  * Names and texts come from viewers: they are only ever assigned with
  * textContent, never as markup.
  */
@@ -21,7 +22,9 @@
 
   var root = document.getElementById('root');
   var list = document.getElementById('list');
-  var forcedTheme = core.isTheme(params.get('theme')) ? params.get('theme') : '';
+  // The address says which of the two overlays this is.
+  var kind = /\/float\/?$/.test(location.pathname) ? 'float' : 'panel';
+  var forcedTheme = core.isTheme(params.get('theme'), kind) ? params.get('theme') : '';
 
   /* The words around the lines; some looks draw a few of them. Texts that
    * are code-like (the terminal's prompt) are in the style sheet. */
@@ -56,6 +59,15 @@
     return node;
   }
 
+  /* Which chat the line is from: a small picture in the style sheet, named for
+   * screen readers. */
+  function sourceIcon(source) {
+    var node = span('src source-' + source, '');
+    node.setAttribute('role', 'img');
+    node.setAttribute('aria-label', texts['overlay.chat.source.' + source] || (source === 'youtube' ? 'YouTube' : 'TikTok'));
+    return node;
+  }
+
   /* One line of the chat. Every look styles these same parts. */
   function draw(line, fresh) {
     var item = document.createElement('li');
@@ -64,7 +76,7 @@
     item.appendChild(span('av', line.initial));
     item.appendChild(
       div('body', [
-        div('head', [span('time', line.time), span('who', line.who), span('badge', line.badge)]),
+        div('head', [sourceIcon(line.source), span('time', line.time), span('who', line.who), span('badge', line.badge)]),
         div('line', [span('text', line.text), span('status', line.status)]),
       ])
     );
@@ -88,6 +100,7 @@
   };
 
   var controller = core.createController({
+    kind: kind,
     ui: ui,
     forcedTheme: forcedTheme,
     texts: function () {
@@ -99,7 +112,7 @@
   function connect() {
     var scheme = location.protocol === 'https:' ? 'wss:' : 'ws:';
     var query = token ? '?token=' + encodeURIComponent(token) : '';
-    var ws = new WebSocket(scheme + '//' + location.host + '/ws/overlay/chat' + query);
+    var ws = new WebSocket(scheme + '//' + location.host + '/ws/overlay/chat/' + kind + query);
     ws.onopen = function () {
       socket = ws;
       attempt = 0;

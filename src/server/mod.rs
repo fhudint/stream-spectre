@@ -5,8 +5,8 @@
 //!
 //! | Route | What |
 //! |-------|------|
-//! | `/overlay/mediashare/`, `/overlay/chat/`, `/dashboard/` | the pages (embedded in the binary); `/overlay/` goes to the first |
-//! | `/ws/overlay/mediashare`, `/ws/overlay/chat`, `/ws/dashboard` | event stream (WebSocket) |
+//! | `/overlay/mediashare/`, `/overlay/chat/panel/`, `/overlay/chat/float/`, `/dashboard/` | the pages (embedded in the binary); `/overlay/` goes to the first |
+//! | `/ws/overlay/mediashare`, `/ws/overlay/chat/panel`, `/ws/overlay/chat/float`, `/ws/dashboard` | event stream (WebSocket) |
 //! | `/api/...` | dashboard actions and state (JSON) |
 //!
 //! See `guard` for how requests are checked and `docs/websocket-events.md`
@@ -89,11 +89,16 @@ pub fn router<S: VideoSource + 'static>(state: ServerState<S>, guard: Arc<Guard>
         .route("/overlay/", get(assets::to_mediashare))
         .route("/overlay/mediashare", get(assets::to_mediashare))
         .route("/overlay/mediashare/", get(assets::mediashare_index))
-        .route("/overlay/chat", get(assets::to_chat))
-        .route("/overlay/chat/", get(assets::chat_index))
+        .route("/overlay/chat", get(assets::to_chat_panel))
+        .route("/overlay/chat/", get(assets::to_chat_panel))
+        .route("/overlay/chat/panel", get(assets::to_chat_panel_slash))
+        .route("/overlay/chat/panel/", get(assets::chat_index))
+        .route("/overlay/chat/float", get(assets::to_chat_float_slash))
+        .route("/overlay/chat/float/", get(assets::chat_index))
         .route("/overlay/{*path}", get(assets::overlay_file))
         .route("/ws/overlay/mediashare", get(ws::mediashare::<S>))
-        .route("/ws/overlay/chat", get(ws::chat::<S>))
+        .route("/ws/overlay/chat/panel", get(ws::chat_panel::<S>))
+        .route("/ws/overlay/chat/float", get(ws::chat_float::<S>))
         .route("/ws/dashboard", get(ws::dashboard::<S>))
         .route("/api/state", get(api::state::<S>))
         .route("/api/i18n", get(api::catalog::<S>))
@@ -106,7 +111,8 @@ pub fn router<S: VideoSource + 'static>(state: ServerState<S>, guard: Arc<Guard>
         .route("/api/blacklist", patch(api::blacklist::<S>))
         .route("/api/dashboard", patch(api::dashboard::<S>))
         .route("/api/overlay/mediashare", patch(api::mediashare::<S>))
-        .route("/api/overlay/chat", patch(api::chat_overlay::<S>))
+        .route("/api/overlay/chat/panel", patch(api::chat_panel::<S>))
+        .route("/api/overlay/chat/float", patch(api::chat_float::<S>))
         .route("/api/commands", patch(api::commands::<S>))
         .route("/api/chat/tiktok", patch(api::tiktok::<S>))
         .route("/api/chat/youtube", patch(api::youtube_chat::<S>))
@@ -1305,73 +1311,121 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn the_chat_overlay_look_is_patched_checked_and_pushed_to_its_own_page_only() {
+    async fn each_chat_overlay_look_is_patched_checked_and_pushed_to_its_own_page_only() {
         let server = start(None).await;
-        let mut chat = connect(&server, "/ws/overlay/chat", None).await.unwrap();
+        let mut panel = connect(&server, "/ws/overlay/chat/panel", None)
+            .await
+            .unwrap();
+        let mut float = connect(&server, "/ws/overlay/chat/float", None)
+            .await
+            .unwrap();
         let mut mediashare = connect(&server, "/ws/overlay/mediashare", None)
             .await
             .unwrap();
-        let hello = next_json(&mut chat).await;
+        let hello = next_json(&mut panel).await;
         assert_eq!(
-            hello["data"]["settings"]["overlay"]["chat"]["theme"],
+            hello["data"]["settings"]["overlay"]["chat_panel"]["theme"],
             "obsidian"
         );
+        assert_eq!(
+            hello["data"]["settings"]["overlay"]["chat_float"]["theme"],
+            "garis"
+        );
+        next_json(&mut float).await;
         next_json(&mut mediashare).await;
 
-        let patch = |body: Value| {
+        let patch = |overlay: &str, body: Value| {
             server
                 .http
-                .patch(server.url("/api/overlay/chat"))
+                .patch(server.url(&format!("/api/overlay/chat/{overlay}")))
                 .json(&body)
                 .send()
         };
-        let updated: Value = patch(json!({"theme": "ticker"}))
+        let updated: Value = patch("panel", json!({"theme": "ticker"}))
             .await
             .unwrap()
             .json()
             .await
             .unwrap();
-        assert_eq!(updated["settings"]["overlay"]["chat"]["theme"], "ticker");
         assert_eq!(
-            updated["settings"]["overlay"]["mediashare"]["theme"], "obsidian",
-            "the other overlay keeps its look"
+            updated["settings"]["overlay"]["chat_panel"]["theme"],
+            "ticker"
+        );
+        assert_eq!(
+            updated["settings"]["overlay"]["chat_float"]["theme"],
+            "garis"
+        );
+        assert_eq!(
+            updated["settings"]["overlay"]["mediashare"]["theme"],
+            "obsidian"
         );
 
-        let event = next_json(&mut chat).await;
+        let event = next_json(&mut panel).await;
         assert_eq!(event["type"], "overlay_theme");
-        assert_eq!(event["data"]["overlay"], "chat");
+        assert_eq!(event["data"]["overlay"], "chat_panel");
         assert_eq!(event["data"]["theme"], "ticker");
+        expect_silence(&mut float).await;
         expect_silence(&mut mediashare).await;
 
-        for bad in [
-            json!({"theme": "neon"}),
-            json!({"theme": 3}),
-            json!({"color": "red"}),
-            json!(["pixel"]),
+        let updated: Value = patch("float", json!({"theme": "catatan"}))
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        assert_eq!(
+            updated["settings"]["overlay"]["chat_float"]["theme"],
+            "catatan"
+        );
+        let event = next_json(&mut float).await;
+        assert_eq!(event["data"]["overlay"], "chat_float");
+        assert_eq!(event["data"]["theme"], "catatan");
+        expect_silence(&mut panel).await;
+
+        // A look of the other overlay, a made-up one and a wrong shape are refused.
+        for (overlay, bad) in [
+            ("panel", json!({"theme": "komik"})),
+            ("float", json!({"theme": "obsidian"})),
+            ("panel", json!({"theme": "neon"})),
+            ("float", json!({"theme": 3})),
+            ("panel", json!({"color": "red"})),
+            ("float", json!(["garis"])),
         ] {
-            assert_eq!(patch(bad.clone()).await.unwrap().status(), 400, "{bad}");
+            assert_eq!(
+                patch(overlay, bad.clone()).await.unwrap().status(),
+                400,
+                "{overlay} {bad}"
+            );
         }
     }
 
     #[tokio::test]
-    async fn the_chat_overlay_page_is_served_and_its_hello_keeps_the_dashboard_private() {
+    async fn the_chat_overlay_pages_are_served_and_their_hello_keeps_the_dashboard_private() {
         let server = start(None).await;
         for path in [
-            "/overlay/chat/",
+            "/overlay/chat/panel/",
+            "/overlay/chat/float/",
             "/overlay/chat/chat.css",
             "/overlay/chat/chat.js",
+            "/overlay/chat/chat-core.js",
         ] {
             let response = server.http.get(server.url(path)).send().await.unwrap();
             assert_eq!(response.status(), 200, "{path}");
         }
-        let response = server
-            .http
-            .get(server.url("/overlay/chat"))
-            .send()
-            .await
-            .unwrap();
-        assert_eq!(response.status(), 307);
-        assert_eq!(response.headers()["location"], "/overlay/chat/");
+        for (path, target) in [
+            ("/overlay/chat", "/overlay/chat/panel/"),
+            ("/overlay/chat/", "/overlay/chat/panel/"),
+            ("/overlay/chat/panel", "/overlay/chat/panel/"),
+            ("/overlay/chat/float", "/overlay/chat/float/"),
+            (
+                "/overlay/chat/float?theme=komik",
+                "/overlay/chat/float/?theme=komik",
+            ),
+        ] {
+            let response = server.http.get(server.url(path)).send().await.unwrap();
+            assert_eq!(response.status(), 307, "{path}");
+            assert_eq!(response.headers()["location"], target, "{path}");
+        }
 
         server
             .http
@@ -1380,15 +1434,17 @@ mod tests {
             .send()
             .await
             .unwrap();
-        let mut chat = connect(&server, "/ws/overlay/chat", None).await.unwrap();
-        let hello = next_json(&mut chat).await;
-        let text = hello.to_string();
-        assert!(
-            !text.contains("Secret Name") && !text.contains("base64"),
-            "{text}"
-        );
-        assert!(hello["data"]["queue"]["now_playing"].is_null());
-        assert!(hello["data"]["history"].as_array().unwrap().is_empty());
+        for path in ["/ws/overlay/chat/panel", "/ws/overlay/chat/float"] {
+            let mut chat = connect(&server, path, None).await.unwrap();
+            let hello = next_json(&mut chat).await;
+            let text = hello.to_string();
+            assert!(
+                !text.contains("Secret Name") && !text.contains("base64"),
+                "{path}: {text}"
+            );
+            assert!(hello["data"]["queue"]["now_playing"].is_null());
+            assert!(hello["data"]["history"].as_array().unwrap().is_empty());
+        }
     }
 
     #[tokio::test]

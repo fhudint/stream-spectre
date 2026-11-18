@@ -10,8 +10,9 @@ use serde::{Deserialize, Serialize};
 use super::history::HistoryEntry;
 use crate::chat::{ChatStatus, Role};
 use crate::config::{
-    BlacklistConfig, ChatSourceKind, ChatTheme, CommandConfig, CommandSource, DashboardConfig,
-    Language, MediashareTheme, ModerationConfig, OverlayConfig, TiktokConfig, YoutubeChatConfig,
+    BlacklistConfig, ChatFloatTheme, ChatPanelTheme, ChatSourceKind, CommandConfig, CommandSource,
+    DashboardConfig, Language, MediashareTheme, ModerationConfig, OverlayConfig, TiktokConfig,
+    YoutubeChatConfig,
 };
 use crate::queue::{Media, QueueItem, QueueSnapshot};
 
@@ -245,7 +246,7 @@ impl Hello {
         self
     }
 
-    /// The version sent to the chat overlay: the look it has and the chat
+    /// The version sent to either chat overlay: the look it has and the chat
     /// lines it may show. Nothing about the queue, the requests, the settings
     /// of the moderation or the dashboard.
     pub fn for_chat(mut self) -> Self {
@@ -265,7 +266,10 @@ impl Hello {
 #[serde(rename_all = "snake_case")]
 pub enum OverlayKind {
     Mediashare,
-    Chat,
+    /// The chat overlay with a background.
+    ChatPanel,
+    /// The transparent chat overlay.
+    ChatFloat,
 }
 
 /// The look of an overlay, by the name its page knows (`"pixel"`).
@@ -273,7 +277,8 @@ pub enum OverlayKind {
 #[serde(untagged)]
 pub enum ThemeName {
     Mediashare(MediashareTheme),
-    Chat(ChatTheme),
+    ChatPanel(ChatPanelTheme),
+    ChatFloat(ChatFloatTheme),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]

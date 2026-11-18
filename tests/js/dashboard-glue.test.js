@@ -118,7 +118,7 @@ const snapshot = (extra = {}) => ({
   seq: 5,
   settings: {
     moderation: {
-      mode: 'manual', min_role: 'follower', min_gifter_level: 0, min_fan_club_level: 0,
+      mode: 'manual', min_role: 'follower', youtube_min_role: 'follower', min_gifter_level: 0, min_fan_club_level: 0,
       cooldown_secs: 60, max_duration_secs: 600, max_queue_len: 20, volume: 50, max_volume: 80,
     },
     blacklist: { video_ids: ['aaaaaaaaaaa'], channels: [], title_words: [] },
@@ -2522,35 +2522,109 @@ test('the server refusing a look is shown and the choice stays where it was', as
   assert.match(page.elements.error.textContent, /unknown variant/);
 });
 
-// --- the look of the chat overlay ---
+// --- the looks of the two chat overlays ---
 
-const chatThemeInputs = (page) => descendants(page.elements['chat-themes']).filter((n) => n.tag === 'input');
+const pickerInputs = (page, box) => descendants(page.elements[box]).filter((n) => n.tag === 'input');
+const checkedIn = (page, box) => pickerInputs(page, box).filter((i) => i.checked).map((i) => i.attrs.value);
 
-test('the chat overlay has its own address, its twelve looks and its own choice', async () => {
+test('each chat overlay has its own address, its own looks and its own choice', async () => {
   const body = snapshot();
-  body.settings.overlay = { mediashare: { theme: 'pixel' }, chat: { theme: 'ticker' } };
+  body.settings.overlay = { mediashare: { theme: 'pixel' }, chat_panel: { theme: 'ticker' }, chat_float: { theme: 'catatan' } };
   const page = await ready({ stored: 'tok en', routes: { 'GET /api/state': () => ({ status: 200, body }) } });
-  assert.equal(page.elements['chat-overlay-shown'].textContent, 'localhost:8787/overlay/chat/');
-  const inputs = chatThemeInputs(page);
-  assert.deepEqual(inputs.map((i) => i.attrs.value), core.CHAT_THEMES);
-  assert.equal(inputs.length, 12);
-  assert.deepEqual(inputs.filter((i) => i.checked).map((i) => i.attrs.value), ['ticker']);
-  assert.deepEqual(themeInputs(page).filter((i) => i.checked).map((i) => i.attrs.value), ['pixel'], 'the other overlay keeps its own');
-  assert.notEqual(inputs[0].attrs.name, themeInputs(page)[0].attrs.name, 'two groups of radio buttons');
+  assert.equal(page.elements['chat-panel-shown'].textContent, 'localhost:8787/overlay/chat/panel/');
+  assert.equal(page.elements['chat-float-shown'].textContent, 'localhost:8787/overlay/chat/float/');
+  assert.deepEqual(pickerInputs(page, 'chat-panel-themes').map((i) => i.attrs.value), core.CHAT_PANEL_THEMES);
+  assert.deepEqual(pickerInputs(page, 'chat-float-themes').map((i) => i.attrs.value), core.CHAT_FLOAT_THEMES);
+  assert.deepEqual(checkedIn(page, 'chat-panel-themes'), ['ticker']);
+  assert.deepEqual(checkedIn(page, 'chat-float-themes'), ['catatan']);
+  assert.deepEqual(checkedIn(page, 'themes'), ['pixel'], 'the mediashare overlay keeps its own');
+  const groups = new Set(['themes', 'chat-panel-themes', 'chat-float-themes'].map((box) => pickerInputs(page, box)[0].attrs.name));
+  assert.equal(groups.size, 3, 'three groups of radio buttons');
 
-  page.click(page.elements['copy-chat-overlay']);
-  assert.equal(page.log.clipboard, 'http://localhost:8787/overlay/chat/?token=tok%20en');
+  page.click(page.elements['copy-chat-panel']);
+  assert.equal(page.log.clipboard, 'http://localhost:8787/overlay/chat/panel/?token=tok%20en');
+  page.click(page.elements['copy-chat-float']);
+  assert.equal(page.log.clipboard, 'http://localhost:8787/overlay/chat/float/?token=tok%20en');
 
   const updated = snapshot();
-  updated.settings.overlay = { mediashare: { theme: 'pixel' }, chat: { theme: 'catatan' } };
-  page.table['PATCH /api/overlay/chat'] = { status: 200, body: updated };
-  inputs.find((i) => i.attrs.value === 'catatan').fire('change');
+  updated.settings.overlay = { mediashare: { theme: 'pixel' }, chat_panel: { theme: 'ticker' }, chat_float: { theme: 'komik' } };
+  page.table['PATCH /api/overlay/chat/float'] = { status: 200, body: updated };
+  pickerInputs(page, 'chat-float-themes').find((i) => i.attrs.value === 'komik').fire('change');
   await settle();
-  const patch = page.log.requests.find((r) => r.path === '/api/overlay/chat');
+  const patch = page.log.requests.find((r) => r.path === '/api/overlay/chat/float');
   assert.equal(patch.method, 'PATCH');
-  assert.deepEqual(patch.body, { theme: 'catatan' });
-  assert.deepEqual(chatThemeInputs(page).filter((i) => i.checked).map((i) => i.attrs.value), ['catatan']);
-  assert.ok(!page.log.requests.some((r) => r.path === '/api/overlay/mediashare'));
+  assert.deepEqual(patch.body, { theme: 'komik' });
+  assert.deepEqual(checkedIn(page, 'chat-float-themes'), ['komik']);
+  assert.ok(!page.log.requests.some((r) => r.path === '/api/overlay/mediashare' || r.path === '/api/overlay/chat/panel'));
+
+  const panel = snapshot();
+  panel.settings.overlay = { mediashare: { theme: 'pixel' }, chat_panel: { theme: 'kertas' }, chat_float: { theme: 'komik' } };
+  page.table['PATCH /api/overlay/chat/panel'] = { status: 200, body: panel };
+  pickerInputs(page, 'chat-panel-themes').find((i) => i.attrs.value === 'kertas').fire('change');
+  await settle();
+  assert.deepEqual(page.log.requests.find((r) => r.path === '/api/overlay/chat/panel').body, { theme: 'kertas' });
+  assert.deepEqual(checkedIn(page, 'chat-panel-themes'), ['kertas']);
+});
+
+// --- the tabs of the Rules and Overlay pages ---
+
+const shownIn = (page, ids) => ids.filter((id) => !page.elements[id].hidden);
+const selected = (page, prefix, tabs) => tabs.filter((t) => page.elements[`${prefix}${t}`].attrs['aria-selected'] === 'true');
+
+test('the rules are on three tabs, each with the rules of its own, and one Save for all', async () => {
+  const page = await ready({ hash: '#rules' });
+  const panels = ['rules-general', 'rules-commands', 'rules-youtube', 'rules-tiktok'];
+  assert.deepEqual(selected(page, 'rtab-', core.RULES_TABS), ['general']);
+  assert.deepEqual(shownIn(page, panels), ['rules-general', 'rules-commands'], 'the chat commands are general');
+
+  const inside = (id) => descendants(page.elements[id]).filter((n) => n.attrs.id && n.attrs.id.startsWith('setting-')).map((n) => n.attrs.id.slice(8));
+  assert.deepEqual(inside('rules-general'), ['mode', 'cooldown_secs', 'max_duration_secs', 'max_queue_len', 'max_volume']);
+  assert.deepEqual(inside('rules-youtube'), ['youtube_min_role']);
+  assert.deepEqual(inside('rules-tiktok'), ['min_role', 'min_gifter_level', 'min_fan_club_level']);
+
+  page.click(page.elements['rtab-youtube']);
+  assert.deepEqual(selected(page, 'rtab-', core.RULES_TABS), ['youtube']);
+  assert.deepEqual(shownIn(page, panels), ['rules-youtube']);
+  page.click(page.elements['rtab-tiktok']);
+  assert.deepEqual(shownIn(page, panels), ['rules-tiktok']);
+  page.elements['rtab-tiktok'].fire('keydown', { key: 'ArrowRight' });
+  assert.deepEqual(selected(page, 'rtab-', core.RULES_TABS), ['general'], 'wraps round');
+  assert.ok(page.elements['rtab-general'].focused);
+
+  // A change on one tab and another is saved together.
+  const updated = snapshot();
+  updated.settings.moderation.youtube_min_role = 'subscriber';
+  updated.settings.moderation.min_gifter_level = 3;
+  page.table['PATCH /api/settings'] = { status: 200, body: updated };
+  page.elements['setting-youtube_min_role'].value = 'subscriber';
+  page.elements['setting-min_gifter_level'].value = '3';
+  page.elements['settings-form'].fire('submit');
+  await settle();
+  const patch = page.log.requests.find((r) => r.method === 'PATCH' && r.path === '/api/settings');
+  assert.deepEqual(patch.body, { youtube_min_role: 'subscriber', min_gifter_level: 3 });
+});
+
+test('the YouTube minimum role is named in the words of a YouTube chat', async () => {
+  const page = await ready({ hash: '#rules' });
+  const select = descendants(page.elements['rules-youtube']).find((n) => n.attrs.id === 'setting-youtube_min_role');
+  assert.deepEqual(select.children.map((o) => o.textContent), ['Everyone', 'Viewer', 'Member', 'Moderator']);
+  const tiktok = descendants(page.elements['rules-tiktok']).find((n) => n.attrs.id === 'setting-min_role');
+  assert.deepEqual(tiktok.children.map((o) => o.textContent), ['Everyone', 'Follower', 'Subscriber', 'Moderator']);
+});
+
+test('the overlay page has a tab for the mediashare and one for each chat overlay', async () => {
+  const page = await ready({ hash: '#overlay' });
+  const panels = ['overlay-mediashare', 'overlay-chat-panel', 'overlay-chat-float'];
+  assert.deepEqual(selected(page, 'otab-', core.OVERLAY_TABS), ['mediashare']);
+  assert.deepEqual(shownIn(page, panels), ['overlay-mediashare']);
+  page.click(page.elements['otab-chat-panel']);
+  assert.deepEqual(shownIn(page, panels), ['overlay-chat-panel']);
+  page.click(page.elements['otab-chat-float']);
+  assert.deepEqual(shownIn(page, panels), ['overlay-chat-float']);
+  assert.deepEqual(selected(page, 'otab-', core.OVERLAY_TABS), ['chat-float']);
+  page.elements['otab-chat-float'].fire('keydown', { key: 'ArrowLeft' });
+  assert.deepEqual(shownIn(page, panels), ['overlay-chat-panel']);
+  assert.equal(english['dashboard.overlay.tab.chat_panel'], 'Chat with background');
 });
 
 // --- what the viewer wrote after the link ---

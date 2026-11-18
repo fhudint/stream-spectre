@@ -44,8 +44,9 @@ for what plays on your stream.
 - Checks each video with the YouTube Data API (one quota unit per new video,
   results cached): rejects videos that cannot be embedded, are age-restricted,
   are live streams, or are too long.
-- Moderation: manual approval by default (or automatic), minimum role
-  (everyone / follower / subscriber / moderator), minimum TikTok gifter level
+- Moderation: manual approval by default (or automatic), minimum role for each
+  chat (everyone / follower / subscriber / moderator; a YouTube viewer, member
+  or moderator), minimum TikTok gifter level
   and fan club level, per-viewer cooldown, maximum duration, queue length limit,
   blacklist (video IDs, channel names, words in the title), skip button, and a
   volume limit.
@@ -154,7 +155,8 @@ username = "your_tiktok_username"
 
 [moderation]
 mode = "manual"            # every request waits for approval
-min_role = "follower"      # who may submit
+min_role = "follower"      # who may submit from TikTok
+youtube_min_role = "follower"  # and from YouTube (follower = any viewer)
 cooldown_secs = 60
 max_duration_secs = 600
 ```
@@ -203,14 +205,17 @@ page (see below): a live has a new link each time.
    `theme=pixel` (any look's name) to its address, after a `?` or a `&`.
    A tall source (for example 9:16) suits TikTok videos; the video takes
    whatever room the card leaves.
-6. Optional, the chat on stream: add a second Browser source with
-   `http://localhost:8787/overlay/chat/` (360 x 640 suits most looks; the bar
-   look, Ticker, wants a source as wide as the scene). It shows the chat of every
-   source being read, YouTube and TikTok together, with a badge for subscribers
-   and moderators; a line that is a video command also says it is a video
-   request. Twelve looks (the ten above, Ticker and Notes), chosen on the
-   Overlay page like the first one's. It shows the chat the program remembers
-   (the **Settings** page) when OBS reloads it, so with 0 there it starts empty.
+6. Optional, the chat on stream: add a Browser source with
+   `http://localhost:8787/overlay/chat/panel/` (the chat on a panel, nine looks:
+   Obsidian, Paper, Brutal, Terminal, Candy, Pixel, Receipt, Messages and Ticker, a
+   bar that wants a source as wide as the scene) or
+   `http://localhost:8787/overlay/chat/float/` (transparent, three looks: Outline,
+   Comic and Notes), 360 x 640 for most. Each shows the chat of every source being
+   read, YouTube and TikTok together, with an icon of the chat each line came from,
+   a badge for subscribers and moderators, and a mark on a line that is a video
+   command. The look of each is chosen on its tab of the Overlay page. It shows
+   the chat the program remembers (the **Settings** page) when OBS reloads it, so
+   with 0 there it starts empty.
 
 Open <http://localhost:8787/dashboard/> in a normal browser (for you or your
 moderators) to approve, reject and skip requests, and to change the settings
@@ -372,7 +377,8 @@ trust, not across the internet.
   not run again, and Super Chats are not read. A channel's members count as
   **subscribers**, the streamer and the moderators as **moderators**, and
   everyone else as **followers** (YouTube shows no followers), so the default
-  minimum role lets every YouTube viewer in. The `!yt` command also accepts
+  minimum role lets every YouTube viewer in. YouTube has a minimum role of its
+  own (the **YouTube** tab of the Rules page): *Viewer*, *Member* or *Moderator*. The `!yt` command also accepts
   `youtube.com/live/ID` links.
 - **Some videos still fail to play.** The YouTube API saying a video is
   embeddable does not guarantee it plays (the owner may restrict playback). The

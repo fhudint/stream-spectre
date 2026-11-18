@@ -92,19 +92,31 @@ test('diffSettings returns only what changed', () => {
 
 test('readSettings accepts good values and names the first bad field', () => {
   const good = {
-    mode: 'auto', min_role: 'subscriber', min_gifter_level: '3', min_fan_club_level: ' 0 ',
+    mode: 'auto', min_role: 'subscriber', youtube_min_role: 'subscriber', min_gifter_level: '3', min_fan_club_level: ' 0 ',
     cooldown_secs: '60', max_duration_secs: '600', max_queue_len: '20', max_volume: '80',
   };
   assert.deepEqual(core.readSettings(good).value, {
-    mode: 'auto', min_role: 'subscriber', min_gifter_level: 3, min_fan_club_level: 0,
+    mode: 'auto', min_role: 'subscriber', youtube_min_role: 'subscriber', min_gifter_level: 3, min_fan_club_level: 0,
     cooldown_secs: 60, max_duration_secs: 600, max_queue_len: 20, max_volume: 80,
   });
   for (const [key, bad] of [
-    ['mode', 'sometimes'], ['min_role', 'vip'], ['cooldown_secs', ''], ['cooldown_secs', '-1'],
+    ['mode', 'sometimes'], ['min_role', 'vip'], ['youtube_min_role', 'vip'], ['cooldown_secs', ''], ['cooldown_secs', '-1'],
     ['max_queue_len', '1.5'], ['max_volume', 'loud'], ['min_gifter_level', '1e2'], ['max_duration_secs', '0x10'],
   ]) {
     assert.equal(core.readSettings({ ...good, [key]: bad }).error, key, `${key}=${bad}`);
   }
+});
+
+test('every rule is on the tab of the rules it belongs to', () => {
+  assert.deepEqual(core.RULES_TABS, ['general', 'youtube', 'tiktok']);
+  const on = (tab) => core.SETTINGS_FIELDS.filter((f) => f.tab === tab).map((f) => f.key);
+  assert.deepEqual(on('general'), ['mode', 'cooldown_secs', 'max_duration_secs', 'max_queue_len', 'max_volume']);
+  assert.deepEqual(on('youtube'), ['youtube_min_role']);
+  assert.deepEqual(on('tiktok'), ['min_role', 'min_gifter_level', 'min_fan_club_level']);
+  for (const field of core.SETTINGS_FIELDS) assert.ok(core.RULES_TABS.includes(field.tab), field.key);
+  const youtube = core.SETTINGS_FIELDS.find((f) => f.key === 'youtube_min_role');
+  assert.deepEqual(youtube.options.map((o) => o.value), ['everyone', 'follower', 'subscriber', 'moderator']);
+  assert.ok(youtube.options.slice(1).every((o) => o.label.startsWith('role.youtube.')), 'a YouTube chat has its own words for the roles');
 });
 
 test('the settings form edits real configuration keys', () => {
@@ -787,14 +799,20 @@ test('the profile comes from the dashboard settings, and only a safe picture is 
   }
 });
 
-test('the chat overlay has its own address and its twelve looks', () => {
-  assert.equal(core.overlayUrl('http:', '127.0.0.1:8787', '', 'chat'), 'http://localhost:8787/overlay/chat/');
-  assert.equal(core.overlayUrl('https:', 'x.example', 'a b', 'chat'), 'https://x.example/overlay/chat/?token=a%20b');
+test('the two chat overlays have their own addresses and their own looks', () => {
+  assert.equal(core.overlayUrl('http:', '127.0.0.1:8787', '', 'chat-panel'), 'http://localhost:8787/overlay/chat/panel/');
+  assert.equal(core.overlayUrl('http:', '127.0.0.1:8787', '', 'chat-float'), 'http://localhost:8787/overlay/chat/float/');
+  assert.equal(core.overlayUrl('https:', 'x.example', 'a b', 'chat-float'), 'https://x.example/overlay/chat/float/?token=a%20b');
   assert.equal(core.overlayUrl('http:', 'x', '', 'nope'), 'http://x/overlay/mediashare/', 'an unknown overlay is the mediashare one');
-  assert.deepEqual(core.CHAT_THEMES, [...core.OVERLAY_THEMES, 'ticker', 'catatan']);
-  assert.equal(core.chatTheme({ overlay: { chat: { theme: 'ticker' } } }), 'ticker');
-  for (const bad of [null, {}, { overlay: {} }, { overlay: { chat: { theme: 'neon' } } }, { overlay: { mediashare: { theme: 'pixel' } } }]) {
-    assert.equal(core.chatTheme(bad), 'obsidian', JSON.stringify(bad));
+  assert.deepEqual(core.CHAT_PANEL_THEMES, ['obsidian', 'kertas', 'brutal', 'terminal', 'permen', 'pixel', 'struk', 'pesan', 'ticker']);
+  assert.deepEqual(core.CHAT_FLOAT_THEMES, ['garis', 'komik', 'catatan']);
+  assert.equal(core.chatPanelTheme({ overlay: { chat_panel: { theme: 'ticker' } } }), 'ticker');
+  assert.equal(core.chatFloatTheme({ overlay: { chat_float: { theme: 'catatan' } } }), 'catatan');
+  for (const bad of [null, {}, { overlay: {} }, { overlay: { chat_panel: { theme: 'komik' } } }, { overlay: { chat_panel: { theme: 'neon' } } }]) {
+    assert.equal(core.chatPanelTheme(bad), 'obsidian', JSON.stringify(bad));
   }
-  assert.equal(core.chatTheme({ overlay: { mediashare: { theme: 'pixel' }, chat: { theme: 'kertas' } } }), 'kertas');
+  for (const bad of [null, {}, { overlay: { chat_float: { theme: 'obsidian' } } }, { overlay: { chat_panel: { theme: 'pixel' } } }]) {
+    assert.equal(core.chatFloatTheme(bad), 'garis', JSON.stringify(bad));
+  }
+  assert.deepEqual(core.OVERLAY_TABS, ['mediashare', 'chat-panel', 'chat-float']);
 });

@@ -35,7 +35,10 @@ const SEND_TIMEOUT: Duration = Duration::from_secs(10);
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Kind {
     Mediashare,
-    Chat,
+    /// The chat overlay with a background.
+    ChatPanel,
+    /// The transparent chat overlay.
+    ChatFloat,
     Dashboard,
 }
 
@@ -56,11 +59,19 @@ impl Kind {
                     }
                     | Event::PlaybackPaused { .. }
             ),
-            Self::Chat => matches!(
+            Self::ChatPanel => matches!(
                 event,
                 Event::ChatMessage(_)
                     | Event::OverlayTheme {
-                        overlay: OverlayKind::Chat,
+                        overlay: OverlayKind::ChatPanel,
+                        ..
+                    }
+            ),
+            Self::ChatFloat => matches!(
+                event,
+                Event::ChatMessage(_)
+                    | Event::OverlayTheme {
+                        overlay: OverlayKind::ChatFloat,
                         ..
                     }
             ),
@@ -96,11 +107,18 @@ pub async fn mediashare<S: VideoSource + 'static>(
     accept(state, upgrade, Kind::Mediashare)
 }
 
-pub async fn chat<S: VideoSource + 'static>(
+pub async fn chat_panel<S: VideoSource + 'static>(
     State(state): State<ServerState<S>>,
     upgrade: WebSocketUpgrade,
 ) -> Response {
-    accept(state, upgrade, Kind::Chat)
+    accept(state, upgrade, Kind::ChatPanel)
+}
+
+pub async fn chat_float<S: VideoSource + 'static>(
+    State(state): State<ServerState<S>>,
+    upgrade: WebSocketUpgrade,
+) -> Response {
+    accept(state, upgrade, Kind::ChatFloat)
 }
 
 pub async fn dashboard<S: VideoSource + 'static>(
@@ -141,7 +159,7 @@ async fn send_hello<S: VideoSource + 'static>(
     let seq = hello.seq;
     let hello = match kind {
         Kind::Mediashare => hello.for_mediashare(),
-        Kind::Chat => hello.for_chat(),
+        Kind::ChatPanel | Kind::ChatFloat => hello.for_chat(),
         Kind::Dashboard => hello,
     };
     let envelope = Envelope {
@@ -327,16 +345,21 @@ mod tests {
             command: false,
             skipped: 0,
         };
-        let wanted = [
-            Event::ChatMessage(line),
-            Event::OverlayTheme {
-                overlay: crate::app::OverlayKind::Chat,
-                theme: crate::app::ThemeName::Chat(crate::config::ChatTheme::Ticker),
-            },
-        ];
-        for event in &wanted {
-            assert!(Kind::Chat.wants(event), "{event:?}");
+        let panel_look = Event::OverlayTheme {
+            overlay: crate::app::OverlayKind::ChatPanel,
+            theme: crate::app::ThemeName::ChatPanel(crate::config::ChatPanelTheme::Ticker),
+        };
+        let float_look = Event::OverlayTheme {
+            overlay: crate::app::OverlayKind::ChatFloat,
+            theme: crate::app::ThemeName::ChatFloat(crate::config::ChatFloatTheme::Komik),
+        };
+        let line = Event::ChatMessage(line);
+        // Both hear the chat; each hears of its own look only.
+        for kind in [Kind::ChatPanel, Kind::ChatFloat] {
+            assert!(kind.wants(&line));
         }
+        assert!(Kind::ChatPanel.wants(&panel_look) && !Kind::ChatPanel.wants(&float_look));
+        assert!(Kind::ChatFloat.wants(&float_look) && !Kind::ChatFloat.wants(&panel_look));
         let unwanted = [
             play(),
             Event::Stop {},
@@ -349,14 +372,17 @@ mod tests {
             },
         ];
         for event in &unwanted {
-            assert!(!Kind::Chat.wants(event), "{event:?}");
+            assert!(
+                !Kind::ChatPanel.wants(event) && !Kind::ChatFloat.wants(event),
+                "{event:?}"
+            );
         }
         // Each overlay hears of its own look only.
         let other = Event::OverlayTheme {
             overlay: crate::app::OverlayKind::Mediashare,
             theme: crate::app::ThemeName::Mediashare(crate::config::MediashareTheme::Pixel),
         };
-        assert!(!Kind::Chat.wants(&other) && Kind::Mediashare.wants(&other));
+        assert!(!Kind::ChatPanel.wants(&other) && Kind::Mediashare.wants(&other));
     }
 
     #[test]
