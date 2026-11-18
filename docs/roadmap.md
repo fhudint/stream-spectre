@@ -378,3 +378,40 @@ chat turned off.
 - The same viewer on both platforms counts as two people for cooldowns.
 - Twitch would be a third source; the shape is there but the setting tables, the
   status texts and the Account page would each need a third entry.
+
+## 10. A dock inside OBS
+
+**Goal.** The moderation panel (the queue with approve, reject, skip and pause,
+the video playing, the volume) as a panel of OBS itself, like Scenes and
+Sources, instead of a browser tab, a window or a Custom Browser Dock.
+
+**Today.** The dashboard works in a browser, in the window of
+`stream-spectre-window`, and as an OBS Custom Browser Dock (Docks, Custom Browser
+Docks, with `http://localhost:8787/dashboard/`, plus `#token=...` when a token
+is set); its narrow layout suits a dock. Browser Docks are switched off in the
+Flatpak build of OBS on Wayland, which is the usual reason to want something
+else. Nothing of an OBS plugin exists.
+
+**Likely approach.** An OBS plugin in C++ with Qt, adding the dock through the
+frontend API (`obs_frontend_add_dock_by_id`), talking to the program through the
+REST API and the dashboard WebSocket that exist already: no change to the server
+is expected. It would be a project of its own (a separate repository from the
+`obs-plugintemplate`, with its own build for Windows, macOS and Linux), because
+it has to be built against the Qt and OBS versions it runs in and kept up with
+each OBS release. Scripts in Lua or Python cannot add a dock.
+
+**Cheaper steps that were weighed**
+- A compact mode of the dashboard (`?dock=1`: the queue, the video playing and
+  the chat, with no side menu), usable as a Custom Browser Dock and in the
+  window, which could also stay on top of other windows. Not built.
+- Hotkeys in OBS (skip, approve, pause) through a Python script calling the REST
+  API. It needs Python set up in OBS, which is a chore on Windows. Not built.
+
+**Open questions**
+- Whether a native dock is wanted for the look (it follows OBS's theme) or only
+  because Browser Docks do not work on some Linux setups; in the second case the
+  compact window may be enough.
+- Whether the plugin should wait for a stable release and for someone to ask for
+  it, given the upkeep.
+- *Unverified:* the exact dock API of the current OBS versions and what the
+  plugin template needs; to be read from OBS's documentation before starting.
