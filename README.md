@@ -260,7 +260,9 @@ page (see below): a live has a new link each time.
    a badge for subscribers and moderators, and a mark on a line that is a video
    command. The look of each is chosen on its tab of the Overlay page. It shows
    the chat the program remembers (the **Settings** page) when OBS reloads it, so
-   with 0 there it starts empty.
+   with 0 there it starts empty. It shows as many lines as the source has room
+   for (a taller source shows more), up to the last 40; to have a tall source
+   full right after a reload, raise the number of messages kept (up to 200).
 
 Open <http://localhost:8787/dashboard/> in a normal browser (for you or your
 moderators) to approve, reject and skip requests, and to change the settings

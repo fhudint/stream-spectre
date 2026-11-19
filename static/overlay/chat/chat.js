@@ -22,6 +22,7 @@
 
   var root = document.getElementById('root');
   var list = document.getElementById('list');
+  var panel = document.getElementById('panel');
   // The address says which of the two overlays this is.
   var kind = /\/float\/?$/.test(location.pathname) ? 'float' : 'panel';
   var forcedTheme = core.isTheme(params.get('theme'), kind) ? params.get('theme') : '';
@@ -84,6 +85,27 @@
     return item;
   }
 
+  /* More than this much past the edge is a line too many (a note turned a few
+   * degrees reaches a little past its own box; a line cut at the edge is fine). */
+  var SLACK = 16;
+
+  /* Whether the lines are more than the source has room for: the list, which
+   * the look keeps as high as the source or as wide, or the whole panel, which
+   * a look that grows with its lines keeps inside the source. */
+  function overflows() {
+    return (
+      list.scrollHeight > list.clientHeight + SLACK ||
+      list.scrollWidth > list.clientWidth + SLACK ||
+      panel.offsetHeight > root.clientHeight + SLACK
+    );
+  }
+
+  /* Takes the oldest lines away until the rest fits, so a tall source shows a
+   * full panel and a short one only what it can hold. */
+  function fit() {
+    while (list.children.length > 1 && overflows()) list.removeChild(list.firstChild);
+  }
+
   var ui = {
     setTheme: function (name) {
       root.setAttribute('data-theme', name);
@@ -93,10 +115,14 @@
       list.replaceChildren.apply(
         list,
         lines.map(function (line) {
-          return draw(line, line.id === newestId);
+          return draw(line, false);
         })
       );
       root.classList.remove('hidden');
+      fit();
+      // Marked as new only now: the move it starts must not count as too big.
+      var last = list.children[list.children.length - 1];
+      if (last && lines.length && lines[lines.length - 1].id === newestId) last.classList.add('enter');
     },
   };
 

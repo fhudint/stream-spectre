@@ -20,26 +20,12 @@
   var PANEL_THEMES = ['obsidian', 'paper', 'brutal', 'terminal', 'candy', 'pixel', 'receipt', 'messages', 'ticker'];
   var FLOAT_THEMES = ['outline', 'comic', 'notes'];
   var THEMES = PANEL_THEMES.concat(FLOAT_THEMES);
-  /* How many lines a look keeps on screen: what fits in a source of the
-   * usual size (360 x 640), or what a bar can hold. */
-  var LIMITS = {
-    obsidian: 7,
-    paper: 7,
-    brutal: 6,
-    terminal: 7,
-    candy: 5,
-    pixel: 6,
-    comic: 5,
-    outline: 7,
-    receipt: 6,
-    messages: 6,
-    ticker: 4,
-    notes: 5,
-  };
   /* Colours for viewers' names: see .tint-N in chat.css. */
   var TINTS = 7;
-  /* The most lines the page ever holds, whatever the look. */
-  var MAX_LINES = 12;
+  /* The most lines the page keeps. How many of them show is for the page to
+   * find out: it takes the oldest away until the rest fits the source, so a
+   * tall source shows more lines than a short one. */
+  var MAX_LINES = 40;
   /* Longest name or text drawn; the server's own limits are looser. */
   var MAX_NAME = 40;
   var MAX_TEXT = 300;
@@ -54,10 +40,6 @@
   /* Whether `value` is a look of the overlay `kind`; of either when none is given. */
   function isTheme(value, kind) {
     return typeof value === 'string' && (kind ? themesOf(kind) : THEMES).indexOf(value) >= 0;
-  }
-
-  function limitOf(theme) {
-    return isTheme(theme) ? LIMITS[theme] : LIMITS[THEMES[0]];
   }
 
   /* The same name always gets the same colour. */
@@ -144,8 +126,7 @@
     var snapshotSeq = 0;
 
     function keep() {
-      var most = Math.min(limitOf(theme), MAX_LINES);
-      if (lines.length > most) lines = lines.slice(lines.length - most);
+      if (lines.length > MAX_LINES) lines = lines.slice(lines.length - MAX_LINES);
     }
 
     function add(data) {
@@ -210,11 +191,9 @@
     PANEL_THEMES: PANEL_THEMES,
     FLOAT_THEMES: FLOAT_THEMES,
     themesOf: themesOf,
-    LIMITS: LIMITS,
     TINTS: TINTS,
     MAX_LINES: MAX_LINES,
     isTheme: isTheme,
-    limitOf: limitOf,
     tintIndex: tintIndex,
     initial: initial,
     shorten: shorten,

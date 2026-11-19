@@ -37,12 +37,10 @@ test('the looks are the twelve of the style sheet, nine with a background and th
   assert.ok(core.isTheme('comic') && core.isTheme('obsidian'), 'either, when no overlay is named');
   for (const name of core.THEMES) {
     assert.ok(core.isTheme(name));
-    assert.ok(core.LIMITS[name] >= 1 && core.LIMITS[name] <= core.MAX_LINES, name);
     assert.ok(css.includes(`[data-theme="${name}"]`), `${name} has styles`);
     assert.ok(english[`dashboard.overlay.theme.${name}`] && indonesian[`dashboard.overlay.theme.${name}`], `${name} has a name in both languages`);
   }
   for (const other of ['neon', '', null, undefined, 3, '__proto__', 'Obsidian']) assert.ok(!core.isTheme(other), String(other));
-  assert.equal(core.limitOf('nope'), core.LIMITS.obsidian);
 });
 
 test('every text the page asks for exists in both languages', () => {
@@ -116,24 +114,29 @@ test('a hello gives the look and the lines the server remembers', () => {
   assert.equal(c.state().theme, 'pixel');
 });
 
-test('a new line is drawn as the newest, and old ones go beyond the limit of the look', () => {
+test('a new line is drawn as the newest, and only the last forty are kept', () => {
   const { c, last } = controller();
   c.handle(hello(1, 'ticker'));
   for (let i = 1; i <= 7; i += 1) c.handle(envelope(1 + i, 'chat_message', say({ text: `m${i}` })));
   const [, texts, newest] = last();
-  assert.deepEqual(texts, ['m4', 'm5', 'm6', 'm7'], 'the ticker holds four');
+  assert.deepEqual(texts, ['m1', 'm2', 'm3', 'm4', 'm5', 'm6', 'm7'], 'what fits is for the page to decide, not the look');
   assert.ok(newest > 0);
   assert.equal(c.state().lines.at(-1).id, newest);
+
+  for (let i = 8; i <= 60; i += 1) c.handle(envelope(1 + i, 'chat_message', say({ text: `m${i}` })));
+  const kept = c.state().lines;
+  assert.equal(kept.length, core.MAX_LINES);
+  assert.equal(kept[0].text, `m${60 - core.MAX_LINES + 1}`);
+  assert.equal(kept.at(-1).text, 'm60');
 });
 
-test('a change of look redraws, keeps the lines, and trims to the new limit', () => {
+test('a change of look redraws and keeps the lines', () => {
   const { c, calls, last } = controller();
   c.handle(hello(1, 'obsidian'));
   for (let i = 1; i <= 7; i += 1) c.handle(envelope(1 + i, 'chat_message', say({ text: `m${i}` })));
-  assert.equal(last()[1].length, 7);
   c.handle(envelope(9, 'overlay_theme', look('messages')));
   assert.deepEqual(calls.at(-2), ['theme', 'messages']);
-  assert.deepEqual(last()[1], ['m2', 'm3', 'm4', 'm5', 'm6', 'm7'], 'six fit the messages look');
+  assert.equal(last()[1].length, 7, 'none is lost by changing the look');
 });
 
 test('the look of another overlay, an unknown look and old events are ignored', () => {
@@ -255,6 +258,13 @@ class FakeNode {
   }
   replaceChildren(...nodes) {
     this.children = nodes;
+  }
+  get firstChild() {
+    return this.children[0] || null;
+  }
+  removeChild(child) {
+    this.children = this.children.filter((c) => c !== child);
+    return child;
   }
 }
 
@@ -400,6 +410,33 @@ test('it reconnects with a growing delay, up to ten seconds', () => {
     delays.push(page.log.timeouts.at(-1));
   }
   assert.deepEqual(delays, [1000, 2000, 4000, 8000, 10000, 10000]);
+});
+
+test('old lines go until the rest fits the source, and the newest is marked after that', () => {
+  const page = load();
+  // A stand-in for layout: each line is 30 px high and the source holds 100.
+  const list = page.elements.list;
+  Object.defineProperty(list, 'scrollHeight', { get: () => list.children.length * 30 });
+  list.clientHeight = 100;
+  page.elements.panel.offsetHeight = 0;
+  page.elements.root.clientHeight = 1000;
+  page.socket().receive(hello(1, 'obsidian', []));
+  for (let i = 1; i <= 8; i += 1) page.socket().receive(envelope(1 + i, 'chat_message', say({ text: `m${i}` })));
+  const shown = items(page).map((li) => part(li, 'text').textContent);
+  assert.deepEqual(shown, ['m6', 'm7', 'm8'], '100 px and 16 slack: three lines of 30 fit, four (120) do not');
+  assert.ok(items(page).at(-1).classes.has('enter') && !items(page)[0].classes.has('enter'));
+
+  // A look that grows with its lines is held inside the source instead.
+  const grow = load();
+  const box = grow.elements.list;
+  Object.defineProperty(box, 'scrollHeight', { get: () => box.children.length * 30 });
+  box.clientHeight = 100000;
+  grow.elements.root.clientHeight = 200;
+  Object.defineProperty(grow.elements.panel, 'offsetHeight', { get: () => box.children.length * 30 });
+  grow.socket().receive(hello(1, 'komik', [], 'float'));
+  for (let i = 1; i <= 12; i += 1) grow.socket().receive(envelope(1 + i, 'chat_message', say({ text: `m${i}` })));
+  assert.equal(items(grow).length, 7, '200 px and 16 slack: seven lines of 30');
+  assert.equal(part(items(grow).at(-1), 'text').textContent, 'm12', 'the newest is always there');
 });
 
 test('the page never assigns markup', () => {
