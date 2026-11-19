@@ -91,6 +91,7 @@
   "reject.blacklisted_word": "Judul video mengandung kata yang dilarang",
   "reject.blacklisted_message": "Pesannya mengandung kata yang dilarang",
   "reject.cooldown": "Tunggu {seconds} detik sebelum mengirim lagi",
+  "info.gift": "{name} mengirim {count} × {gift}",
   "reject.source_queue_full": "Terlalu banyak permintaan dari {chat} yang menunggu. Coba lagi sebentar lagi",
   "reject.blocked_sender": "Penonton ini diblokir dari meminta video",
   "reject.shorts_not_allowed": "YouTube Shorts tidak diizinkan",

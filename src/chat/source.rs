@@ -60,9 +60,23 @@ impl ChatStatus {
     }
 }
 
+/// A gift sent in a TikTok live (a combo of the same gift counts once, when it
+/// ends).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GiftEvent {
+    pub sender: Sender,
+    /// The name of the gift, as TikTok gives it.
+    pub gift: String,
+    /// How many of it, in the combo.
+    pub count: u32,
+    /// What all of them are worth in diamonds; 0 when TikTok does not say.
+    pub diamonds: u64,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ChatEvent {
     Message(ChatMessage),
+    Gift(GiftEvent),
     Status(ChatStatus),
 }
 

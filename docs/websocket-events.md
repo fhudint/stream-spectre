@@ -333,7 +333,8 @@ A message for the moderators (dashboard), already in the configured language.
 
 Notices are sent for videos that were turned down for their content, a full
 queue, blacklisted entries, unusable links from eligible viewers, YouTube
-problems, and player errors. They are **not** sent for everyday noise: viewers
+problems, player errors, and gifts sent in the TikTok live (`info.gift`, level
+`info`; a combo of one gift is one notice, sent when it ends). They are **not** sent for everyday noise: viewers
 who are not allowed to submit, and viewers who submit too often.
 
 ### `chat_message`

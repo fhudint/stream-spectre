@@ -938,7 +938,7 @@ mod tests {
         match feed.next().await {
             FeedItem::Message(message) => Some(message.text),
             FeedItem::Ended => None,
-            FeedItem::Status(_) => panic!("unexpected status"),
+            FeedItem::Status(_) | FeedItem::Gift(_) => panic!("unexpected status or gift"),
         }
     }
 

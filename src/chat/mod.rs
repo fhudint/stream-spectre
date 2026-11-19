@@ -16,6 +16,6 @@ pub use connection::{
 };
 pub use role::Role;
 pub use sender::Sender;
-pub use source::{ChatEvent, ChatMessage, ChatSource, ChatStatus};
+pub use source::{ChatEvent, ChatMessage, ChatSource, ChatStatus, GiftEvent};
 pub use tiktok::{TiktokSource, tiktok_source};
 pub use youtube::{YoutubeSource, youtube_source};

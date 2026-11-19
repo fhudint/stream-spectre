@@ -13,7 +13,7 @@
 
 use piratetok_live_rs::errors::TikTokLiveError;
 use piratetok_live_rs::structs::TikTokLiveEvent;
-use piratetok_live_rs::structs::proto::{UserIdentity, WebcastChatMessage};
+use piratetok_live_rs::structs::proto::{UserIdentity, WebcastChatMessage, WebcastGiftMessage};
 use piratetok_live_rs::{TikTokLive, TikTokLiveStream};
 
 use super::connection::{
@@ -21,7 +21,7 @@ use super::connection::{
 };
 use super::role::Role;
 use super::sender::Sender;
-use super::source::{ChatMessage, ChatStatus};
+use super::source::{ChatMessage, ChatStatus, GiftEvent};
 use crate::config::ChatSourceKind;
 use crate::text::sanitize_text;
 
@@ -113,6 +113,7 @@ fn classify(error: &TikTokLiveError) -> ConnectError {
 fn map_event(event: &TikTokLiveEvent, streamer: &str) -> Option<FeedItem> {
     match event {
         TikTokLiveEvent::Chat(message) => map_chat(message, streamer).map(FeedItem::Message),
+        TikTokLiveEvent::Gift(gift) => map_gift(gift, streamer).map(FeedItem::Gift),
         TikTokLiveEvent::Reconnecting { delay_secs, .. } => {
             Some(FeedItem::Status(ChatStatus::Reconnecting {
                 retry_in: std::time::Duration::from_secs(*delay_secs),
@@ -123,10 +124,9 @@ fn map_event(event: &TikTokLiveEvent, streamer: &str) -> Option<FeedItem> {
     }
 }
 
-/// Builds a `ChatMessage`, or `None` when the sender cannot be identified
+/// The sender of a message or a gift, or `None` when they cannot be identified
 /// (which would let them dodge per-user limits).
-fn map_chat(message: &WebcastChatMessage, streamer: &str) -> Option<ChatMessage> {
-    let user = message.user.as_ref()?;
+fn sender_from(user: &UserIdentity, streamer: &str) -> Option<Sender> {
     let id = sender_id(user)?;
     let role = role_of(user, streamer);
     let gifter_level = gifter_level(user);
@@ -148,17 +148,54 @@ fn map_chat(message: &WebcastChatMessage, streamer: &str) -> Option<ChatMessage>
     } else {
         user.nickname.clone()
     };
+    Some(Sender {
+        id,
+        name: sanitize_text(&name),
+        role,
+        source: ChatSourceKind::Tiktok,
+        gifter_level,
+        fan_club_level,
+        paid: false,
+    })
+}
+
+/// Builds a `ChatMessage`, or `None` when the sender cannot be identified.
+fn map_chat(message: &WebcastChatMessage, streamer: &str) -> Option<ChatMessage> {
+    let sender = sender_from(message.user.as_ref()?, streamer)?;
     Some(ChatMessage {
-        sender: Sender {
-            id,
-            name: sanitize_text(&name),
-            role,
-            source: ChatSourceKind::Tiktok,
-            gifter_level,
-            fan_club_level,
-            paid: false,
-        },
+        sender,
         text: message.comment.chars().take(MAX_COMMENT_CHARS).collect(),
+    })
+}
+
+/// The most of one gift that is believed; TikTok combos are far smaller.
+const MAX_GIFT_COUNT: u32 = 100_000;
+
+/// A gift, once. A gift that can be sent in a combo (`gift_type` 1) is
+/// announced at every step with `repeat_end` 0 and again when the combo is
+/// over: only that last message is taken, so the same gift is not counted
+/// twice. (Not seen on live traffic: this is how the crate's data says it
+/// works. A gift with no details is taken as it comes.)
+fn map_gift(gift: &WebcastGiftMessage, streamer: &str) -> Option<GiftEvent> {
+    let details = gift.gift_details.as_ref();
+    let in_a_combo = details.is_some_and(|d| d.gift_type == 1) && gift.repeat_end == 0;
+    if in_a_combo {
+        return None;
+    }
+    let sender = sender_from(gift.user.as_ref()?, streamer)?;
+    let count = u32::try_from(gift.repeat_count.max(1))
+        .unwrap_or(1)
+        .min(MAX_GIFT_COUNT);
+    let each = details.map_or(0, |d| u64::try_from(d.diamond_count).unwrap_or(0));
+    let name = details
+        .map(|d| sanitize_text(&d.gift_name))
+        .filter(|name| !name.is_empty())
+        .unwrap_or_else(|| format!("#{}", gift.gift_id));
+    Some(GiftEvent {
+        sender,
+        gift: name,
+        count,
+        diamonds: each * u64::from(count),
     })
 }
 
@@ -235,8 +272,8 @@ fn non_negative(value: i64) -> u32 {
 #[cfg(test)]
 mod tests {
     use piratetok_live_rs::structs::proto::{
-        FansClubData, FansClubInfo, FansClubMember, FollowInfo, PayGrade, SubscribeInfo, UserAttr,
-        UserHonor, WebcastControlMessage,
+        FansClubData, FansClubInfo, FansClubMember, FollowInfo, GiftDetails, PayGrade,
+        SubscribeInfo, UserAttr, UserHonor, WebcastControlMessage,
     };
 
     use super::*;
@@ -260,6 +297,98 @@ mod tests {
 
     fn sender_of(user: UserIdentity) -> Sender {
         map_chat(&chat(user, "!v x"), "streamer").unwrap().sender
+    }
+
+    // --- gifts ---
+
+    fn gift(
+        kind: i32,
+        repeat_end: i32,
+        repeat_count: i32,
+        diamonds: i32,
+        name: &str,
+    ) -> WebcastGiftMessage {
+        WebcastGiftMessage {
+            user: Some(user()),
+            gift_id: 5655,
+            repeat_count,
+            repeat_end,
+            gift_details: Some(GiftDetails {
+                gift_type: kind,
+                diamond_count: diamonds,
+                gift_name: name.to_owned(),
+                ..GiftDetails::default()
+            }),
+            ..WebcastGiftMessage::default()
+        }
+    }
+
+    #[test]
+    fn a_gift_says_who_sent_what_and_how_many_and_what_it_is_worth() {
+        let event = map_gift(&gift(0, 1, 5, 1, "Rose"), "streamer").unwrap();
+        assert_eq!(event.sender.name, "Viewer One");
+        assert_eq!(event.sender.id, "42");
+        assert_eq!(event.gift, "Rose");
+        assert_eq!(event.count, 5);
+        assert_eq!(event.diamonds, 5);
+    }
+
+    #[test]
+    fn a_combo_is_counted_once_when_it_ends_and_not_at_each_step() {
+        for step in 1..=4 {
+            assert_eq!(
+                map_gift(&gift(1, 0, step, 1, "Rose"), "streamer"),
+                None,
+                "step {step}"
+            );
+        }
+        let last = map_gift(&gift(1, 1, 5, 1, "Rose"), "streamer").unwrap();
+        assert_eq!((last.count, last.diamonds), (5, 5));
+        // A gift that cannot be sent in a combo is announced as it comes.
+        assert!(map_gift(&gift(0, 0, 1, 99, "Lion"), "streamer").is_some());
+    }
+
+    #[test]
+    fn a_gift_with_missing_or_odd_data_still_reads_and_never_panics() {
+        let mut plain = gift(0, 1, 0, -3, "");
+        plain.gift_details = None;
+        let event = map_gift(&plain, "streamer").unwrap();
+        assert_eq!(event.gift, "#5655", "no name: the number of the gift");
+        assert_eq!(
+            (event.count, event.diamonds),
+            (1, 0),
+            "a count of 0 is one gift"
+        );
+
+        let negative = map_gift(&gift(0, 1, -7, -3, "Rose"), "streamer").unwrap();
+        assert_eq!((negative.count, negative.diamonds), (1, 0));
+
+        let huge = map_gift(&gift(0, 1, i32::MAX, i32::MAX, "Rose"), "streamer").unwrap();
+        assert_eq!(huge.count, MAX_GIFT_COUNT);
+        assert!(huge.diamonds > 0, "no overflow");
+
+        let nameless = map_gift(&gift(0, 1, 1, 1, "Ro\u{0}se\n"), "streamer").unwrap();
+        assert!(
+            !nameless.gift.contains(['\u{0}', '\n']),
+            "{:?}",
+            nameless.gift
+        );
+
+        // Nobody to name: the gift cannot be attributed.
+        let mut nobody = gift(0, 1, 1, 1, "Rose");
+        nobody.user = None;
+        assert_eq!(map_gift(&nobody, "streamer"), None);
+        nobody.user = Some(UserIdentity::default());
+        assert_eq!(map_gift(&nobody, "streamer"), None);
+    }
+
+    #[test]
+    fn a_gift_event_of_the_crate_becomes_a_gift_and_nothing_else_does() {
+        let item = map_event(
+            &TikTokLiveEvent::Gift(gift(0, 1, 2, 10, "Rose")),
+            "streamer",
+        );
+        assert!(matches!(item, Some(FeedItem::Gift(g)) if g.diamonds == 20));
     }
 
     // --- identity ---

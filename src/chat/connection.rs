@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use tokio::time::Instant;
 
-use super::source::{ChatEvent, ChatMessage, ChatSource, ChatStatus};
+use super::source::{ChatEvent, ChatMessage, ChatSource, ChatStatus, GiftEvent};
 
 /// Delay before the first retry; doubles on each consecutive failure.
 pub const BASE_DELAY: Duration = Duration::from_secs(2);
@@ -41,6 +41,7 @@ pub struct ConnectError {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FeedItem {
     Message(ChatMessage),
+    Gift(GiftEvent),
     Status(ChatStatus),
     /// The connection is over (dropped, or the stream ended).
     Ended,
@@ -188,6 +189,7 @@ impl<C: ChatConnector> ChatSource for ReconnectingSource<C> {
                 },
                 State::Connected { feed, since } => match feed.next().await {
                     FeedItem::Message(message) => return Some(ChatEvent::Message(message)),
+                    FeedItem::Gift(gift) => return Some(ChatEvent::Gift(gift)),
                     FeedItem::Status(status) => {
                         if let Some(event) = self.announce(status) {
                             return Some(event);

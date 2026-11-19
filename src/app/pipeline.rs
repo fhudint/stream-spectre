@@ -11,7 +11,7 @@ use super::events::{
     OverlayKind, QueueView, SettingsView, SkipReason, StatsView, ThemeName, unix_ms,
 };
 use super::history::{History, HistoryEntry, RequestStatus, Subject};
-use crate::chat::{ChatEvent, ChatMessage, ChatSource, ChatStatus, Sender};
+use crate::chat::{ChatEvent, ChatMessage, ChatSource, ChatStatus, GiftEvent, Sender};
 use crate::command::{CommandParser, InvalidReason, Parsed};
 use crate::config::{
     BlacklistConfig, ChatFloatConfig, ChatPanelConfig, ChatSourceKind, CommandConfig,
@@ -242,6 +242,7 @@ impl<S: VideoSource> Pipeline<S> {
             };
             match event {
                 Some(ChatEvent::Message(message)) => self.handle_chat(message).await,
+                Some(ChatEvent::Gift(gift)) => self.show_gift(&gift),
                 Some(ChatEvent::Status(status)) => self.chat_status(source_kind, &status),
                 None => return false,
             }
@@ -1068,6 +1069,19 @@ impl<S: VideoSource> Pipeline<S> {
         }
     }
 
+    /// Tells the moderators that someone sent a gift in the TikTok live.
+    fn show_gift(&self, gift: &GiftEvent) {
+        let text = self.i18n.t_with(
+            "info.gift",
+            &[
+                ("name", gift.sender.name.as_str()),
+                ("gift", gift.gift.as_str()),
+                ("count", gift.count.to_string().as_str()),
+            ],
+        );
+        self.notice(NoticeLevel::Info, "info.gift", text, Some(&gift.sender));
+    }
+
     fn notice(&self, level: NoticeLevel, code: &str, text: String, sender: Option<&Sender>) {
         self.bus.publish(Event::Notice {
             level,
@@ -1760,6 +1774,45 @@ mod tests {
         )
         .await;
         assert_eq!(p.hello().queue.pending.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn a_gift_in_the_tiktok_live_is_told_to_the_moderators_as_information() {
+        let p = Arc::new(default_pipeline());
+        let mut rx = p.subscribe();
+        let source = QuietSource {
+            events: vec![ChatEvent::Gift(GiftEvent {
+                sender: sender(1, Role::Follower),
+                gift: "Rose".to_owned(),
+                count: 5,
+                diamonds: 5,
+            })]
+            .into(),
+            dropped: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        };
+        let (stop, stopped) = tokio::sync::oneshot::channel::<()>();
+        let task = tokio::spawn({
+            let p = Arc::clone(&p);
+            async move {
+                p.run_chat_until(ChatSourceKind::Tiktok, source, async {
+                    let _ = stopped.await;
+                })
+                .await
+            }
+        });
+        eventually(|| !rx.is_empty()).await;
+        let events = drain_all(&mut rx);
+        let notice = notice_of(&events);
+        assert_eq!(notice["level"], "info");
+        assert_eq!(notice["code"], "info.gift");
+        assert_eq!(notice["text"], "Viewer 1 sent 5 × Rose");
+        assert_eq!(notice["sender"], "Viewer 1");
+        stop.send(()).unwrap();
+        task.await.unwrap();
+        assert!(
+            p.hello().queue.pending.is_empty(),
+            "a gift asks for nothing"
+        );
     }
 
     #[tokio::test]
