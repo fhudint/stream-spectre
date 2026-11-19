@@ -71,7 +71,8 @@
   /* One line of the chat. Every look styles these same parts. */
   function draw(line, fresh) {
     var item = document.createElement('li');
-    item.className = 'msg tint-' + line.tint + (line.command ? ' cmd' : ' say') + (fresh ? ' enter' : '');
+    item.className =
+      'msg tint-' + line.tint + (line.command ? ' cmd' : ' say') + (line.gift ? ' gift' : '') + (fresh ? ' enter' : '');
     item.style.setProperty('--rot', line.rotation + 'deg');
     item.appendChild(span('av', line.initial));
     item.appendChild(

@@ -125,6 +125,8 @@
       badge: badgeOf(data.role, source, texts),
       text: shorten(text, MAX_TEXT),
       command: command,
+      // A gift sent in the live: a line like the others, in the colour of the look.
+      gift: data.gift === true,
       status: command ? (texts && texts['overlay.chat.command']) || 'Video request' : '',
       time: clock(data.at_ms),
     };

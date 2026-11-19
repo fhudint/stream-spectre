@@ -683,6 +683,7 @@ kbd { padding: 1px 6px; border-radius: 4px; background: var(--button); color: va
 .chat-role { margin-right: 8px; color: var(--dim); font-size: 12px; }
 .chat-text { color: var(--muted); }
 .chat-cmd { font-family: var(--mono); font-size: 12px; color: var(--text); }
+.chat-gift .chat-text { color: var(--accent); font-style: italic; }
 .chat-skipped { padding: 6px 22px; border-top: 1px solid var(--rule); color: var(--warn); font-size: 12px; font-style: italic; }
 
 .notices li { padding: 8px 22px; border-top: 1px solid var(--rule); overflow-wrap: anywhere; }

@@ -258,6 +258,8 @@
       text: line.text,
       at_ms: wholeNumber(line.at_ms),
       command: line.command === true,
+      // A gift sent in the TikTok live, not something the viewer wrote.
+      gift: line.gift === true,
       skipped: Number.isInteger(line.skipped) && line.skipped > 0 ? line.skipped : 0,
     };
   }

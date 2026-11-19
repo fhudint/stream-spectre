@@ -1077,7 +1077,7 @@
     }
     main.push(h('span', { className: line.command ? 'chat-text chat-cmd' : 'chat-text', text: line.text }));
     box.appendChild(
-      h('li', { className: line.command ? 'chat-line chat-command' : 'chat-line' }, [
+      h('li', { className: line.command ? 'chat-line chat-command' : line.gift ? 'chat-line chat-gift' : 'chat-line' }, [
         // The chat it came from: an icon in the style sheet, named for screen readers.
         h('span', {
           className: 'chat-source source-' + line.source,

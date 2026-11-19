@@ -306,9 +306,13 @@ test('chat messages are appended in order, with the flags kept', () => {
   state = core.reduce(state, envelope(2, 'chat_message', line('hi')));
   state = core.reduce(state, envelope(3, 'chat_message', line('!v dQw4w9WgXcQ', { command: true, skipped: 4, role: 'moderator' })));
   assert.deepEqual(state.messages[1], {
-    name: 'Budi', role: 'moderator', source: 'tiktok', text: '!v dQw4w9WgXcQ', at_ms: 0, command: true, skipped: 4,
+    name: 'Budi', role: 'moderator', source: 'tiktok', text: '!v dQw4w9WgXcQ', at_ms: 0, command: true, gift: false, skipped: 4,
   });
   assert.equal(state.seq, 3);
+  state = core.reduce(state, envelope(4, 'chat_message', line('sent 5 \u00d7 Rose', { gift: true })));
+  assert.equal(state.messages[2].gift, true, 'a gift is marked');
+  state = core.reduce(state, envelope(5, 'chat_message', line('x', { gift: 'yes' })));
+  assert.equal(state.messages[3].gift, false, 'only true counts');
 });
 
 test('chat lines are capped at the newest ones', () => {
@@ -329,7 +333,7 @@ test('chat lines are capped at the newest ones', () => {
 test('chat lines are sanitized and junk is ignored', () => {
   let state = core.reduce(core.initialState(), hello(1));
   state = core.reduce(state, envelope(2, 'chat_message', { name: 7, role: {}, text: 'ok', command: 'yes', skipped: -3 }));
-  assert.deepEqual(state.messages[0], { name: '', role: 'everyone', source: 'tiktok', text: 'ok', at_ms: 0, command: false, skipped: 0 });
+  assert.deepEqual(state.messages[0], { name: '', role: 'everyone', source: 'tiktok', text: 'ok', at_ms: 0, command: false, gift: false, skipped: 0 });
   state = core.reduce(state, envelope(3, 'chat_message', { name: 'x' }));
   state = core.reduce(state, envelope(4, 'chat_message', 'text'));
   state = core.reduce(state, envelope(5, 'chat_message', { name: 'x', text: 5 }));

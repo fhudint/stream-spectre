@@ -118,6 +118,9 @@ pub struct ChatLineView {
     pub at_ms: u64,
     /// The message started with the video command (valid or not).
     pub command: bool,
+    /// Not something the viewer wrote but a gift they sent (TikTok); `text`
+    /// then says what, in the language of the program.
+    pub gift: bool,
     /// How many messages before this one were left out of the stream because
     /// chat was too fast; 0 almost always.
     pub skipped: u32,
@@ -612,6 +615,7 @@ mod tests {
             text: "!v dQw4w9WgXcQ".to_owned(),
             at_ms: 1_700_000_000_123,
             command: true,
+            gift: false,
             skipped: 3,
         };
         assert_eq!(
@@ -623,6 +627,7 @@ mod tests {
                 "text": "!v dQw4w9WgXcQ",
                 "at_ms": 1_700_000_000_123u64,
                 "command": true,
+                "gift": false,
                 "skipped": 3
             }})
         );
@@ -672,6 +677,7 @@ mod tests {
                 text: "hi".to_owned(),
                 at_ms: 1,
                 command: false,
+                gift: false,
                 skipped: 0,
             }],
             history: vec![],
@@ -749,6 +755,7 @@ mod tests {
                 text: "secret comment".to_owned(),
                 at_ms: 1,
                 command: false,
+                gift: false,
                 skipped: 0,
             }],
             history: vec![History::default().add(

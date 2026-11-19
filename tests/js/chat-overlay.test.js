@@ -195,6 +195,20 @@ test('the transparent overlay has its own looks, its own settings and its own ev
   assert.equal(nothing.c.state().theme, 'outline');
 });
 
+test('a gift is a line marked as one, and an ordinary line is not', () => {
+  assert.equal(core.lineOf(say({ gift: true, text: 'sent 5 \u00d7 Rose' }), 1, {}).gift, true);
+  assert.equal(core.lineOf(say(), 1, {}).gift, false);
+  assert.equal(core.lineOf(say({ gift: 'yes' }), 1, {}).gift, false, 'only true counts');
+});
+
+test('a gift is drawn with the class of a gift', () => {
+  const page = load();
+  page.socket().receive(hello(1, 'obsidian', [say({ text: 'hi' }), say({ gift: true, text: 'sent 2 \u00d7 Rose' })]));
+  const [plain, gift] = items(page);
+  assert.ok(gift.classes.has('gift') && !plain.classes.has('gift'));
+  assert.ok(css.includes('.msg.gift .text'));
+});
+
 test('a line says which chat it is from', () => {
   assert.equal(core.lineOf(say(), 1, {}).source, 'tiktok');
   assert.equal(core.lineOf(say({ source: 'youtube' }), 1, {}).source, 'youtube');

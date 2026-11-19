@@ -293,7 +293,13 @@ impl<S: VideoSource> Pipeline<S> {
 
         let parser = Arc::clone(&self.lock().parser);
         let parsed = parser.parse(&text);
-        self.show_chat(&sender, &text, !matches!(parsed, Parsed::NotACommand), now);
+        self.show_chat(
+            &sender,
+            &text,
+            !matches!(parsed, Parsed::NotACommand),
+            false,
+            now,
+        );
 
         match parsed {
             Parsed::NotACommand => {}
@@ -527,7 +533,7 @@ impl<S: VideoSource> Pipeline<S> {
 
     /// Shows a chat message on the dashboard, within the rate limit, and
     /// remembers it for dashboards that open later.
-    fn show_chat(&self, sender: &Sender, text: &str, command: bool, now: Instant) {
+    fn show_chat(&self, sender: &Sender, text: &str, command: bool, gift: bool, now: Instant) {
         let text = sanitize_text(text);
         if text.is_empty() {
             return;
@@ -543,6 +549,7 @@ impl<S: VideoSource> Pipeline<S> {
             text,
             at_ms: unix_ms(SystemTime::now()),
             command,
+            gift,
             skipped,
         };
         if inner.dashboard.chat_history > 0 {
@@ -1069,17 +1076,16 @@ impl<S: VideoSource> Pipeline<S> {
         }
     }
 
-    /// Tells the moderators that someone sent a gift in the TikTok live.
+    /// Puts a gift sent in the TikTok live in the chat, as a line of its own.
     fn show_gift(&self, gift: &GiftEvent) {
         let text = self.i18n.t_with(
-            "info.gift",
+            "chat.gift",
             &[
-                ("name", gift.sender.name.as_str()),
                 ("gift", gift.gift.as_str()),
                 ("count", gift.count.to_string().as_str()),
             ],
         );
-        self.notice(NoticeLevel::Info, "info.gift", text, Some(&gift.sender));
+        self.show_chat(&gift.sender, &text, false, true, Instant::now());
     }
 
     fn notice(&self, level: NoticeLevel, code: &str, text: String, sender: Option<&Sender>) {
@@ -1777,7 +1783,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_gift_in_the_tiktok_live_is_told_to_the_moderators_as_information() {
+    async fn a_gift_in_the_tiktok_live_is_a_line_of_the_chat_and_not_a_notice() {
         let p = Arc::new(default_pipeline());
         let mut rx = p.subscribe();
         let source = QuietSource {
@@ -1802,17 +1808,26 @@ mod tests {
         });
         eventually(|| !rx.is_empty()).await;
         let events = drain_all(&mut rx);
-        let notice = notice_of(&events);
-        assert_eq!(notice["level"], "info");
-        assert_eq!(notice["code"], "info.gift");
-        assert_eq!(notice["text"], "Viewer 1 sent 5 × Rose");
-        assert_eq!(notice["sender"], "Viewer 1");
+        assert_eq!(
+            kinds(&events),
+            vec!["chat_message"],
+            "no notice: the notices are for moderating"
+        );
+        let line = data(&events[0]);
+        assert_eq!(line["gift"], true);
+        assert_eq!(line["command"], false);
+        assert_eq!(line["name"], "Viewer 1");
+        assert_eq!(line["text"], "sent 5 × Rose");
         stop.send(()).unwrap();
         task.await.unwrap();
         assert!(
             p.hello().queue.pending.is_empty(),
             "a gift asks for nothing"
         );
+        // A dashboard that opens later has it in the chat it is given.
+        let remembered = p.hello().chat_log;
+        assert_eq!(remembered.len(), 1);
+        assert!(remembered[0].gift);
     }
 
     #[tokio::test]

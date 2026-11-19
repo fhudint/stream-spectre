@@ -333,8 +333,7 @@ A message for the moderators (dashboard), already in the configured language.
 
 Notices are sent for videos that were turned down for their content, a full
 queue, blacklisted entries, unusable links from eligible viewers, YouTube
-problems, player errors, and gifts sent in the TikTok live (`info.gift`, level
-`info`; a combo of one gift is one notice, sent when it ends). They are **not** sent for everyday noise: viewers
+problems, and player errors. They are **not** sent for everyday noise: viewers
 who are not allowed to submit, and viewers who submit too often.
 
 ### `chat_message`
@@ -348,6 +347,7 @@ A message in the chat (dashboard only; the overlay never receives chat).
     "text": "!yt dQw4w9WgXcQ",
     "at_ms": 1700000000123,
     "command": true,
+    "gift": false,
     "skipped": 0
 } }
 ```
@@ -359,6 +359,9 @@ the message arrived, in milliseconds since the Unix epoch.
   (`textContent`), never as HTML. The server has already replaced control
   characters with spaces and cut `text` to 200 characters. Messages that are
   empty after that are not sent.
+- `gift` is `true` for a gift sent in the TikTok live: `text` then says what
+  ("sent 5 × Rose", in the language of the program), not something the viewer
+  wrote. A combo of one gift is one line, sent when it ends.
 - `command` is `true` when the message started with the video command, whether
   or not the rest was usable. It says nothing about whether the request was
   accepted; see `notice` for that.

@@ -205,6 +205,10 @@ body {
 [data-theme="ticker"] { --icon: 24px; }
 [data-theme="notes"] { --icon: 16px; }
 
+/* A gift sent in the live reads as a line of its own: italic, in the accent of
+   the look (the text colour of the look where it has none). */
+.msg.gift .text { font-style: italic; color: var(--accent, inherit); }
+
 /* One colour per viewer: the name, and the avatar's ground. */
 .tint-0 { --ink: #e8a87c; --avbg: #33241a; --pastel: #ffe9b0; }
 .tint-1 { --ink: #e58fc4; --avbg: #301c2a; --pastel: #ffd6e4; }

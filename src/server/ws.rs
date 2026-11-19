@@ -344,6 +344,7 @@ mod tests {
             text: "hi".to_owned(),
             at_ms: 1,
             command: false,
+            gift: false,
             skipped: 0,
         };
         let panel_look = Event::OverlayTheme {

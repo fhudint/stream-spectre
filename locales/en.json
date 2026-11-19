@@ -91,7 +91,7 @@
   "reject.blacklisted_word": "The video title contains a banned word",
   "reject.blacklisted_message": "The message contains a banned word",
   "reject.cooldown": "Wait {seconds} seconds before submitting again",
-  "info.gift": "{name} sent {count} × {gift}",
+  "chat.gift": "sent {count} × {gift}",
   "reject.source_queue_full": "Too many requests from {chat} are waiting. Try again in a moment",
   "reject.blocked_sender": "This viewer is blocked from requesting videos",
   "reject.shorts_not_allowed": "YouTube Shorts are not allowed",

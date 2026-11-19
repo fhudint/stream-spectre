@@ -403,9 +403,9 @@ trust, not across the internet.
 
 ## Known limitations
 
-- **TikTok gifts are only announced.** A gift sent in the live shows in the
-  dashboard's notices ("Rina sent 5 × Rose"; a combo of the same gift once, when
-  it ends). The **gifter level** rule is something else: it is the level TikTok
+- **TikTok gifts are only announced.** A gift sent in the live is a line of the
+  chat, on the Chat page of the dashboard and in the chat overlay ("Rina sent
+  5 × Rose", in italics; a combo of the same gift once, when it ends). The **gifter level** rule is something else: it is the level TikTok
   shows next to a viewer's name (their total gifting on TikTok), read from each
   chat message, so it does not say whether they gifted in this live. The gift
   message was written from the crate's data definitions and has not been checked
