@@ -187,7 +187,7 @@ member of the channel and `moderator` a moderator or the owner; clients show
 them that way (`role.youtube.*` in the language files). `chat_message` carries the
 same `source`.
 
-`message` is what the viewer wrote after the link (`!yt dQw4w9WgXcQ halo ka`): plain
+`message` is what the viewer wrote after the link (`@yt dQw4w9WgXcQ halo ka`): plain
 text, control characters turned into spaces, at most 150 characters, `""` when
 they wrote nothing. The overlay shows it as the main line; always show it as
 text, never as markup.
@@ -344,7 +344,7 @@ A message in the chat (dashboard only; the overlay never receives chat).
 { "type": "chat_message", "data": {
     "name": "Budi",
     "role": "follower",
-    "text": "!yt dQw4w9WgXcQ",
+    "text": "@yt dQw4w9WgXcQ",
     "at_ms": 1700000000123,
     "command": true,
     "gift": false,

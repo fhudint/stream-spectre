@@ -1,7 +1,7 @@
 # Architecture
 
-stream-spectre is one Rust binary. It reads a live chat, turns `!yt <video>` and
-`!vt <video>` messages into moderated YouTube and TikTok requests, and serves
+stream-spectre is one Rust binary. It reads a live chat, turns `@yt <video>` and
+`@vt <video>` messages into moderated YouTube and TikTok requests, and serves
 two web pages (the OBS overlay and the moderator dashboard) from the same
 process.
 

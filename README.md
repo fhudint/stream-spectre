@@ -7,7 +7,7 @@ is **mediashare through chat**: viewers send a YouTube video in chat, a
 moderator approves it in a dashboard, and it plays on your stream.
 
 ```
-viewer: !yt dQw4w9WgXcQ   →   checked   →   dashboard (approve / reject / skip)   →   plays in OBS
+viewer: @yt dQw4w9WgXcQ   →   checked   →   dashboard (approve / reject / skip)   →   plays in OBS
 ```
 
 > **Status: early.** The code is complete for the first version and well
@@ -24,20 +24,20 @@ for what plays on your stream.
 
 ## Features
 
-- Chat command `!yt <id or link>`. Accepts an 11-character video ID,
+- Chat command `@yt <id or link>`. Accepts an 11-character video ID,
   `youtu.be/ID`, `youtube.com/watch?v=ID` and `youtube.com/shorts/ID`.
   The prefix and the command words are configurable, and you can have several
-  (for example `!yt` and `!v` for the same thing), on the dashboard's Rules
+  (for example `@yt` and `@v` for the same thing), on the dashboard's Rules
   page or in `[command]`.
-- A viewer can add a few words after the link (`!yt dQw4w9WgXcQ halo ka`, up to
+- A viewer can add a few words after the link (`@yt dQw4w9WgXcQ halo ka`, up to
   150 characters). The overlay shows them as the main line, with the video's
   title under it, and the dashboard shows them on the request. A message with a
   word from the blacklist's title words is refused, like a title with one.
-- TikTok videos too, with a command of their own (`!vt` in the example config,
+- TikTok videos too, with a command of their own (`@vt` in the example config,
   or any word you add on the Rules page with the source TikTok). After it a viewer sends a video
-  ID (`!vt 7700124541145599252`), the code of a short link from the app
-  (`!vt ZSpGELffb`, from `vt.tiktok.com/ZSpGELffb`), or a full link. A command
-  takes only its own source: `!yt` with a TikTok link is answered with the
+  ID (`@vt 7700124541145599252`), the code of a short link from the app
+  (`@vt ZSpGELffb`, from `vt.tiktok.com/ZSpGELffb`), or a full link. A command
+  takes only its own source: `@yt` with a TikTok link is answered with the
   command to use. TikTok videos always wait for a moderator, are played in the
   same overlay and the same queue, and move on by themselves when they end (see
   [Known limitations](#known-limitations)).
@@ -152,7 +152,7 @@ cargo run --example demo
 
 Open <http://localhost:8787/dashboard/>. Pretend viewers send real public
 YouTube videos, and now and then a TikTok one, every few seconds, using the
-commands of `config.example.toml` (`!yt` and `!vt`); approve one and it plays in
+commands of `config.example.toml` (`@yt` and `@vt`); approve one and it plays in
 <http://localhost:8787/overlay/mediashare/>.
 
 Always use `localhost`, not `127.0.0.1`, in these addresses: see
@@ -435,7 +435,7 @@ trust, not across the internet.
   like any message, from a sender marked as having paid, and can get past the
   minimum role (`youtube_superchat_bypass`); Super Chats are read from the
   fields they are assumed to share with ordinary messages, which has not been
-  checked against a real one. The `!yt` command also accepts
+  checked against a real one. The `@yt` command also accepts
   `youtube.com/live/ID` links.
 - **Some videos still fail to play.** The YouTube API saying a video is
   embeddable does not guarantee it plays (the owner may restrict playback). The
@@ -468,7 +468,7 @@ trust, not across the internet.
   from a good one beforehand, only when it is tried. A short link is opened with
   one request to TikTok's own server, which only the code is sent to.
   **The account is known only when it is in the link.** For a bare ID
-  (`!vt 7703227524993649928`) the program tries to read it from the page
+  (`@vt 7703227524993649928`) the program tries to read it from the page
   TikTok serves for that video (one request that only the ID goes into, a few
   seconds at most, remembered afterwards). That page is not an official source:
   it tells the account for some videos and not for others, and it may change.

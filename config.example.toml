@@ -59,8 +59,8 @@ port = 8787
 # enabled = true
 
 [command]
-# Viewers send: <prefix><name> <video ID or link>, for example "!yt dQw4w9WgXcQ"
-# for YouTube or "!vt 7700124541145599252" for TikTok (a TikTok video ID, the
+# Viewers send: <prefix><name> <video ID or link>, for example "@yt dQw4w9WgXcQ"
+# for YouTube or "@vt 7700124541145599252" for TikTok (a TikTok video ID, the
 # code of a short link such as ZSpGELffb, or a link).
 # One prefix (1 to 4 characters, no spaces) is shared by every command. Each
 # command is a name (letters, digits and _, at most 32; capitals do not count)
@@ -69,7 +69,9 @@ port = 8787
 # moderator, even in automatic mode. Up to 8 commands, no name twice. Several
 # names for one source work like several words for the same thing. Also
 # editable on the dashboard's Rules page.
-prefix = "!"
+# The default is "@", so a request reads like a mention in the chat; another
+# prefix such as "!" works as well.
+prefix = "@"
 commands = [
   { name = "yt", source = "youtube" },
   { name = "vt", source = "tiktok" },
