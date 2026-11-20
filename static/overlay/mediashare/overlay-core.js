@@ -31,6 +31,24 @@
     return typeof value === 'string' && THEMES.indexOf(value) >= 0;
   }
 
+  /* A developer notice (see docs/websocket-events.md) as the page shows it, or
+   * null for something with no name or no text. The server already cut it
+   * short; this keeps a wrong one from filling the screen. */
+  var NOTICE_TEXT = 120;
+  var NOTICE_NAME = 40;
+  function noticeOf(data) {
+    if (!data || typeof data !== 'object') return null;
+    var name = typeof data.name === 'string' ? data.name.trim() : '';
+    var text = typeof data.text === 'string' ? data.text.trim() : '';
+    if (!name || !text) return null;
+    var ms = typeof data.duration_ms === 'number' && isFinite(data.duration_ms) ? data.duration_ms : 8000;
+    return {
+      name: Array.from(name).slice(0, NOTICE_NAME).join(''),
+      text: Array.from(text).slice(0, NOTICE_TEXT).join(''),
+      durationMs: Math.min(15000, Math.max(1000, ms)),
+    };
+  }
+
   /* Seconds as m:ss, or h:mm:ss from an hour on; '' when not a length. */
   function formatClock(seconds) {
     if (typeof seconds !== 'number' || !isFinite(seconds) || seconds < 0) return '';
@@ -257,7 +275,8 @@
    *             (title is the main line: the viewer's message, else the video's
    *             title; channel is the small line under it),
    *             setPaused(paused, label) (optional): the "Paused" notice,
-   *             setTheme(name) (optional): the look of the overlay }
+   *             setTheme(name) (optional): the look of the overlay,
+   *             notice({ name, text, durationMs, badge }) (optional): the developer's notice }
    *   send:   (message) => boolean, false when the socket is not open
    *   text:   (key) => string | undefined, for translated UI texts
    */
@@ -397,6 +416,14 @@
         case 'overlay_theme':
           if (data.overlay === 'mediashare') setTheme(data.theme);
           break;
+        case 'developer_notice': {
+          var notice = noticeOf(data);
+          if (notice && typeof ui.notice === 'function') {
+            notice.badge = text('overlay.chat.badge.developer') || 'dev';
+            ui.notice(notice);
+          }
+          break;
+        }
         default:
           break; // events this overlay does not use
       }
@@ -451,6 +478,7 @@
     createTiktokSound: createTiktokSound,
     tiktokOutcome: tiktokOutcome,
     progressPercent: progressPercent,
+    noticeOf: noticeOf,
     THEMES: THEMES,
     isTheme: isTheme,
     formatClock: formatClock,

@@ -5,6 +5,7 @@
 //! `connection` holds the platform-independent reconnect logic they share.
 
 pub mod connection;
+pub mod developer;
 pub mod role;
 pub mod sender;
 pub mod source;

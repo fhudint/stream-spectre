@@ -42,7 +42,7 @@ Reading `GET /api/account` is allowed to anyone with the token.
 
 The sockets carry the events below. The mediashare overlay socket only receives
 what changes the screen (`play`, `skip`, `stop`, `volume`, `overlay_theme` of its
-own look, `playback_paused`) and a trimmed `hello` without waiting requests, blacklist,
+own look, `playback_paused`, `developer_notice`) and a trimmed `hello` without waiting requests, blacklist,
 chat status or chat messages. Each chat overlay socket (`panel` and `float`) receives
 `chat_message` and the `overlay_theme` of its own look, and a `hello` with its look and
 the remembered chat lines (`chat_log`, at most `settings.dashboard.chat_history` of
@@ -348,6 +348,7 @@ A message in the chat (dashboard only; the overlay never receives chat).
     "at_ms": 1700000000123,
     "command": true,
     "gift": false,
+    "developer": false,
     "skipped": 0
 } }
 ```
@@ -362,6 +363,8 @@ the message arrived, in milliseconds since the Unix epoch.
 - `gift` is `true` for a gift sent in the TikTok live: `text` then says what
   ("sent 5 × Rose", in the language of the program), not something the viewer
   wrote. A combo of one gift is one line, sent when it ends.
+- `developer` is `true` for a message from the author of the program's own
+  accounts (the chat shows a `dev` badge); everyone else's is `false`.
 - `command` is `true` when the message started with the video command, whether
   or not the rest was usable. It says nothing about whether the request was
   accepted; see `notice` for that.
@@ -458,6 +461,21 @@ no event is sent for that, because `play`, `skip` and `stop` already say it.
 `hello.playback_paused` tells a client that connects in the middle of a pause,
 so a reloaded overlay stays paused. The overlay's `hello` carries it too. While
 a video is paused the overlay sends no `progress`.
+
+### `developer_notice`
+
+The author of the program wrote `@dev text` in the chat (mediashare overlay and
+dashboard). Only the accounts named in `src/chat/developer.rs` can; it is not sent
+when `general.allow_developer_notice` is `false`.
+
+```json
+{ "type": "developer_notice", "data": { "name": "fhudint", "text": "back in 5 minutes", "duration_ms": 8000 } }
+```
+
+The overlay shows the notice for `duration_ms`, over whatever is on screen. A new
+notice replaces the one shown. The server sends at most one every 30 seconds and
+cuts `text` to 120 characters; `name` and `text` are still plain text, never HTML.
+It is not part of `hello`: a page that opens later does not see an old one.
 
 ### `playback`
 

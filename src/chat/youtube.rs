@@ -517,6 +517,7 @@ fn map_message(renderer: &Value, paid: bool) -> Option<(String, ChatMessage)> {
     if paid {
         sender = sender.paid();
     }
+    sender.developer = super::developer::is_youtube(channel);
     Some((id, ChatMessage { sender, text }))
 }
 
@@ -805,6 +806,21 @@ mod tests {
         }))
         .unwrap();
         assert_eq!(message.text, "!yt youtu.be/dQw4w9WgXcQ😀:custom:");
+    }
+
+    #[test]
+    fn only_the_developer_channel_is_marked_as_the_developer() {
+        let from = |channel: &str| {
+            mapped(json!({
+                "id": "m", "authorExternalChannelId": channel,
+                "authorName": {"simpleText": "fhudint"}, "message": {"runs": []},
+            }))
+            .unwrap()
+            .sender
+            .developer
+        };
+        assert!(from("UCEezyhkNVyvreFHALgKT7LQ"));
+        assert!(!from("UCaaa"));
     }
 
     #[test]

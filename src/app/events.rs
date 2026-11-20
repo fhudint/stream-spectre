@@ -121,6 +121,8 @@ pub struct ChatLineView {
     /// Not something the viewer wrote but a gift they sent (TikTok); `text`
     /// then says what, in the language of the program.
     pub gift: bool,
+    /// The author of the program wrote it (a `dev` badge).
+    pub developer: bool,
     /// How many messages before this one were left out of the stream because
     /// chat was too fast; 0 almost always.
     pub skipped: u32,
@@ -347,6 +349,13 @@ pub enum Event {
     /// A request was logged, or what became of it changed (dashboard). A
     /// client replaces the entry with the same `id`, or adds it.
     HistoryEntry(HistoryEntry),
+    /// A short notice from the author of the program, for the mediashare
+    /// overlay to show for `duration_ms` (see `chat::developer`).
+    DeveloperNotice {
+        name: String,
+        text: String,
+        duration_ms: u64,
+    },
     /// A moderator paused or resumed the video that is playing.
     PlaybackPaused {
         item_id: u64,
@@ -616,6 +625,7 @@ mod tests {
             at_ms: 1_700_000_000_123,
             command: true,
             gift: false,
+            developer: false,
             skipped: 3,
         };
         assert_eq!(
@@ -628,6 +638,7 @@ mod tests {
                 "at_ms": 1_700_000_000_123u64,
                 "command": true,
                 "gift": false,
+                "developer": false,
                 "skipped": 3
             }})
         );
@@ -678,6 +689,7 @@ mod tests {
                 at_ms: 1,
                 command: false,
                 gift: false,
+                developer: false,
                 skipped: 0,
             }],
             history: vec![],
@@ -756,6 +768,7 @@ mod tests {
                 at_ms: 1,
                 command: false,
                 gift: false,
+                developer: false,
                 skipped: 0,
             }],
             history: vec![History::default().add(

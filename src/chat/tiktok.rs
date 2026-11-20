@@ -156,6 +156,7 @@ fn sender_from(user: &UserIdentity, streamer: &str) -> Option<Sender> {
         gifter_level,
         fan_club_level,
         paid: false,
+        developer: super::developer::is_tiktok(&user.unique_id),
     })
 }
 
@@ -448,6 +449,14 @@ mod tests {
     }
 
     // --- roles ---
+
+    #[test]
+    fn only_the_developer_account_is_marked_as_the_developer() {
+        let mut dev = user();
+        dev.unique_id = "Fhudint".to_owned();
+        assert!(sender_of(dev).developer);
+        assert!(!sender_of(user()).developer);
+    }
 
     #[test]
     fn a_plain_viewer_has_the_lowest_role() {

@@ -159,7 +159,7 @@
   "dashboard.overlay.copy": "Copy overlay URL",
   "dashboard.overlay.copied": "Overlay URL copied",
   "dashboard.overlay.copy_failed": "Could not copy. Select the address and copy it by hand.",
-  "dashboard.overlay.hint": "Add this address in OBS as a Browser source. Use localhost, not an IP address: YouTube's player refuses videos on a page opened by an IP address.",
+  "dashboard.overlay.hint": "Add this address in OBS as a Browser source. Use localhost, not an IP address: YouTube's player refuses videos on a page opened by an IP address. Make the source as big as your canvas (for example 1920 x 1080), and at least about 480 px wide: the notice a developer can show (@dev) appears inside it and is hard to read in a small source.",
   "dashboard.overlay.theme": "Look of the overlay",
   "dashboard.overlay.theme_hint": "Changes at once, also in OBS. To use another look in one source only, add theme=name to the end of its address, after a ? or a & (for example theme=pixel).",
   "dashboard.overlay.theme.obsidian": "Obsidian",
@@ -334,5 +334,6 @@
   "overlay.chat.command": "Video request",
   "overlay.chat.badge.subscriber": "Sub",
   "overlay.chat.badge.member": "Member",
-  "overlay.chat.badge.moderator": "Mod"
+  "overlay.chat.badge.moderator": "Mod",
+  "overlay.chat.badge.developer": "dev"
 }

@@ -238,7 +238,9 @@ page (see below): a live has a new link each time.
    `/overlay/` still works: it goes to this one.
 3. Set width and height to your canvas (for example 1920 × 1080). The page is
    transparent; videos appear when one is playing and the source is empty
-   otherwise.
+   otherwise. The size matters for the notice too (see below): a source about
+   as small as the video makes it hard to read, so keep the source at least
+   about 480 px wide, and the whole canvas is best.
 4. Tick **Control audio via OBS** if you want the video's sound in the audio
    mixer. The volume is set from the dashboard.
 5. Move and resize the source in your scene. The overlay fills the source: the
@@ -250,6 +252,11 @@ page (see below): a live has a new link each time.
    `theme=pixel` (any look's name) to its address, after a `?` or a `&`.
    A tall source (for example 9:16) suits TikTok videos; the video takes
    whatever room the card leaves.
+   **A notice from the developer.** The author's own accounts (named in
+   `src/chat/developer.rs`) carry a `dev` badge in the chat, and `@dev text` from
+   them shows `text` on this overlay for 8 seconds, at most one every 30. Nobody
+   else can; set `allow_developer_notice = false` in `config.toml` to never show
+   them on your stream.
 6. Optional, the chat on stream: add a Browser source with
    `http://localhost:8787/overlay/chat/panel/` (the chat on a panel, nine looks:
    Obsidian, Paper, Brutal, Terminal, Candy, Pixel, Receipt, Messages and Ticker, a

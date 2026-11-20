@@ -21,6 +21,8 @@ pub struct Sender {
     pub fan_club_level: u32,
     /// The message was a Super Chat (YouTube); false for the rest.
     pub paid: bool,
+    /// The author of the program (see `developer`); false for everyone else.
+    pub developer: bool,
 }
 
 impl Sender {
@@ -34,6 +36,7 @@ impl Sender {
             gifter_level: 0,
             fan_club_level: 0,
             paid: false,
+            developer: false,
         }
     }
 

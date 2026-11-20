@@ -823,3 +823,34 @@ test('a YouTube viewer\'s role is named the way YouTube chat names it, falling b
   const roles = t.calls.filter((c) => c[0] === 'show').map((c) => c[1].role);
   assert.deepEqual(roles, ['Member', 'Follower', 'Subscriber']);
 });
+
+// --- developer notice ---
+
+test('a developer notice is passed to the page with its badge text, and only when it says something', () => {
+  const notices = [];
+  const controller = core.createController({
+    player: { position: () => null, play() {}, stop() {}, setVolume() {} },
+    ui: { show() {}, hide() {}, notice: (info) => notices.push(info) },
+    send: () => true,
+    text: (key) => ({ 'overlay.chat.badge.developer': 'dev!' })[key],
+  });
+  controller.handle(envelope(1, 'developer_notice', { name: ' fhudint ', text: ' hi ', duration_ms: 8000 }));
+  assert.deepEqual(notices, [{ name: 'fhudint', text: 'hi', durationMs: 8000, badge: 'dev!' }]);
+  for (const [seq, data] of [[2, {}], [3, { name: 'x' }], [4, { text: 'x' }], [5, { name: 1, text: 2 }], [6, null]]) {
+    controller.handle(envelope(seq, 'developer_notice', data));
+  }
+  assert.equal(notices.length, 1);
+});
+
+test('a notice that is too long or too long-lasting is cut down', () => {
+  const long = core.noticeOf({ name: 'n'.repeat(100), text: 'x'.repeat(500), duration_ms: 999999 });
+  assert.equal(long.name.length, 40);
+  assert.equal(long.text.length, 120);
+  assert.equal(long.durationMs, 15000);
+  assert.equal(core.noticeOf({ name: 'a', text: 'b', duration_ms: 1 }).durationMs, 1000);
+  assert.equal(core.noticeOf({ name: 'a', text: 'b' }).durationMs, 8000);
+  // An overlay whose page has no notice (an old page) does not break on one.
+  const quiet = setup();
+  quiet.controller.handle(envelope(1, 'developer_notice', { name: 'a', text: 'b' }));
+  assert.deepEqual(quiet.calls, []);
+});

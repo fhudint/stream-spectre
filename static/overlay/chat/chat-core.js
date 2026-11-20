@@ -73,10 +73,11 @@
 
   /* The word beside a name for a viewer who pays or moderates; '' for the
    * rest. `texts` has the translated words (the overlay works without them). */
-  function badgeOf(role, source, texts) {
+  function badgeOf(role, source, texts, developer) {
     var say = function (key, fallback) {
       return (texts && texts[key]) || fallback;
     };
+    if (developer) return say('overlay.chat.badge.developer', 'dev');
     if (role === 'moderator') return say('overlay.chat.badge.moderator', 'Mod');
     if (role === 'subscriber') {
       return source === 'youtube'
@@ -104,7 +105,9 @@
       initial: initial(name),
       tint: tint,
       rotation: ROTATIONS[serial % ROTATIONS.length],
-      badge: badgeOf(data.role, source, texts),
+      badge: badgeOf(data.role, source, texts, data.developer === true),
+      // The author of the program: a tick and "dev" beside the name.
+      developer: data.developer === true,
       text: shorten(text, MAX_TEXT),
       command: command,
       // A gift sent in the live: a line like the others, in the colour of the look.

@@ -896,6 +896,17 @@ test('a gift is a line of the chat with a mark of its own, and "only video reque
   assert.equal(chatItems(page).length, 1, 'only the video request is left');
 });
 
+test('a line of the developer has a tick and a dev badge instead of its role', async () => {
+  const log = [line('hi', { role: 'moderator' }), line('hi', { role: 'moderator', developer: true, name: 'fhudint' })];
+  const page = await ready({ routes: { 'GET /api/state': () => ({ status: 200, body: snapshot({ chat_log: log }) }) } });
+  const [plain, dev] = chatItems(page);
+  const part = (li, name) => descendants(li).find((n) => n.classes.has(name));
+  assert.ok(!part(plain, 'chat-tick'));
+  assert.ok(part(dev, 'chat-tick'));
+  assert.equal(part(dev, 'chat-role').textContent, 'dev');
+  assert.notEqual(part(plain, 'chat-role').textContent, 'dev');
+});
+
 test('an empty chat says so', async () => {
   const page = await ready();
   assert.equal(chatItems(page).length, 0);

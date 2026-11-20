@@ -58,6 +58,7 @@ impl Kind {
                         ..
                     }
                     | Event::PlaybackPaused { .. }
+                    | Event::DeveloperNotice { .. }
             ),
             Self::ChatPanel => matches!(
                 event,
@@ -311,6 +312,11 @@ mod tests {
                 overlay: crate::app::OverlayKind::Mediashare,
                 theme: crate::app::ThemeName::Mediashare(crate::config::MediashareTheme::Comic),
             },
+            Event::DeveloperNotice {
+                name: "a".to_owned(),
+                text: "b".to_owned(),
+                duration_ms: 8_000,
+            },
         ];
         for event in &screen {
             assert!(Kind::Mediashare.wants(event), "{event:?}");
@@ -345,6 +351,7 @@ mod tests {
             at_ms: 1,
             command: false,
             gift: false,
+            developer: false,
             skipped: 0,
         };
         let panel_look = Event::OverlayTheme {
@@ -366,6 +373,11 @@ mod tests {
             play(),
             Event::Stop {},
             Event::Volume { volume: 5 },
+            Event::DeveloperNotice {
+                name: "a".to_owned(),
+                text: "b".to_owned(),
+                duration_ms: 8_000,
+            },
             Event::Notice {
                 level: crate::app::NoticeLevel::Info,
                 code: "x".to_owned(),

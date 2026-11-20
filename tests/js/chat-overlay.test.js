@@ -45,7 +45,7 @@ test('the looks are the twelve of the style sheet, nine with a background and th
 
 test('every text the page asks for exists in both languages', () => {
   const keys = [...source.matchAll(/'(overlay\.chat\.[a-z]+(?:\.[a-z]+)*[a-z])'/g)].map((m) => m[1]);
-  for (const key of [...keys, 'overlay.chat.source.youtube', 'overlay.chat.source.tiktok', 'overlay.chat.command', 'overlay.chat.badge.subscriber', 'overlay.chat.badge.member', 'overlay.chat.badge.moderator']) {
+  for (const key of [...keys, 'overlay.chat.source.youtube', 'overlay.chat.source.tiktok', 'overlay.chat.command', 'overlay.chat.badge.subscriber', 'overlay.chat.badge.member', 'overlay.chat.badge.moderator', 'overlay.chat.badge.developer']) {
     assert.ok(english[key], `${key} (en)`);
     assert.ok(indonesian[key], `${key} (id)`);
   }
@@ -210,6 +210,27 @@ test('a gift is drawn with the class of a gift', () => {
   const [plain, gift] = items(page);
   assert.ok(gift.classes.has('gift') && !plain.classes.has('gift'));
   assert.ok(css.includes('.msg.gift .text'));
+});
+
+test('the author of the program has a dev badge, whatever the role, and nobody else does', () => {
+  const dev = core.lineOf(say({ developer: true, role: 'moderator' }), 1, {});
+  assert.equal(dev.developer, true);
+  assert.equal(dev.badge, 'dev');
+  assert.equal(core.lineOf(say({ developer: true }), 1, { 'overlay.chat.badge.developer': 'pengembang' }).badge, 'pengembang');
+  assert.equal(core.lineOf(say({ role: 'moderator' }), 1, {}).developer, false);
+  assert.equal(core.lineOf(say({ developer: 'yes' }), 1, {}).developer, false, 'only true counts');
+});
+
+test('a developer line is drawn with a tick before its badge, and others without one', () => {
+  const page = load();
+  page.socket().receive(hello(1, 'obsidian', [say(), say({ developer: true, name: 'fhudint' })]));
+  const [plain, dev] = items(page);
+  const kinds = (li) => part(li, 'head').children.map((n) => n.className || [...n.classes].join(' '));
+  assert.ok(!kinds(plain).some((k) => k.includes('tick')));
+  const classes = kinds(dev);
+  assert.ok(classes.findIndex((k) => k.includes('tick')) < classes.findIndex((k) => k.includes('badge')));
+  assert.equal(part(dev, 'badge').textContent, 'dev');
+  assert.ok(css.includes('.tick'));
 });
 
 test('a line says which chat it is from', () => {

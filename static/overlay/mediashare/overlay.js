@@ -35,7 +35,21 @@
     fields[id].textContent = value;
   }
 
+  var noticeBox = document.getElementById('notice');
+  var noticeTimer = null;
+
   var ui = {
+    /* The developer's notice, for a few seconds over whatever is on screen. */
+    notice: function (info) {
+      document.getElementById('notice-badge').textContent = info.badge;
+      document.getElementById('notice-name').textContent = '@' + info.name.replace(/^@+/, '');
+      document.getElementById('notice-text').textContent = info.text;
+      noticeBox.classList.remove('hidden');
+      clearTimeout(noticeTimer);
+      noticeTimer = setTimeout(function () {
+        noticeBox.classList.add('hidden');
+      }, info.durationMs);
+    },
     show: function (info) {
       put('kicker', texts['overlay.kicker'] || 'Request from chat');
       fields.name.setAttribute('data-label', texts['overlay.label.from'] || 'From');

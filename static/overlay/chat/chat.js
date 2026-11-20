@@ -69,6 +69,18 @@
     return node;
   }
 
+  /* The top of a line; the author of the program has a tick before the badge. */
+  function head(line) {
+    var parts = [sourceIcon(line.source), span('time', line.time), span('who', line.who)];
+    if (line.developer) {
+      var tick = span('tick', '');
+      tick.setAttribute('aria-hidden', 'true');
+      parts.push(tick);
+    }
+    parts.push(span('badge', line.badge));
+    return parts;
+  }
+
   /* One line of the chat. Every look styles these same parts. */
   function draw(line, fresh) {
     var item = document.createElement('li');
@@ -78,7 +90,7 @@
     item.appendChild(span('av', line.initial));
     item.appendChild(
       div('body', [
-        div('head', [sourceIcon(line.source), span('time', line.time), span('who', line.who), span('badge', line.badge)]),
+        div('head', head(line)),
         div('line', [span('text', line.text), span('status', line.status)]),
       ])
     );

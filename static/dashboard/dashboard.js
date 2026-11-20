@@ -1072,7 +1072,10 @@
     }
     if (commandsOnly && !line.command) return;
     var main = [h('span', { className: 'chat-name name-' + core.tintIndex(line.name), text: line.name })];
-    if (line.role !== 'everyone') {
+    if (line.developer) {
+      main.push(h('span', { className: 'chat-tick', attrs: { 'aria-hidden': 'true' } }));
+      main.push(h('span', { className: 'chat-role', text: t('overlay.chat.badge.developer') }));
+    } else if (line.role !== 'everyone') {
       main.push(h('span', { className: 'chat-role', text: t(core.roleKey(line.role, line.source)) }));
     }
     main.push(h('span', { className: line.command ? 'chat-text chat-cmd' : 'chat-text', text: line.text }));

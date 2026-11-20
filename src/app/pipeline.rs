@@ -95,6 +95,11 @@ impl<T> PerSource<T> {
 /// Both chat sources, TikTok first.
 const CHAT_SOURCES: [ChatSourceKind; 2] = [ChatSourceKind::Tiktok, ChatSourceKind::Youtube];
 
+/// How long a developer notice stays, the most it says, and the wait between two.
+const NOTICE_MILLIS: u64 = 8_000;
+const NOTICE_MAX_CHARS: usize = 120;
+const NOTICE_COOLDOWN: Duration = Duration::from_secs(30);
+
 struct Inner {
     queue: PlayQueue,
     gatekeeper: Gatekeeper,
@@ -124,6 +129,10 @@ struct Inner {
     /// The length of the video that is playing when only its player knows it
     /// (TikTok), as the overlay last reported it.
     learned_duration: Option<(ItemId, u64)>,
+    /// `general.allow_developer_notice`.
+    developer_notice: bool,
+    /// When the last developer notice was shown.
+    last_notice: Option<Instant>,
 }
 
 /// What came of a request to pause or resume the playing video.
@@ -202,6 +211,8 @@ impl<S: VideoSource> Pipeline<S> {
                 },
                 progress: None,
                 learned_duration: None,
+                developer_notice: config.general.allow_developer_notice,
+                last_notice: None,
             }),
         })
     }
@@ -301,6 +312,10 @@ impl<S: VideoSource> Pipeline<S> {
             now,
         );
 
+        if sender.developer {
+            self.developer_notice(&sender, &text, now);
+        }
+
         match parsed {
             Parsed::NotACommand => {}
             Parsed::Invalid { source, reason } => {
@@ -313,6 +328,35 @@ impl<S: VideoSource> Pipeline<S> {
                 self.request_tiktok(sender, target, message, now).await;
             }
         }
+    }
+
+    /// `@dev text` from the author of the program: a notice on the mediashare
+    /// overlay for a few seconds, at most one every `NOTICE_COOLDOWN`.
+    fn developer_notice(&self, sender: &Sender, text: &str, now: Instant) {
+        let Some(rest) = text.trim_start().strip_prefix("@dev") else {
+            return;
+        };
+        if !rest.is_empty() && !rest.starts_with(char::is_whitespace) {
+            return;
+        }
+        let body: String = sanitize_text(rest).chars().take(NOTICE_MAX_CHARS).collect();
+        if body.is_empty() {
+            return;
+        }
+        let mut inner = self.lock();
+        if !inner.developer_notice
+            || inner
+                .last_notice
+                .is_some_and(|last| now.duration_since(last) < NOTICE_COOLDOWN)
+        {
+            return;
+        }
+        inner.last_notice = Some(now);
+        self.bus.publish(Event::DeveloperNotice {
+            name: sanitize_text(&sender.name),
+            text: body,
+            duration_ms: NOTICE_MILLIS,
+        });
     }
 
     /// Tells the moderators that a command could not be used, when the sender
@@ -550,6 +594,7 @@ impl<S: VideoSource> Pipeline<S> {
             at_ms: unix_ms(SystemTime::now()),
             command,
             gift,
+            developer: sender.developer,
             skipped,
         };
         if inner.dashboard.chat_history > 0 {
@@ -1780,6 +1825,88 @@ mod tests {
         )
         .await;
         assert_eq!(p.hello().queue.pending.len(), 1);
+    }
+
+    fn developer() -> Sender {
+        let mut sender = Sender::new("1", "fhudint", Role::Follower);
+        sender.developer = true;
+        sender
+    }
+
+    fn notices(events: &[Arc<Envelope>]) -> Vec<(String, String, u64)> {
+        events
+            .iter()
+            .filter_map(|e| match &e.event {
+                Event::DeveloperNotice {
+                    name,
+                    text,
+                    duration_ms,
+                } => Some((name.clone(), text.clone(), *duration_ms)),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn the_developer_can_show_a_notice_and_nobody_else() {
+        let p = default_pipeline();
+        let mut rx = p.subscribe();
+        let t0 = Instant::now();
+        p.handle_chat_at(chat(sender(1, Role::Moderator), "@dev hello"), t0)
+            .await;
+        p.handle_chat_at(chat(developer(), "@devious plans"), t0)
+            .await;
+        p.handle_chat_at(chat(developer(), "@dev"), t0).await;
+        p.handle_chat_at(chat(developer(), "hello @dev"), t0).await;
+        let events = drain_all(&mut rx);
+        assert!(notices(&events).is_empty());
+        // The line itself is marked, for the badge.
+        let marked: Vec<bool> = events
+            .iter()
+            .filter_map(|e| match &e.event {
+                Event::ChatMessage(line) => Some(line.developer),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(marked, vec![false, true, true, true]);
+
+        p.handle_chat_at(chat(developer(), "  @dev  back in 5\n minutes "), t0)
+            .await;
+        assert_eq!(
+            notices(&drain_all(&mut rx)),
+            vec![("fhudint".to_owned(), "back in 5  minutes".to_owned(), 8_000)]
+        );
+    }
+
+    #[tokio::test]
+    async fn a_developer_notice_is_cut_short_and_not_repeated_at_once() {
+        let p = default_pipeline();
+        let mut rx = p.subscribe();
+        let t0 = Instant::now();
+        p.handle_chat_at(chat(developer(), &format!("@dev {}", "x".repeat(500))), t0)
+            .await;
+        let first = notices(&drain_all(&mut rx));
+        assert_eq!(first.len(), 1);
+        assert_eq!(first[0].1.chars().count(), NOTICE_MAX_CHARS);
+
+        let soon = t0 + NOTICE_COOLDOWN - Duration::from_secs(1);
+        p.handle_chat_at(chat(developer(), "@dev again"), soon)
+            .await;
+        assert!(notices(&drain_all(&mut rx)).is_empty());
+        p.handle_chat_at(chat(developer(), "@dev later"), t0 + NOTICE_COOLDOWN)
+            .await;
+        assert_eq!(notices(&drain_all(&mut rx)).len(), 1);
+    }
+
+    #[tokio::test]
+    async fn a_streamer_can_switch_the_developer_notice_off() {
+        let mut off = config(|_| {});
+        off.general.allow_developer_notice = false;
+        let p = pipeline(&off);
+        let mut rx = p.subscribe();
+        p.handle_chat_at(chat(developer(), "@dev hello"), Instant::now())
+            .await;
+        assert!(notices(&drain_all(&mut rx)).is_empty());
     }
 
     #[tokio::test]

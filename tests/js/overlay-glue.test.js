@@ -121,6 +121,10 @@ function load({ search = '', protocol = 'http:', host = '127.0.0.1:8787', fetchB
     tiktok: new FakeElement('tiktok'),
     'bar-fill': new FakeElement('bar-fill'),
     'paused-label': new FakeElement('paused-label'),
+    notice: new FakeElement('notice', ['hidden']),
+    'notice-badge': new FakeElement('notice-badge'),
+    'notice-name': new FakeElement('notice-name'),
+    'notice-text': new FakeElement('notice-text'),
   };
   elements['bar-fill'].style = {};
 
@@ -963,4 +967,30 @@ test('a message from the viewer is shown as plain text in place of the title', (
   const page = playing({}, { message: 'halo <b>ka</b>', channel: 'Chan' });
   assert.equal(page.elements.title.textContent, 'halo <b>ka</b>');
   assert.equal(page.elements.channel.textContent, 'A <b>title</b>');
+});
+
+test('a developer notice shows as plain text over an empty screen and goes away by itself', () => {
+  const page = load();
+  page.socket().open();
+  page.socket().receive(envelope(1, 'developer_notice', { name: 'fhudint', text: 'back <b>soon</b>', duration_ms: 5000 }));
+
+  assert.ok(!page.elements.notice.classList.contains('hidden'));
+  assert.ok(page.elements.root.classList.contains('hidden'), 'no video is needed');
+  assert.equal(page.elements['notice-name'].textContent, '@fhudint');
+  assert.equal(page.elements['notice-text'].textContent, 'back <b>soon</b>');
+  assert.equal(page.elements['notice-badge'].textContent, 'dev');
+  const hide = page.log.timeouts.at(-1);
+  assert.equal(hide.delay, 5000);
+  hide.fn();
+  assert.ok(page.elements.notice.classList.contains('hidden'));
+});
+
+test('a second notice replaces the first and restarts the wait', () => {
+  const page = load();
+  page.socket().open();
+  page.socket().receive(envelope(1, 'developer_notice', { name: 'fhudint', text: 'one', duration_ms: 8000 }));
+  const first = page.log.timeouts.length;
+  page.socket().receive(envelope(2, 'developer_notice', { name: 'fhudint', text: 'two', duration_ms: 8000 }));
+  assert.ok(page.log.timeouts[first - 1].cleared, 'the first wait is cancelled');
+  assert.equal(page.elements['notice-text'].textContent, 'two');
 });
