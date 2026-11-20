@@ -35,9 +35,6 @@ pub struct GeneralConfig {
     /// Look on GitHub for a newer version when the program starts and then once
     /// a day, and say so in the dashboard. Nothing is installed by itself.
     pub check_updates: bool,
-    /// Let the author of the program show a short notice on the mediashare
-    /// overlay with `@dev text` in the chat (see `chat::developer`).
-    pub allow_developer_notice: bool,
 }
 
 impl Default for GeneralConfig {
@@ -45,7 +42,6 @@ impl Default for GeneralConfig {
         Self {
             language: Language::default(),
             check_updates: true,
-            allow_developer_notice: true,
         }
     }
 }
@@ -530,10 +526,22 @@ pub enum MediashareTheme {
     Messages,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct MediashareConfig {
     pub theme: MediashareTheme,
+    /// Let the author of the program show a short notice on this overlay with
+    /// `@dev text` in the chat (see `chat::developer`).
+    pub developer_notice: bool,
+}
+
+impl Default for MediashareConfig {
+    fn default() -> Self {
+        Self {
+            theme: MediashareTheme::default(),
+            developer_notice: true,
+        }
+    }
 }
 
 /// How the chat overlay with a background looks (`/overlay/chat/panel/`). Each

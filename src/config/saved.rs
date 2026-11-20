@@ -451,6 +451,7 @@ pub(crate) mod tests {
             overlay: Some(OverlayConfig {
                 mediashare: MediashareConfig {
                     theme: MediashareTheme::Receipt,
+                    ..MediashareConfig::default()
                 },
                 ..OverlayConfig::default()
             }),

@@ -1443,34 +1443,28 @@ test('S does nothing when no video is playing', async () => {
 
 test('the overlay address is shown without the token', async () => {
   const page = await ready({ stored: 'secret-token' });
-  assert.equal(page.elements['overlay-address'].textContent, 'localhost:8787/overlay/mediashare/');
   assert.equal(page.elements['overlay-shown'].textContent, 'localhost:8787/overlay/mediashare/');
 });
 
 test('copying gives OBS the address with localhost and the token', async () => {
   const page = await ready({ stored: 'tok en' });
-  page.elements['copy-overlay'].fire('click');
+  page.elements['copy-overlay-page'].fire('click');
   await settle();
   assert.equal(page.log.clipboard, 'http://localhost:8787/overlay/mediashare/?token=tok%20en');
   assert.equal(page.elements.flash.textContent, 'Overlay URL copied');
   assert.ok(!page.elements.flash.hidden);
-
-  page.log.clipboard = null;
-  page.elements['copy-overlay-page'].fire('click');
-  await settle();
-  assert.equal(page.log.clipboard, 'http://localhost:8787/overlay/mediashare/?token=tok%20en');
 });
 
 test('without a token the copied address has no query', async () => {
   const page = await ready();
-  page.elements['copy-overlay'].fire('click');
+  page.elements['copy-overlay-page'].fire('click');
   await settle();
   assert.equal(page.log.clipboard, 'http://localhost:8787/overlay/mediashare/');
 });
 
 test('where the clipboard is not available the old way of copying is tried', async () => {
   const page = await ready({ clipboard: false });
-  page.elements['copy-overlay'].fire('click');
+  page.elements['copy-overlay-page'].fire('click');
   await settle();
   assert.deepEqual(page.log.copied, ['copy']);
   assert.equal(page.elements.flash.textContent, 'Overlay URL copied');
@@ -1478,7 +1472,7 @@ test('where the clipboard is not available the old way of copying is tried', asy
 
 test('when nothing can copy, the moderator is told to do it by hand', async () => {
   const page = await ready({ clipboard: false, execCommandResult: false });
-  page.elements['copy-overlay'].fire('click');
+  page.elements['copy-overlay-page'].fire('click');
   await settle();
   assert.equal(page.elements.error.textContent, 'Could not copy. Select the address and copy it by hand.');
   assert.ok(!page.elements.error.hidden);
@@ -2941,4 +2935,29 @@ test('the server refusing the profile is shown and nothing is claimed saved', as
   await settle();
   assert.match(page.elements.error.textContent, /dashboard\.avatar/);
   assert.notEqual(page.elements.flash.textContent, 'Profile saved.');
+});
+
+test('the menu has no copy button of its own: the addresses are on the Overlay page', () => {
+  assert.ok(!html.includes('id="copy-overlay"') && !html.includes('overlay-address'));
+  assert.ok(html.includes('data-i18n="dashboard.overlay.mediashare_hint"'));
+  assert.match(english['dashboard.overlay.mediashare_hint'], /1920 x 1080/);
+});
+
+test('the developer notice has a switch on the Settings page, on by default, saved at once', async () => {
+  const withNotice = (on) => snapshot({ settings: { ...snapshot().settings, overlay: { mediashare: { theme: 'obsidian', developer_notice: on } } } });
+  const page = await ready();
+  assert.equal(page.elements['developer-notice'].checked, true, 'on when the server says nothing');
+
+  page.table['PATCH /api/overlay/mediashare'] = { status: 200, body: withNotice(false) };
+  page.elements['developer-notice'].checked = false;
+  page.elements['developer-notice'].fire('change');
+  await settle();
+  const patch = page.log.requests.find((r) => r.path === '/api/overlay/mediashare');
+  assert.deepEqual(patch.body, { developer_notice: false });
+  assert.equal(page.elements['developer-notice'].checked, false);
+
+  const off = await ready({ routes: { 'GET /api/state': () => ({ status: 200, body: withNotice(false) }) } });
+  assert.equal(off.elements['developer-notice'].checked, false, 'a saved off is shown as off');
+  // It sits above the update card in the page.
+  assert.ok(html.indexOf('id="developer-notice"') < html.indexOf('id="update-check"'));
 });

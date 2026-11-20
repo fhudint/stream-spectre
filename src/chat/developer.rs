@@ -1,6 +1,6 @@
 //! The accounts of the author of the program. Their chat lines carry a `dev`
 //! badge, and `@dev text` from them shows a short notice on the mediashare
-//! overlay (which a streamer can switch off with `general.allow_developer_notice`).
+//! overlay (which a streamer can switch off with `overlay.mediashare.developer_notice`).
 //!
 //! These are public identifiers, not secrets: a viewer cannot take them over,
 //! because the chat platforms send the real account, not the display name.

@@ -129,8 +129,6 @@ struct Inner {
     /// The length of the video that is playing when only its player knows it
     /// (TikTok), as the overlay last reported it.
     learned_duration: Option<(ItemId, u64)>,
-    /// `general.allow_developer_notice`.
-    developer_notice: bool,
     /// When the last developer notice was shown.
     last_notice: Option<Instant>,
 }
@@ -211,7 +209,6 @@ impl<S: VideoSource> Pipeline<S> {
                 },
                 progress: None,
                 learned_duration: None,
-                developer_notice: config.general.allow_developer_notice,
                 last_notice: None,
             }),
         })
@@ -344,7 +341,7 @@ impl<S: VideoSource> Pipeline<S> {
             return;
         }
         let mut inner = self.lock();
-        if !inner.developer_notice
+        if !inner.overlay.mediashare.developer_notice
             || inner
                 .last_notice
                 .is_some_and(|last| now.duration_since(last) < NOTICE_COOLDOWN)
@@ -729,13 +726,16 @@ impl<S: VideoSource> Pipeline<S> {
         if inner.overlay.mediashare == new {
             return;
         }
+        let new_look = inner.overlay.mediashare.theme != new.theme;
         inner.overlay.mediashare = new;
         self.bus
             .publish(Event::SettingsUpdated(Self::settings_view(&inner)));
-        self.bus.publish(Event::OverlayTheme {
-            overlay: OverlayKind::Mediashare,
-            theme: ThemeName::Mediashare(new.theme),
-        });
+        if new_look {
+            self.bus.publish(Event::OverlayTheme {
+                overlay: OverlayKind::Mediashare,
+                theme: ThemeName::Mediashare(new.theme),
+            });
+        }
     }
 
     /// Changes how the chat overlay with a background looks; announced like
@@ -1516,6 +1516,7 @@ mod tests {
 
         p.update_mediashare(MediashareConfig {
             theme: MediashareTheme::Pixel,
+            ..MediashareConfig::default()
         });
         let events = drain(&mut rx);
         assert_eq!(kinds(&events), vec!["settings_updated", "overlay_theme"]);
@@ -1528,6 +1529,7 @@ mod tests {
 
         p.update_mediashare(MediashareConfig {
             theme: MediashareTheme::Pixel,
+            ..MediashareConfig::default()
         });
         assert!(drain(&mut rx).is_empty());
     }
@@ -1901,12 +1903,21 @@ mod tests {
     #[tokio::test]
     async fn a_streamer_can_switch_the_developer_notice_off() {
         let mut off = config(|_| {});
-        off.general.allow_developer_notice = false;
+        off.overlay.mediashare.developer_notice = false;
         let p = pipeline(&off);
         let mut rx = p.subscribe();
         p.handle_chat_at(chat(developer(), "@dev hello"), Instant::now())
             .await;
         assert!(notices(&drain_all(&mut rx)).is_empty());
+
+        // The switch on the Settings page works while the program runs, and
+        // switching it does not announce a new look to the overlay.
+        p.update_mediashare(MediashareConfig::default());
+        let events = drain_all(&mut rx);
+        assert_eq!(kinds(&events), vec!["settings_updated"]);
+        p.handle_chat_at(chat(developer(), "@dev hello"), Instant::now())
+            .await;
+        assert_eq!(notices(&drain_all(&mut rx)).len(), 1);
     }
 
     #[tokio::test]

@@ -31,10 +31,6 @@ language = "en"
 # any browser would send its own); nothing is installed by itself. The "Check for
 # updates" button on the Settings page works whatever this says.
 check_updates = true
-# The author of this program (an account named in src/chat/developer.rs) can show
-# a short notice on the mediashare overlay by writing "@dev text" in the chat: 8
-# seconds, at most one every 30. Nobody else can. Set false to never show them.
-allow_developer_notice = true
 
 [server]
 # Address for the dashboard and the OBS overlay. Keep 127.0.0.1 unless you need
@@ -162,6 +158,11 @@ chat_history = 20
 # also while streaming. Adding theme=name to the overlay's address in OBS
 # (after a ? or a &) gives that one source another look.
 theme = "obsidian"
+# The author of this program (an account named in src/chat/developer.rs) can show a
+# short notice on this overlay by writing "@dev text" in the chat: 8 seconds, at most
+# one every 30. Nobody else can. Set false to never show them (also a switch on the
+# Settings page).
+developer_notice = true
 
 [overlay.chat_panel]
 # The look of the chat overlay with a background (/overlay/chat/panel/): obsidian,

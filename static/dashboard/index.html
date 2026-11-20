@@ -65,12 +65,6 @@
         <span data-i18n="dashboard.nav.settings"></span>
       </a>
     </nav>
-    <div class="sidebar-foot">
-      <button id="copy-overlay" type="button" class="overlay-copy">
-        <span data-i18n="dashboard.overlay.copy"></span>
-        <code id="overlay-address"></code>
-      </button>
-    </div>
   </aside>
 
   <div class="content">
@@ -279,6 +273,7 @@
         </div>
         <div id="overlay-mediashare" class="card page-card">
           <h2 data-i18n="dashboard.overlay.mediashare"></h2>
+          <p class="muted" data-i18n="dashboard.overlay.mediashare_hint"></p>
           <div class="field">
             <span class="field-label" data-i18n="dashboard.overlay.address"></span>
             <code id="overlay-shown" class="address"></code>
@@ -345,6 +340,16 @@
               <button type="submit" class="primary" data-i18n="dashboard.chat.history_save"></button>
             </div>
           </form>
+        </div>
+        <div class="card page-card">
+          <div class="form">
+            <h2 data-i18n="dashboard.developer_notice.title"></h2>
+            <p class="muted" data-i18n="dashboard.developer_notice.hint"></p>
+            <label class="toggle">
+              <input id="developer-notice" type="checkbox">
+              <span data-i18n="dashboard.developer_notice.enabled"></span>
+            </label>
+          </div>
         </div>
         <div class="card page-card">
           <div class="form">

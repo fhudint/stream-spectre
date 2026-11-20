@@ -1282,10 +1282,11 @@
     var shown = function (overlay) {
       return core.overlayUrl(location.protocol, location.host, '', overlay).replace(/^https?:\/\//, '');
     };
-    $('overlay-address').textContent = shown();
     $('overlay-shown').textContent = shown();
     $('chat-panel-shown').textContent = shown('chat-panel');
     $('chat-float-shown').textContent = shown('chat-float');
+    var mediashare = state.settings && state.settings.overlay && state.settings.overlay.mediashare;
+    $('developer-notice').checked = !mediashare || mediashare.developer_notice !== false;
     themeInputs.forEach(function (entry) {
       entry.input.checked = entry.name === entry.picker.current(state.settings);
     });
@@ -1523,6 +1524,13 @@
       flash(t('dashboard.blacklist.saved'));
     });
   }
+
+  // The developer's notice on the mediashare overlay: on unless a streamer says no.
+  $('developer-notice').addEventListener('change', function () {
+    act('PATCH', '/api/overlay/mediashare', { developer_notice: $('developer-notice').checked }, function (result) {
+      adopt(result.data);
+    });
+  });
 
   $('chat-commands-only').addEventListener('change', function () {
     commandsOnly = $('chat-commands-only').checked === true;
@@ -1835,7 +1843,6 @@
     copyText(core.overlayUrl(location.protocol, location.host, token, 'chat-float'), 'dashboard.overlay.copied');
   }
 
-  $('copy-overlay').addEventListener('click', copyOverlay);
   $('copy-overlay-page').addEventListener('click', copyOverlay);
   $('copy-chat-panel').addEventListener('click', copyChatPanel);
   $('copy-chat-float').addEventListener('click', copyChatFloat);

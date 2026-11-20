@@ -21,7 +21,7 @@ of truth; this page describes them for people writing clients.
 | `PATCH /api/settings` | Change some moderation settings, keep the rest; answers the new state |
 | `PATCH /api/blacklist` | Replace some blacklist lists (`video_ids`, `channels`, `title_words`), keep the rest |
 | `PATCH /api/dashboard` | Change dashboard settings (`chat_history`, `display_name`, `avatar`), keep the rest |
-| `PATCH /api/overlay/mediashare` | Change the mediashare overlay's look (`{"theme": "pixel"}`); an unknown theme is refused |
+| `PATCH /api/overlay/mediashare` | Change the mediashare overlay's look (`{"theme": "pixel"}`) and whether the developer's `@dev` notice is shown (`{"developer_notice": false}`); an unknown theme is refused |
 | `PATCH /api/overlay/chat/panel` | Change the look of the chat overlay with a background (`{"theme": "ticker"}`); an unknown theme, or one of the transparent overlay, is refused |
 | `PATCH /api/overlay/chat/float` | The same for the transparent chat overlay (`outline`, `comic`, `notes`) |
 | `PATCH /api/commands` | Change the chat commands: `{"prefix": "!", "commands": [{"name": "v", "source": "youtube"}, {"name": "vt", "source": "tiktok"}]}`. `source` is `youtube` or `tiktok`. Either field may be left out; `commands` is always the whole list. Takes effect for the next chat message. `400` for an empty list, more than 8, a name used twice (capitals do not count), a name with anything but ASCII letters, digits and `_`, an unknown source, or a prefix that is empty, longer than 4 or has spaces. Answers the new state. |
@@ -466,7 +466,8 @@ a video is paused the overlay sends no `progress`.
 
 The author of the program wrote `@dev text` in the chat (mediashare overlay and
 dashboard). Only the accounts named in `src/chat/developer.rs` can; it is not sent
-when `general.allow_developer_notice` is `false`.
+when `overlay.mediashare.developer_notice` is `false` (the switch on the Settings page,
+`PATCH /api/overlay/mediashare` with `{"developer_notice": false}`).
 
 ```json
 { "type": "developer_notice", "data": { "name": "fhudint", "text": "back in 5 minutes", "duration_ms": 8000 } }

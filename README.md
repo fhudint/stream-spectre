@@ -255,8 +255,8 @@ page (see below): a live has a new link each time.
    **A notice from the developer.** The author's own accounts (named in
    `src/chat/developer.rs`) carry a `dev` badge in the chat, and `@dev text` from
    them shows `text` on this overlay for 8 seconds, at most one every 30. Nobody
-   else can; set `allow_developer_notice = false` in `config.toml` to never show
-   them on your stream.
+   else can; switch it off on the **Settings** page (or `developer_notice = false` under
+   `[overlay.mediashare]` in `config.toml`) to never show them on your stream.
 6. Optional, the chat on stream: add a Browser source with
    `http://localhost:8787/overlay/chat/panel/` (the chat on a panel, nine looks:
    Obsidian, Paper, Brutal, Terminal, Candy, Pixel, Receipt, Messages and Ticker, a
