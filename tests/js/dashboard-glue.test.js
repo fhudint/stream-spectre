@@ -2945,10 +2945,9 @@ test('the server refusing the profile is shown and nothing is claimed saved', as
   assert.notEqual(page.elements.flash.textContent, 'Profile saved.');
 });
 
-test('the top bar has the copy button, the menu none, and the addresses are on the Overlay page too', () => {
-  const top = html.slice(html.indexOf('<header class="topbar">'), html.indexOf('</header>'));
-  assert.ok(top.includes('id="copy-overlay"') && !html.includes('overlay-address'));
-  assert.ok(html.indexOf('id="copy-overlay"') > html.indexOf('id="status"'), 'after the status pills');
+test('the top bar and the menu have no copy button: each overlay has its own on the Overlay page', () => {
+  assert.ok(!html.includes('id="copy-overlay"') && !html.includes('overlay-address'));
+  for (const id of ['copy-overlay-page', 'copy-chat-panel', 'copy-chat-float']) assert.ok(html.includes(`id="${id}"`), id);
   assert.ok(html.includes('data-i18n="dashboard.overlay.mediashare_hint"'));
   assert.match(english['dashboard.overlay.mediashare_hint'], /1920 x 1080/);
 });

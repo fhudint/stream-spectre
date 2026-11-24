@@ -248,10 +248,6 @@ input[type='range'] { flex: 1; accent-color: var(--accent); min-width: 0; }
 
 .account-wrap { position: relative; margin-left: auto; }
 
-/* Copy the overlay address from any page. */
-.copy-top { margin-left: auto; display: inline-flex; align-items: center; gap: 8px; }
-.copy-top + .account-wrap { margin-left: 0; }
-
 .channel {
   height: auto;
   min-height: 40px;

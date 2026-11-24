@@ -2122,7 +2122,6 @@
     copyText(core.overlayUrl(location.protocol, location.host, token, 'chat-float'), 'dashboard.overlay.copied');
   }
 
-  $('copy-overlay').addEventListener('click', copyOverlay);
   $('copy-overlay-page').addEventListener('click', copyOverlay);
   $('copy-chat-panel').addEventListener('click', copyChatPanel);
   $('copy-chat-float').addEventListener('click', copyChatFloat);
