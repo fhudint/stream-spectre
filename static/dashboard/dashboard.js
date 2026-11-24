@@ -19,6 +19,7 @@
     chat: 'chat-heading',
     requests: 'requests-heading',
     blacklist: 'blacklist-heading',
+    sources: 'sources-heading',
     rules: 'settings-heading',
     overlay: 'overlay-heading',
     settings: 'chat-settings-heading',
@@ -35,8 +36,6 @@
   /* The cards each tab of the account dialog shows. */
   var ACCOUNT_PANELS = {
     profile: ['account-profile'],
-    tiktok: ['account-tiktok'],
-    youtube: ['account-youtube-chat', 'account-youtube'],
     token: ['account-token'],
   };
   /* What the server says went wrong with a credential, by its code. */
@@ -302,7 +301,11 @@
     // Lines that came in while the page was hidden were drawn with no size to
     // measure: show the newest.
     if (name === 'chat') $('chat-log').scrollTop = $('chat-log').scrollHeight;
-    var target = $(HEADINGS[name]);
+    if (name === 'sources') loadAccount();
+    // An old address to a part of what is now this page opens the key's
+    // details when it asks for the key.
+    if (name === 'sources' && section === 'youtube') $('account-youtube').open = true;
+    var target = $((section && SECTION_FOCUS[section]) || HEADINGS[name]);
     if (focusHeading && target && target.focus) target.focus();
   }
 
@@ -720,7 +723,15 @@
       var box = $(row[1]);
       if (chat[row[0]] && box !== document.activeElement) box.checked = chat[row[0]].enabled !== false;
       var status = state.chats[row[0]];
-      $(row[2]).textContent = status && typeof status.text === 'string' ? status.text : '';
+      var said = status && typeof status.text === 'string' ? status.text : '';
+      // A chat that is being read also says how busy it is.
+      if (said && status.state === 'connected') {
+        var own = state.messages.filter(function (line) {
+          return line.source === row[0];
+        });
+        said += ' \u00b7 ' + tf('dashboard.chat.rate', { count: core.chatRate(own, nowMs()) });
+      }
+      $(row[2]).textContent = said;
     });
     var video = $('youtube-chat-video');
     if (chat.youtube && video !== document.activeElement) video.value = String(chat.youtube.video);
@@ -1189,6 +1200,7 @@
       }
     });
     renderCommands();
+    updateRulesBar();
   }
 
   /* The chat commands form shows the saved commands, unless the moderator is
@@ -1433,7 +1445,14 @@
             })
           )
         : h('input', {
-            attrs: { id: id, name: spec.key, type: 'number', min: '0', step: '1', inputmode: 'numeric' },
+            attrs: {
+              id: id,
+              name: spec.key,
+              type: 'number',
+              min: '0',
+              step: spec.unit === 'minutes' ? 'any' : '1',
+              inputmode: spec.unit === 'minutes' ? 'decimal' : 'numeric',
+            },
           });
     return field(id, spec.label, control);
   }
@@ -1451,7 +1470,7 @@
           return option.value;
         });
     }
-    return node.value;
+    return spec.unit === 'minutes' ? core.minutesToSeconds(node.value) : node.value;
   }
 
   /* Shows a rule's saved value in its control. */
@@ -1464,9 +1483,64 @@
       spec.options.forEach(function (option) {
         $('setting-' + spec.key + '-' + option.value).checked = chosen.indexOf(option.value) >= 0;
       });
+    } else if (spec.unit === 'minutes') {
+      node.value = core.secondsToMinutes(value);
     } else {
       node.value = value === null || value === undefined ? '' : String(value);
     }
+  }
+
+  /* The controls of a rule: one, or one for each choice of a 'multi' one. */
+  function settingNodes(spec) {
+    return spec.kind === 'multi'
+      ? spec.options.map(function (option) {
+          return $('setting-' + spec.key + '-' + option.value);
+        })
+      : [$('setting-' + spec.key)];
+  }
+
+  function readRules() {
+    var raw = {};
+    core.SETTINGS_FIELDS.forEach(function (spec) {
+      raw[spec.key] = settingInput(spec);
+    });
+    return core.readSettings(raw);
+  }
+
+  /* Whether the rules on the page differ from the saved ones. A value that
+   * cannot be read counts: it is an edit that has not been saved. */
+  function rulesDirty() {
+    if (!state.settings || !state.settings.moderation) return false;
+    var read = readRules();
+    if (read.error) return true;
+    return Object.keys(core.diffSettings(state.settings.moderation, read.value)).length > 0;
+  }
+
+  /* The save bar is there only while something is unsaved, and the preset the
+   * rules match is marked. */
+  function updateRulesBar() {
+    if (!built) return;
+    $('rules-savebar').classList[rulesDirty() ? 'remove' : 'add']('hidden');
+    var read = readRules();
+    var chosen = read.error ? '' : core.presetOf(read.value);
+    Object.keys(core.PRESETS).forEach(function (name) {
+      $('preset-' + name).setAttribute('aria-pressed', name === chosen ? 'true' : 'false');
+    });
+  }
+
+  function applyPreset(name) {
+    var values = core.PRESETS[name];
+    core.SETTINGS_FIELDS.forEach(function (spec) {
+      if (Object.prototype.hasOwnProperty.call(values, spec.key)) showSetting(spec, values[spec.key]);
+    });
+    updateRulesBar();
+    flash(tf('dashboard.rules.preset_applied', { name: t('dashboard.rules.preset.' + name) }));
+  }
+
+  function discardRules() {
+    lastSettings = null;
+    renderSettings();
+    updateRulesBar();
   }
 
   function buildForms() {
@@ -1475,16 +1549,42 @@
     buildThemes();
 
     var settingsForm = $('settings-form');
-    // One group of fields per tab; the one Save button below them saves all.
+    // One group of cards per tab; the save bar below saves all of them.
     var rulesPanels = {};
     core.RULES_TABS.forEach(function (tab) {
-      rulesPanels[tab] = h('div', { className: 'form', attrs: { id: 'rules-' + tab } });
+      rulesPanels[tab] = h('div', { className: 'rules-panel', attrs: { id: 'rules-' + tab } });
       settingsForm.appendChild(rulesPanels[tab]);
+      // Presets fill the rules in; nothing is saved until the bar is used.
+      if (tab === 'general') {
+        rulesPanels[tab].appendChild(
+      h('div', { className: 'presets', attrs: { role: 'group', 'aria-label': t('dashboard.rules.presets') } },
+        Object.keys(core.PRESETS).map(function (name) {
+          return h(
+            'button',
+            { className: 'preset', attrs: { id: 'preset-' + name, type: 'button', 'aria-pressed': 'false' }, on: { click: function () { applyPreset(name); } } },
+            [h('b', { text: t('dashboard.rules.preset.' + name) }), h('span', { text: t('dashboard.rules.preset.' + name + '_hint') })]
+          );
+        })
+      )
+        );
+      }
+      core.RULE_GROUPS.forEach(function (group) {
+        var specs = core.SETTINGS_FIELDS.filter(function (spec) {
+          return spec.tab === tab && spec.group === group;
+        });
+        if (specs.length === 0) return;
+        rulesPanels[tab].appendChild(
+          h('div', { className: 'card page-card' }, [h('h2', { text: t('dashboard.rules.group.' + group) })].concat(specs.map(settingControl)))
+        );
+      });
     });
     core.SETTINGS_FIELDS.forEach(function (spec) {
-      rulesPanels[spec.tab].appendChild(settingControl(spec));
+      settingNodes(spec).forEach(function (node) {
+        node.addEventListener('input', updateRulesBar);
+        node.addEventListener('change', updateRulesBar);
+      });
     });
-    settingsForm.appendChild(submitButton('dashboard.settings.save'));
+    $('rules-discard').addEventListener('click', discardRules);
     settingsForm.addEventListener('submit', function (event) {
       event.preventDefault();
       saveSettings();
@@ -2030,6 +2130,7 @@
     if (!started) return;
     renderSummary();
     $('chat-rate').textContent = tf('dashboard.chat.rate', { count: core.chatRate(state.messages, nowMs()) });
+    if (view === 'sources') renderChatAccount();
     waiting.forEach(function (entry) {
       entry.node.textContent = metaText(entry.item);
     });

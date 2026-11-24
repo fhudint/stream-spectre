@@ -1082,7 +1082,7 @@ test('every text the page uses exists in both languages', () => {
 
 // --- the pages of the menu ---
 
-const MENU_VIEWS = ['queue', 'chat', 'requests', 'blacklist', 'rules', 'overlay', 'settings'];
+const MENU_VIEWS = ['queue', 'chat', 'requests', 'blacklist', 'sources', 'rules', 'overlay', 'settings'];
 const VIEWS = [...MENU_VIEWS, 'account'];
 const shown = (page) => VIEWS.filter((v) => !page.elements[`view-${v}`].hidden);
 const current = (page, prefix) => MENU_VIEWS.filter((v) => page.elements[`${prefix}-${v}`].attrs['aria-current'] === 'page');
@@ -1683,10 +1683,11 @@ test('the account page has a switch and a status line for each chat, and the You
   assert.equal(page.elements['tiktok-enabled'].checked, true);
   assert.equal(page.elements['youtube-chat-enabled'].checked, false);
   assert.equal(page.elements['youtube-chat-video'].value, 'HFSuEKR1b0w');
-  assert.equal(page.elements['tiktok-status'].textContent, 'TikTok is connected');
+  // A chat that is being read says how busy it is, too.
+  assert.equal(page.elements['tiktok-status'].textContent, 'TikTok is connected \u00b7 0 messages/min');
   assert.equal(page.elements['youtube-chat-status'].textContent, 'YouTube waits');
   page.socket().receive(envelope(6, 'chat_status', chatView('youtube', 'connected', 'Now connected', 'v')));
-  assert.equal(page.elements['youtube-chat-status'].textContent, 'Now connected');
+  assert.equal(page.elements['youtube-chat-status'].textContent, 'Now connected \u00b7 0 messages/min');
 });
 
 test('switching a chat on or off sends only the switch, and the answer is adopted', async () => {
@@ -1846,12 +1847,14 @@ test('#account opens the account dialog over the page, marks no menu entry, and 
   assert.equal(page.elements['key-status'].textContent, 'A key is set (it ends in rstu).');
 });
 
-test('#account/<part> brings the keyboard to that part', async () => {
+test('#account/<part> brings the keyboard to that part, and the old addresses of the sources lead to their page', async () => {
   const page = await ready();
   page.go('#account/youtube');
-  assert.deepEqual(shown(page), ['queue', 'account']);
+  assert.deepEqual(shown(page), ['sources']);
+  assert.equal(page.elements['account-youtube'].open, true, 'the key is in the details, opened for it');
   assert.ok(page.elements['youtube-key'].focused);
   page.go('#account/tiktok');
+  assert.deepEqual(shown(page), ['sources']);
   assert.ok(page.elements['tiktok-username'].focused);
   page.go('#account/token');
   assert.ok(page.elements['token-heading'].focused);
@@ -1868,6 +1871,9 @@ test('the account is asked for when its page opens, not before', async () => {
   page.go('#account');
   await settle();
   assert.equal(page.log.requests.filter((r) => r.path === '/api/account').length, 1);
+  page.go('#sources');
+  await settle();
+  assert.equal(page.log.requests.filter((r) => r.path === '/api/account').length, 2, 'the key status is on the Sources page');
 });
 
 test('the key status says whether a key is set, where it came from, and shows only its ending', async () => {
@@ -2046,16 +2052,19 @@ test('an answer that is not a proper account description is ignored', async () =
   }
 });
 
-test('the TikTok username form is on the account page, not on the settings page', () => {
+test('the TikTok username form and the key form are on the Sources page, the key in its details', () => {
   const part = (id) => {
     const start = html.indexOf(`id="${id}"`);
     const next = html.slice(start + 10).search(/<(section|dialog) id="view-/);
     return html.slice(start, next < 0 ? html.length : start + 10 + next);
   };
-  assert.ok(part('view-account').includes('id="tiktok-form"'));
-  assert.ok(!part('view-settings').includes('id="tiktok-form"'));
+  assert.ok(part('view-sources').includes('id="tiktok-form"'));
+  assert.ok(!part('view-account').includes('id="tiktok-form"') && !part('view-settings').includes('id="tiktok-form"'));
   assert.ok(part('view-settings').includes('id="chat-form"'));
-  for (const id of ['key-form', 'youtube-key', 'key-save', 'key-remove']) assert.ok(part('view-account').includes(`id="${id}"`), id);
+  for (const id of ['key-form', 'youtube-key', 'key-save', 'key-remove']) assert.ok(part('view-sources').includes(`id="${id}"`), id);
+  const details = part('account-youtube');
+  assert.ok(details.startsWith('id="account-youtube" class="adv"') && details.includes('id="key-form"'));
+  assert.ok(!/<details[^>]*\bopen\b/.test(html), 'the key is closed until asked for');
 });
 
 test('the key field never lets a browser fill it in or spell-check it', () => {
@@ -2825,35 +2834,29 @@ test('a YouTube viewer is shown as a viewer or a member, a TikTok one as a follo
 
 // --- the account dialog: tabs and the profile ---
 
-const panelsShown = (page) =>
-  ['account-profile', 'account-tiktok', 'account-youtube-chat', 'account-youtube', 'account-token'].filter((id) => !page.elements[id].hidden);
+const panelsShown = (page) => ['account-profile', 'account-token'].filter((id) => !page.elements[id].hidden);
 const selectedTab = (page) =>
-  ['profile', 'tiktok', 'youtube', 'token'].filter((t) => page.elements[`atab-${t}`].attrs['aria-selected'] === 'true');
+  ['profile', 'token'].filter((t) => page.elements[`atab-${t}`].attrs['aria-selected'] === 'true');
 
 test('the dialog opens on the profile tab, and the address can ask for another tab', async () => {
   const page = await ready();
   page.go('#account');
   assert.deepEqual(selectedTab(page), ['profile']);
   assert.deepEqual(panelsShown(page), ['account-profile']);
-  page.go('#account/tiktok');
-  assert.deepEqual(selectedTab(page), ['tiktok']);
-  assert.deepEqual(panelsShown(page), ['account-tiktok']);
-  page.go('#account/youtube-chat');
-  assert.deepEqual(selectedTab(page), ['youtube']);
-  assert.deepEqual(panelsShown(page), ['account-youtube-chat', 'account-youtube']);
   page.go('#account/token');
+  assert.deepEqual(selectedTab(page), ['token']);
   assert.deepEqual(panelsShown(page), ['account-token']);
 });
 
 test('a tab can be chosen, and the arrow keys move between tabs', async () => {
   const page = await ready();
   page.go('#account');
-  page.click(page.elements['atab-youtube']);
-  assert.deepEqual(selectedTab(page), ['youtube']);
-  assert.equal(page.elements['atab-youtube'].attrs.tabindex, '0');
+  page.click(page.elements['atab-token']);
+  assert.deepEqual(selectedTab(page), ['token']);
+  assert.equal(page.elements['atab-token'].attrs.tabindex, '0');
   assert.equal(page.elements['atab-profile'].attrs.tabindex, '-1');
   let prevented = false;
-  page.elements['atab-youtube'].fire('keydown', { key: 'ArrowRight', preventDefault: () => { prevented = true; } });
+  page.elements['atab-profile'].fire('keydown', { key: 'ArrowRight', preventDefault: () => { prevented = true; } });
   assert.deepEqual(selectedTab(page), ['token']);
   assert.ok(prevented && page.elements['atab-token'].focused);
   page.elements['atab-token'].fire('keydown', { key: 'ArrowRight' });
@@ -3065,4 +3068,72 @@ test('the side panel of the queue page folds away and comes back', async () => {
   assert.ok(!page.elements['queue-grid'].classes.has('rail-collapsed'));
   const css = fs.readFileSync(path.join(root, 'static/dashboard/dashboard.css'), 'utf8');
   assert.ok(css.includes('.rail-collapsed .today'), 'the style that hides the two cards exists');
+});
+
+// --- the Rules page: cards, presets, minutes and the save bar ---
+
+test('the rules of a tab are cards by group, the duration is in minutes, and the preset it matches is marked', async () => {
+  const page = await ready();
+  const heading = (id) => descendants(page.elements[id]).filter((n) => n.tag === 'h2').map((n) => n.textContent);
+  assert.deepEqual(heading('rules-general'), ['Who can request', 'Limits', 'Allowed content', 'Categories']);
+  assert.deepEqual(heading('rules-youtube'), ['Who can request', 'Limits']);
+  assert.deepEqual(heading('rules-tiktok'), ['Who can request', 'Limits']);
+  assert.equal(page.elements['setting-max_duration_secs'].value, '10', '600 seconds shown as minutes');
+  assert.equal(page.elements['setting-cooldown_secs'].value, '60', 'the cooldown stays in seconds');
+  assert.equal(page.elements['preset-balanced'].attrs['aria-pressed'], 'true');
+  assert.equal(page.elements['preset-strict'].attrs['aria-pressed'], 'false');
+});
+
+test('a preset fills the rules in and asks to be saved, the bar is there only for unsaved changes, and discard goes back', async () => {
+  const page = await ready();
+  const bar = page.elements['rules-savebar'];
+  assert.ok(bar.classes.has('hidden'), 'nothing unsaved yet');
+
+  page.elements['preset-strict'].fire('click');
+  assert.equal(page.elements['setting-cooldown_secs'].value, '180');
+  assert.equal(page.elements['setting-max_duration_secs'].value, '5');
+  assert.equal(page.elements['setting-max_queue_len'].value, '10');
+  assert.equal(page.elements['setting-youtube_min_role'].value, 'member');
+  assert.ok(!bar.classes.has('hidden'));
+  assert.equal(page.elements['preset-strict'].attrs['aria-pressed'], 'true');
+  assert.equal(page.log.requests.filter((r) => r.method === 'PATCH').length, 0, 'nothing is sent by a preset');
+
+  page.elements['rules-discard'].fire('click');
+  assert.ok(bar.classes.has('hidden'));
+  assert.equal(page.elements['setting-cooldown_secs'].value, '60');
+  assert.equal(page.elements['preset-balanced'].attrs['aria-pressed'], 'true');
+
+  page.elements['setting-cooldown_secs'].value = '45';
+  page.elements['setting-cooldown_secs'].fire('input');
+  assert.ok(!bar.classes.has('hidden'));
+  assert.equal(page.elements['preset-balanced'].attrs['aria-pressed'], 'false', 'a mix is no preset');
+  page.elements['setting-cooldown_secs'].value = '60';
+  page.elements['setting-cooldown_secs'].fire('input');
+  assert.ok(bar.classes.has('hidden'), 'editing back to what is saved leaves nothing unsaved');
+});
+
+test('the minutes typed are saved as seconds, and the bar goes once the server has the rules', async () => {
+  const page = await ready();
+  const updated = snapshot();
+  updated.settings.moderation.max_duration_secs = 90;
+  page.table['PATCH /api/settings'] = { status: 200, body: updated };
+  page.elements['setting-max_duration_secs'].value = '1.5';
+  page.elements['setting-max_duration_secs'].fire('input');
+  assert.ok(!page.elements['rules-savebar'].classes.has('hidden'));
+  page.elements['settings-form'].fire('submit');
+  await settle();
+  assert.deepEqual(page.log.requests.find((r) => r.method === 'PATCH').body, { max_duration_secs: 90 });
+  assert.ok(page.elements['rules-savebar'].classes.has('hidden'));
+  assert.equal(page.elements['setting-max_duration_secs'].value, '1.5');
+});
+
+test('a value that cannot be read still counts as unsaved, and is refused on save', async () => {
+  const page = await ready();
+  page.elements['setting-max_duration_secs'].value = 'ten';
+  page.elements['setting-max_duration_secs'].fire('input');
+  assert.ok(!page.elements['rules-savebar'].classes.has('hidden'));
+  page.elements['settings-form'].fire('submit');
+  await settle();
+  assert.equal(page.log.requests.filter((r) => r.method === 'PATCH').length, 0);
+  assert.ok(!page.elements.error.hidden);
 });

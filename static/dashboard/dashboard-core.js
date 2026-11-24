@@ -34,15 +34,18 @@
   var TIKTOK_ACCOUNT = /^[A-Za-z0-9_.]{1,64}$/;
   var TIKTOK_SHORT_CODE = /^[A-Za-z0-9]{6,12}$/;
   /* The pages of the dashboard, in the order of the menu. */
-  var VIEWS = ['queue', 'chat', 'requests', 'blacklist', 'rules', 'overlay', 'settings', 'account'];
+  var VIEWS = ['queue', 'chat', 'requests', 'blacklist', 'sources', 'rules', 'overlay', 'settings', 'account'];
   /* The ones with an entry in the side menu. The account page is reached from
    * the avatar instead. */
-  var MENU_VIEWS = ['queue', 'chat', 'requests', 'blacklist', 'rules', 'overlay', 'settings'];
+  var MENU_VIEWS = ['queue', 'chat', 'requests', 'blacklist', 'sources', 'rules', 'overlay', 'settings'];
   /* The parts of the account page: #account/tiktok and so on. */
   var ACCOUNT_SECTIONS = ['profile', 'tiktok', 'youtube-chat', 'youtube', 'token'];
   /* The tab of the account dialog each part belongs to; the YouTube chat and
    * the API key share one. */
-  var ACCOUNT_TABS = ['profile', 'tiktok', 'youtube', 'token'];
+  var ACCOUNT_TABS = ['profile', 'token'];
+  /* What used to be tabs of the account dialog is the Sources page now; an old
+   * address (#account/tiktok) still leads there. */
+  var SOURCE_SECTIONS = ['tiktok', 'youtube-chat', 'youtube'];
   var SECTION_TAB = { 'youtube-chat': 'youtube' };
   /* The side of the square the avatar is shrunk to, and the longest name. */
   var AVATAR_SIZE = 128;
@@ -84,6 +87,7 @@
   var SETTINGS_FIELDS = [
     {
       key: 'mode',
+      group: 'who',
       tab: 'general',
       kind: 'select',
       label: 'dashboard.settings.mode',
@@ -92,14 +96,15 @@
         { value: 'auto', label: 'dashboard.settings.mode.auto' },
       ],
     },
-    { key: 'cooldown_secs', tab: 'general', kind: 'number', label: 'dashboard.settings.cooldown_secs' },
-    { key: 'max_duration_secs', tab: 'general', kind: 'number', label: 'dashboard.settings.max_duration_secs' },
-    { key: 'max_queue_len', tab: 'general', kind: 'number', label: 'dashboard.settings.max_queue_len' },
-    { key: 'max_volume', tab: 'general', kind: 'number', label: 'dashboard.settings.max_volume' },
-    { key: 'allow_live', tab: 'general', kind: 'bool', label: 'dashboard.settings.allow_live' },
-    { key: 'allow_shorts', tab: 'general', kind: 'bool', label: 'dashboard.settings.allow_shorts' },
+    { key: 'cooldown_secs', group: 'limits', tab: 'general', kind: 'number', label: 'dashboard.settings.cooldown_secs' },
+    { key: 'max_duration_secs', group: 'limits', tab: 'general', kind: 'number', unit: 'minutes', label: 'dashboard.settings.max_duration_secs' },
+    { key: 'max_queue_len', group: 'limits', tab: 'general', kind: 'number', label: 'dashboard.settings.max_queue_len' },
+    { key: 'max_volume', group: 'limits', tab: 'general', kind: 'number', label: 'dashboard.settings.max_volume' },
+    { key: 'allow_live', group: 'content', tab: 'general', kind: 'bool', label: 'dashboard.settings.allow_live' },
+    { key: 'allow_shorts', group: 'content', tab: 'general', kind: 'bool', label: 'dashboard.settings.allow_shorts' },
     {
       key: 'allowed_categories',
+      group: 'categories',
       tab: 'general',
       kind: 'multi',
       label: 'dashboard.settings.allowed_categories',
@@ -109,24 +114,27 @@
     },
     {
       key: 'youtube_min_role',
+      group: 'who',
       tab: 'youtube',
       kind: 'select',
       label: 'dashboard.settings.youtube_min_role',
       options: YOUTUBE_ROLE_OPTIONS,
     },
-    { key: 'youtube_superchat_bypass', tab: 'youtube', kind: 'bool', label: 'dashboard.settings.youtube_superchat_bypass' },
+    { key: 'youtube_superchat_bypass', group: 'who', tab: 'youtube', kind: 'bool', label: 'dashboard.settings.youtube_superchat_bypass' },
     {
       key: 'youtube_auto_approve',
+      group: 'who',
       tab: 'youtube',
       kind: 'select',
       nullable: true,
       label: 'dashboard.settings.youtube_auto_approve',
       options: [{ value: '', label: 'dashboard.settings.nobody' }].concat(YOUTUBE_ROLE_OPTIONS),
     },
-    { key: 'youtube_cooldown_secs', tab: 'youtube', kind: 'optional-number', label: 'dashboard.settings.chat_cooldown_secs' },
-    { key: 'youtube_max_waiting', tab: 'youtube', kind: 'number', label: 'dashboard.settings.chat_max_waiting' },
+    { key: 'youtube_cooldown_secs', group: 'limits', tab: 'youtube', kind: 'optional-number', label: 'dashboard.settings.chat_cooldown_secs' },
+    { key: 'youtube_max_waiting', group: 'limits', tab: 'youtube', kind: 'number', label: 'dashboard.settings.chat_max_waiting' },
     {
       key: 'tiktok_min_role',
+      group: 'who',
       tab: 'tiktok',
       kind: 'select',
       label: 'dashboard.settings.min_role',
@@ -137,11 +145,44 @@
         { value: 'moderator', label: 'role.moderator' },
       ],
     },
-    { key: 'min_gifter_level', tab: 'tiktok', kind: 'number', label: 'dashboard.settings.min_gifter_level' },
-    { key: 'min_fan_club_level', tab: 'tiktok', kind: 'number', label: 'dashboard.settings.min_fan_club_level' },
-    { key: 'tiktok_cooldown_secs', tab: 'tiktok', kind: 'optional-number', label: 'dashboard.settings.chat_cooldown_secs' },
-    { key: 'tiktok_max_waiting', tab: 'tiktok', kind: 'number', label: 'dashboard.settings.chat_max_waiting' },
+    { key: 'min_gifter_level', group: 'who', tab: 'tiktok', kind: 'number', label: 'dashboard.settings.min_gifter_level' },
+    { key: 'min_fan_club_level', group: 'who', tab: 'tiktok', kind: 'number', label: 'dashboard.settings.min_fan_club_level' },
+    { key: 'tiktok_cooldown_secs', group: 'limits', tab: 'tiktok', kind: 'optional-number', label: 'dashboard.settings.chat_cooldown_secs' },
+    { key: 'tiktok_max_waiting', group: 'limits', tab: 'tiktok', kind: 'number', label: 'dashboard.settings.chat_max_waiting' },
   ];
+
+  /* The cards of a tab of the Rules page, in the order they are shown. */
+  var RULE_GROUPS = ['who', 'limits', 'content', 'categories'];
+
+  /* The presets of the Rules page: each sets the rules below it at once (what a
+   * preset leaves out is not touched). Seconds, as the server keeps them. */
+  var PRESETS = {
+    strict: { mode: 'manual', youtube_min_role: 'member', tiktok_min_role: 'follower', cooldown_secs: 180, max_duration_secs: 300, max_queue_len: 10 },
+    balanced: { mode: 'manual', youtube_min_role: 'viewer', tiktok_min_role: 'follower', cooldown_secs: 60, max_duration_secs: 600, max_queue_len: 20 },
+    open: { mode: 'manual', youtube_min_role: 'viewer', tiktok_min_role: 'everyone', cooldown_secs: 0, max_duration_secs: 900, max_queue_len: 40 },
+  };
+
+  /* The preset these rules are exactly, or '' when they are a mix. */
+  function presetOf(rules) {
+    if (!rules) return '';
+    return Object.keys(PRESETS).filter(function (name) {
+      return Object.keys(PRESETS[name]).every(function (key) {
+        return rules[key] === PRESETS[name][key];
+      });
+    })[0] || '';
+  }
+
+  /* 600 -> "10", 90 -> "1.5": a length in seconds as the minutes a person types. */
+  function secondsToMinutes(seconds) {
+    return typeof seconds === 'number' && isFinite(seconds) ? String(Math.round(seconds / 6) / 10) : '';
+  }
+
+  /* "10" -> "600", "1.5" -> "90". Anything that is not a plain number is
+   * returned as it is, for the check of the rules to refuse. */
+  function minutesToSeconds(text) {
+    var clean = String(text).trim();
+    return /^\d+(\.\d+)?$/.test(clean) ? String(Math.round(parseFloat(clean) * 60)) : clean;
+  }
 
   /* The three blacklist lists, in the order they are shown. */
   var BLACKLIST_FIELDS = [
@@ -681,7 +722,9 @@
   /* Which page the address bar asks for; the queue when it asks for nothing
    * known (a `#token=...` fragment, for one). */
   function parseView(hash) {
-    var name = String(hash || '').replace(/^#/, '').split('/')[0];
+    var parts = String(hash || '').replace(/^#/, '').split('/');
+    var name = parts[0];
+    if (name === 'account' && parts.length === 2 && SOURCE_SECTIONS.indexOf(parts[1]) >= 0) return 'sources';
     return VIEWS.indexOf(name) >= 0 ? name : 'queue';
   }
 
@@ -806,9 +849,8 @@
   /* The tab an address like '#account/youtube-chat' opens: the profile when it
    * names none. */
   function accountTab(hash) {
-    var section = parseSection(hash);
-    if (!section) return 'profile';
-    return SECTION_TAB[section] || section;
+    var tab = SECTION_TAB[parseSection(hash)] || parseSection(hash);
+    return ACCOUNT_TABS.indexOf(tab) >= 0 ? tab : 'profile';
   }
 
   /* The square, centred, that is cut out of a picture of this size; the whole
@@ -993,6 +1035,11 @@
     chatRate: chatRate,
     TINTS: TINTS,
     SETTINGS_FIELDS: SETTINGS_FIELDS,
+    RULE_GROUPS: RULE_GROUPS,
+    PRESETS: PRESETS,
+    presetOf: presetOf,
+    secondsToMinutes: secondsToMinutes,
+    minutesToSeconds: minutesToSeconds,
     VIDEO_CATEGORIES: VIDEO_CATEGORIES,
     BLACKLIST_FIELDS: BLACKLIST_FIELDS,
     format: format,

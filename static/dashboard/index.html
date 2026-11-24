@@ -52,6 +52,10 @@
         <span data-i18n="dashboard.nav.blacklist"></span>
       </a>
       <p class="nav-group" data-i18n="dashboard.nav.group.settings"></p>
+      <a id="nav-sources" class="nav-link" href="#sources">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 8a5.5 5.5 0 0 1 11 0M5 8a3 3 0 0 1 6 0"/><circle cx="8" cy="8.5" r="1"/><path d="M8 9.5V13"/></svg>
+        <span data-i18n="dashboard.nav.sources"></span>
+      </a>
       <a id="nav-rules" class="nav-link" href="#rules">
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><path d="M2.5 5h11M2.5 11h11"/><circle cx="6" cy="5" r="1.5" class="knob"/><circle cx="10.5" cy="11" r="1.5" class="knob"/></svg>
         <span data-i18n="dashboard.nav.rules"></span>
@@ -111,7 +115,7 @@
       <section id="view-queue" class="view queue-view" data-pane="queue">
         <p id="setup-hint" class="banner banner-warn hidden">
           <span id="setup-hint-text"></span>
-          <a href="#account/tiktok" class="link" data-i18n="dashboard.account.title"></a>
+          <a href="#sources" class="link" data-i18n="dashboard.nav.sources"></a>
         </p>
         <div class="title-row">
           <h1 id="queue-heading" tabindex="-1" data-i18n="dashboard.queue.heading"></h1>
@@ -245,6 +249,68 @@
         </div>
       </section>
 
+      <section id="view-sources" class="view hidden">
+        <div class="title-row">
+          <h1 id="sources-heading" tabindex="-1" data-i18n="dashboard.nav.sources"></h1>
+          <p class="muted" data-i18n="dashboard.sources.hint"></p>
+        </div>
+        <div id="account-youtube-chat" class="card page-card">
+          <form id="youtube-chat-form" class="form">
+            <h2 data-i18n="dashboard.youtube_chat.title"></h2>
+            <div class="field">
+              <label for="youtube-chat-video" data-i18n="dashboard.youtube_chat.video"></label>
+              <input id="youtube-chat-video" type="text" autocomplete="off" spellcheck="false" maxlength="200">
+              <p class="muted small" data-i18n="dashboard.youtube_chat.hint"></p>
+            </div>
+            <div class="actions">
+              <button type="submit" class="primary" data-i18n="dashboard.youtube_chat.save"></button>
+            </div>
+          </form>
+          <label class="toggle">
+            <input id="youtube-chat-enabled" type="checkbox">
+            <span data-i18n="dashboard.youtube_chat.enabled"></span>
+          </label>
+          <p id="youtube-chat-status" class="muted small"></p>
+          <details id="account-youtube" class="adv">
+            <summary data-i18n="dashboard.sources.advanced"></summary>
+            <p class="muted small" data-i18n="dashboard.sources.key_note"></p>
+            <form id="key-form" class="form">
+              <h2 data-i18n="dashboard.account.youtube.title"></h2>
+              <p id="key-status" class="status-line"></p>
+              <p id="key-source" class="muted small"></p>
+              <div class="field">
+                <label for="youtube-key" data-i18n="dashboard.account.youtube.label"></label>
+                <input id="youtube-key" type="password" autocomplete="off" spellcheck="false" maxlength="200">
+                <p class="muted small" data-i18n="dashboard.account.youtube.hint"></p>
+              </div>
+              <p id="key-locked" class="hint-warn hidden" data-i18n="dashboard.account.locked"></p>
+              <div class="actions">
+                <button id="key-save" type="submit" class="primary" data-i18n="dashboard.account.youtube.save"></button>
+                <button id="key-remove" type="button" class="hidden" data-i18n="dashboard.account.youtube.remove"></button>
+              </div>
+            </form>
+          </details>
+        </div>
+        <div id="account-tiktok" class="card page-card">
+          <form id="tiktok-form" class="form">
+            <h2 data-i18n="dashboard.tiktok.title"></h2>
+            <div class="field">
+              <label for="tiktok-username" data-i18n="dashboard.tiktok.username"></label>
+              <input id="tiktok-username" type="text" autocomplete="off" spellcheck="false" maxlength="70">
+              <p class="muted small" data-i18n="dashboard.tiktok.hint"></p>
+            </div>
+            <div class="actions">
+              <button type="submit" class="primary" data-i18n="dashboard.tiktok.save"></button>
+            </div>
+          </form>
+          <label class="toggle">
+            <input id="tiktok-enabled" type="checkbox">
+            <span data-i18n="dashboard.tiktok.enabled"></span>
+          </label>
+          <p id="tiktok-status" class="muted small"></p>
+        </div>
+      </section>
+
       <section id="view-rules" class="view hidden">
         <div class="title-row">
           <h1 id="settings-heading" tabindex="-1" data-i18n="dashboard.nav.rules"></h1>
@@ -254,9 +320,13 @@
           <button id="rtab-youtube" type="button" class="tab" role="tab" aria-controls="rules-youtube" data-i18n="dashboard.rules.tab.youtube"></button>
           <button id="rtab-tiktok" type="button" class="tab" role="tab" aria-controls="rules-tiktok" data-i18n="dashboard.rules.tab.tiktok"></button>
         </div>
-        <div class="card page-card">
-          <form id="settings-form" class="form"></form>
-        </div>
+        <form id="settings-form" class="rules-form">
+          <div id="rules-savebar" class="savebar hidden" role="status">
+            <span data-i18n="dashboard.rules.unsaved"></span>
+            <button id="rules-discard" type="button" data-i18n="dashboard.rules.discard"></button>
+            <button id="rules-save" type="submit" class="primary" data-i18n="dashboard.settings.save"></button>
+          </div>
+        </form>
         <div id="rules-commands" class="card page-card">
           <form id="commands-form" class="form">
             <h2 data-i18n="dashboard.commands.title"></h2>
@@ -392,8 +462,6 @@
 
         <div id="account-tabs" class="tabs" role="tablist">
           <button id="atab-profile" type="button" class="tab" role="tab" aria-controls="account-profile" data-tab="profile" data-i18n="dashboard.account.tab.profile"></button>
-          <button id="atab-tiktok" type="button" class="tab" role="tab" aria-controls="account-tiktok" data-tab="tiktok" data-i18n="dashboard.account.tab.tiktok"></button>
-          <button id="atab-youtube" type="button" class="tab" role="tab" aria-controls="account-youtube-chat account-youtube" data-tab="youtube" data-i18n="dashboard.account.tab.youtube"></button>
           <button id="atab-token" type="button" class="tab" role="tab" aria-controls="account-token" data-tab="token" data-i18n="dashboard.account.tab.token"></button>
         </div>
 
@@ -414,62 +482,6 @@
             </div>
             <div class="actions">
               <button type="submit" class="primary" data-i18n="dashboard.profile.save"></button>
-            </div>
-          </form>
-        </div>
-
-        <div id="account-tiktok" class="page-card" data-panel="tiktok">
-          <form id="tiktok-form" class="form">
-            <h2 data-i18n="dashboard.tiktok.title"></h2>
-            <div class="field">
-              <label for="tiktok-username" data-i18n="dashboard.tiktok.username"></label>
-              <input id="tiktok-username" type="text" autocomplete="off" spellcheck="false" maxlength="70">
-              <p class="muted small" data-i18n="dashboard.tiktok.hint"></p>
-            </div>
-            <div class="actions">
-              <button type="submit" class="primary" data-i18n="dashboard.tiktok.save"></button>
-            </div>
-          </form>
-          <label class="toggle">
-            <input id="tiktok-enabled" type="checkbox">
-            <span data-i18n="dashboard.tiktok.enabled"></span>
-          </label>
-          <p id="tiktok-status" class="muted small"></p>
-        </div>
-
-        <div id="account-youtube-chat" class="page-card" data-panel="youtube">
-          <form id="youtube-chat-form" class="form">
-            <h2 data-i18n="dashboard.youtube_chat.title"></h2>
-            <div class="field">
-              <label for="youtube-chat-video" data-i18n="dashboard.youtube_chat.video"></label>
-              <input id="youtube-chat-video" type="text" autocomplete="off" spellcheck="false" maxlength="200">
-              <p class="muted small" data-i18n="dashboard.youtube_chat.hint"></p>
-            </div>
-            <div class="actions">
-              <button type="submit" class="primary" data-i18n="dashboard.youtube_chat.save"></button>
-            </div>
-          </form>
-          <label class="toggle">
-            <input id="youtube-chat-enabled" type="checkbox">
-            <span data-i18n="dashboard.youtube_chat.enabled"></span>
-          </label>
-          <p id="youtube-chat-status" class="muted small"></p>
-        </div>
-
-        <div id="account-youtube" class="page-card" data-panel="youtube">
-          <form id="key-form" class="form">
-            <h2 data-i18n="dashboard.account.youtube.title"></h2>
-            <p id="key-status" class="status-line"></p>
-            <p id="key-source" class="muted small"></p>
-            <div class="field">
-              <label for="youtube-key" data-i18n="dashboard.account.youtube.label"></label>
-              <input id="youtube-key" type="password" autocomplete="off" spellcheck="false" maxlength="200">
-              <p class="muted small" data-i18n="dashboard.account.youtube.hint"></p>
-            </div>
-            <p id="key-locked" class="hint-warn hidden" data-i18n="dashboard.account.locked"></p>
-            <div class="actions">
-              <button id="key-save" type="submit" class="primary" data-i18n="dashboard.account.youtube.save"></button>
-              <button id="key-remove" type="button" class="hidden" data-i18n="dashboard.account.youtube.remove"></button>
             </div>
           </form>
         </div>
@@ -501,6 +513,10 @@
     <a id="bnav-blacklist" href="#blacklist">
       <svg width="20" height="20" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" aria-hidden="true"><circle cx="8" cy="8" r="5.5"/><path d="M4.2 11.8l7.6-7.6"/></svg>
       <span data-i18n="dashboard.nav.blacklist"></span>
+    </a>
+    <a id="bnav-sources" href="#sources">
+      <svg width="20" height="20" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 8a5.5 5.5 0 0 1 11 0M5 8a3 3 0 0 1 6 0"/><circle cx="8" cy="8.5" r="1"/><path d="M8 9.5V13"/></svg>
+      <span data-i18n="dashboard.nav.sources"></span>
     </a>
     <a id="bnav-rules" href="#rules">
       <svg width="20" height="20" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" aria-hidden="true"><path d="M2.5 5h11M2.5 11h11"/><circle cx="6" cy="5" r="1.5" class="knob"/><circle cx="10.5" cy="11" r="1.5" class="knob"/></svg>

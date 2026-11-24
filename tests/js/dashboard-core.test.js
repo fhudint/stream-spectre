@@ -620,10 +620,12 @@ test('the rules in force are listed as short texts', () => {
 
 test('the address bar picks a page, and anything else means the queue', () => {
   for (const view of core.VIEWS) assert.equal(core.parseView('#' + view), view);
-  assert.deepEqual(core.VIEWS, ['queue', 'chat', 'requests', 'blacklist', 'rules', 'overlay', 'settings', 'account']);
+  assert.deepEqual(core.VIEWS, ['queue', 'chat', 'requests', 'blacklist', 'sources', 'rules', 'overlay', 'settings', 'account']);
   // The account dialog is reached from the avatar, so it is not in the side menu.
-  assert.deepEqual(core.MENU_VIEWS, ['queue', 'chat', 'requests', 'blacklist', 'rules', 'overlay', 'settings']);
-  assert.equal(core.parseView('#account/youtube'), 'account');
+  assert.deepEqual(core.MENU_VIEWS, ['queue', 'chat', 'requests', 'blacklist', 'sources', 'rules', 'overlay', 'settings']);
+  // What used to be tabs of the account dialog is the Sources page; old addresses lead there.
+  for (const part of ['tiktok', 'youtube', 'youtube-chat']) assert.equal(core.parseView('#account/' + part), 'sources', part);
+  assert.equal(core.parseView('#account/token'), 'account');
   assert.equal(core.parseView('#queue/anything'), 'queue');
   for (const other of ['', '#', '#token=abc', '#nope', '#QUEUE', '#queue?x=1', undefined, null, '#__proto__', '#constructor']) {
     assert.equal(core.parseView(other), 'queue', String(other));
@@ -818,10 +820,9 @@ test('a role is named as the chat it was said in names it', () => {
 });
 
 test('every part of the account address belongs to a tab, and the profile is the default', () => {
-  assert.deepEqual(core.ACCOUNT_TABS, ['profile', 'tiktok', 'youtube', 'token']);
+  assert.deepEqual(core.ACCOUNT_TABS, ['profile', 'token']);
   for (const part of core.ACCOUNT_SECTIONS) assert.ok(core.ACCOUNT_TABS.includes(core.accountTab('#account/' + part)), part);
-  assert.equal(core.accountTab('#account/youtube-chat'), 'youtube');
-  assert.equal(core.accountTab('#account/youtube'), 'youtube');
+  assert.equal(core.accountTab('#account/youtube'), 'profile', 'the YouTube parts moved to the Sources page');
   assert.equal(core.accountTab('#account/token'), 'token');
   for (const other of ['#account', '#account/nope', '', undefined, null]) assert.equal(core.accountTab(other), 'profile', String(other));
 });
@@ -902,4 +903,27 @@ test('chat lines are narrowed by command, source and words, and the rate counts 
   const messages = [l({ at_ms: now - 61000 }), l({ at_ms: now - 59000 }), l({ at_ms: now - 1 }), l({ at_ms: 0 })];
   assert.equal(core.chatRate(messages, now), 2);
   assert.equal(core.chatRate([], now), 0);
+});
+
+test('the presets are told apart, and minutes and seconds convert both ways', () => {
+  const base = { mode: 'manual', youtube_min_role: 'viewer', tiktok_min_role: 'follower', cooldown_secs: 60, max_duration_secs: 600, max_queue_len: 20 };
+  assert.equal(core.presetOf(base), 'balanced');
+  assert.equal(core.presetOf({ ...base, ...core.PRESETS.strict }), 'strict');
+  assert.equal(core.presetOf({ ...base, ...core.PRESETS.open }), 'open');
+  assert.equal(core.presetOf({ ...base, cooldown_secs: 61 }), '', 'a mix is none');
+  assert.equal(core.presetOf(null), '');
+  // Every key a preset sets is a rule of the page, and every rule of the page is in a card.
+  const keys = new Set(core.SETTINGS_FIELDS.map((f) => f.key));
+  for (const preset of Object.values(core.PRESETS)) for (const key of Object.keys(preset)) assert.ok(keys.has(key), key);
+  for (const field of core.SETTINGS_FIELDS) assert.ok(core.RULE_GROUPS.includes(field.group), field.key);
+
+  assert.equal(core.secondsToMinutes(600), '10');
+  assert.equal(core.secondsToMinutes(90), '1.5');
+  assert.equal(core.secondsToMinutes(0), '0');
+  assert.equal(core.secondsToMinutes(undefined), '');
+  assert.equal(core.minutesToSeconds('10'), '600');
+  assert.equal(core.minutesToSeconds(' 1.5 '), '90');
+  assert.equal(core.minutesToSeconds('ten'), 'ten', 'what is not a number goes on to be refused');
+  assert.equal(core.minutesToSeconds('-2'), '-2');
+  assert.equal(core.minutesToSeconds(''), '');
 });
