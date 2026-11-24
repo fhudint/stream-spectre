@@ -72,6 +72,11 @@
   var chatDrawn = null; // the newest chat line already in the page
   var requestsDrawn = null; // the history and blacklist the requests page shows, or null
   var commandsOnly = false;
+  var chatSource = 'all'; // the chat page shows one source, or all
+  var chatQuery = ''; // lower case; what a line must contain
+  var chatPaused = false; // the moderator stopped the page from following the chat
+  var chatUnread = 0; // lines added while the page was not following
+  var frame = 0; // the animation frame that will draw chat lines that came in
   var view = 'queue';
   var lastView = 'queue'; // the page under the account dialog, which it returns to
   var draftAvatar = null; // the picture chosen but not saved; '' means "remove"; null means no change
@@ -539,6 +544,9 @@
       node.textContent = t(node.getAttribute('data-i18n'));
     });
     $('keys').setAttribute('aria-label', t('dashboard.keys.label'));
+    $('chat-search').setAttribute('placeholder', t('dashboard.chat.search'));
+    $('chat-search').setAttribute('aria-label', t('dashboard.chat.search'));
+    $('chat-sources').setAttribute('aria-label', t('dashboard.chat.sources'));
     $('account-close').setAttribute('aria-label', t('dashboard.account.close'));
     document.title = t('dashboard.title');
     if (state.language) document.documentElement.lang = state.language;
@@ -940,10 +948,10 @@
     }
   }
 
-  function renderList(id, list, rowFor) {
+  function renderList(id, list, rowFor, emptyKey) {
     var box = $(id);
     if (list.length === 0) {
-      box.replaceChildren(h('li', { className: 'empty', text: t('dashboard.queue.empty') }));
+      box.replaceChildren(h('li', { className: 'empty', text: t(emptyKey) }));
       return;
     }
     box.replaceChildren.apply(box, list.map(rowFor));
@@ -965,7 +973,7 @@
           }),
         ].concat(blacklistButtons(item, true))
       );
-    });
+    }, 'dashboard.pending.empty');
     renderList('approved', state.queue.approved, function (item) {
       return rowView(
         item,
@@ -976,7 +984,7 @@
           }),
         ].concat(blacklistButtons(item, true))
       );
-    });
+    }, 'dashboard.approved.empty');
   }
 
   /* The small button that copies a link to the video, to open it and see why
@@ -1070,7 +1078,7 @@
         h('li', { className: 'chat-skipped', text: tf('dashboard.chat.skipped', { count: line.skipped }) })
       );
     }
-    if (commandsOnly && !line.command) return;
+    if (!core.chatMatches(line, { commandsOnly: commandsOnly, source: chatSource, query: chatQuery })) return false;
     var main = [h('span', { className: 'chat-name name-' + core.tintIndex(line.name), text: line.name })];
     if (line.developer) {
       main.push(h('span', { className: 'chat-tick', attrs: { 'aria-hidden': 'true' } }));
@@ -1090,6 +1098,7 @@
         h('div', { className: 'chat-main' }, main),
       ])
     );
+    return true;
   }
 
   /* Adds the chat lines that arrived since the last drawing. Everything is
@@ -1113,11 +1122,40 @@
       box.replaceChildren();
       from = 0;
     }
-    for (var i = from; i < lines.length; i += 1) appendChatLine(box, lines[i]);
+    var added = 0;
+    for (var i = from; i < lines.length; i += 1) {
+      if (appendChatLine(box, lines[i]) === true) added += 1;
+    }
     chatDrawn = lines.length ? lines[lines.length - 1] : null;
     while (box.children.length > core.MAX_CHAT_LINES) box.removeChild(box.firstChild);
     $('chat-empty').classList[box.children.length ? 'add' : 'remove']('hidden');
-    if (atBottom) box.scrollTop = box.scrollHeight;
+    // Follows the newest line, unless the moderator paused or scrolled up to
+    // read: then the new lines are only counted, on the jump button.
+    if (!chatPaused && (atBottom || rebuild)) {
+      box.scrollTop = box.scrollHeight;
+      chatUnread = 0;
+    } else if (rebuild) {
+      chatUnread = 0;
+    } else {
+      chatUnread += added;
+    }
+    renderChatTools();
+  }
+
+  /* The pause button, the jump button and the rate beside the filters. */
+  function renderChatTools() {
+    $('chat-pause').textContent = t(chatPaused ? 'dashboard.chat.resume' : 'dashboard.chat.pause');
+    $('chat-pause').setAttribute('aria-pressed', chatPaused ? 'true' : 'false');
+    $('chat-jump').textContent = tf('dashboard.chat.jump', { count: chatUnread });
+    $('chat-jump').classList[chatUnread > 0 ? 'remove' : 'add']('hidden');
+    $('chat-rate').textContent = tf('dashboard.chat.rate', { count: core.chatRate(state.messages, nowMs()) });
+  }
+
+  function chatToBottom() {
+    var box = $('chat-log');
+    box.scrollTop = box.scrollHeight;
+    chatUnread = 0;
+    renderChatTools();
   }
 
   /* Fills the forms from the server's settings. Fields being edited are left
@@ -1536,6 +1574,51 @@
     commandsOnly = $('chat-commands-only').checked === true;
     renderChat(true);
   });
+  $('chat-pause').addEventListener('click', function () {
+    chatPaused = !chatPaused;
+    if (chatPaused) renderChatTools();
+    else chatToBottom();
+  });
+  $('chat-jump').addEventListener('click', function () {
+    chatPaused = false;
+    chatToBottom();
+  });
+  $('chat-log').addEventListener('scroll', function () {
+    var box = $('chat-log');
+    if (box.scrollHeight - box.scrollTop - box.clientHeight < 24 && chatUnread > 0) {
+      chatUnread = 0;
+      renderChatTools();
+    }
+  });
+  ['all', 'youtube', 'tiktok'].forEach(function (source) {
+    $('chat-src-' + source).addEventListener('click', function () {
+      chatSource = source;
+      ['all', 'youtube', 'tiktok'].forEach(function (other) {
+        $('chat-src-' + other).setAttribute('aria-pressed', other === source ? 'true' : 'false');
+      });
+      renderChat(true);
+    });
+  });
+  $('chat-search').addEventListener('input', function () {
+    chatQuery = $('chat-search').value.trim().toLowerCase();
+    renderChat(true);
+  });
+
+  /* The side panel of the queue page (this session, the rules) can be folded
+   * away for a live; the choice is kept in this browser only. */
+  function setRail(collapsed) {
+    $('queue-grid').classList[collapsed ? 'add' : 'remove']('rail-collapsed');
+    $('rail-toggle').textContent = t(collapsed ? 'dashboard.queue.show_panel' : 'dashboard.queue.hide_panel');
+    $('rail-toggle').setAttribute('aria-pressed', collapsed ? 'true' : 'false');
+    try {
+      localStorage.setItem('spectre.rail', collapsed ? '1' : '0');
+    } catch (error) {
+      // a private window: the choice just is not kept
+    }
+  }
+  $('rail-toggle').addEventListener('click', function () {
+    setRail($('rail-toggle').getAttribute('aria-pressed') !== 'true');
+  });
 
   $('tiktok-form').addEventListener('submit', function (event) {
     event.preventDefault();
@@ -1843,6 +1926,7 @@
     copyText(core.overlayUrl(location.protocol, location.host, token, 'chat-float'), 'dashboard.overlay.copied');
   }
 
+  $('copy-overlay').addEventListener('click', copyOverlay);
   $('copy-overlay-page').addEventListener('click', copyOverlay);
   $('copy-chat-panel').addEventListener('click', copyChatPanel);
   $('copy-chat-float').addEventListener('click', copyChatFloat);
@@ -1913,6 +1997,16 @@
         clockOffset = Date.now() - message.ts;
       }
       state = core.reduce(state, message);
+      // A busy chat is drawn once per frame, not once per message.
+      if (message && message.type === 'chat_message' && typeof requestAnimationFrame === 'function') {
+        if (!frame) {
+          frame = requestAnimationFrame(function () {
+            frame = 0;
+            render();
+          });
+        }
+        return;
+      }
       render();
     };
     ws.onclose = function () {
@@ -1935,6 +2029,7 @@
   setInterval(function () {
     if (!started) return;
     renderSummary();
+    $('chat-rate').textContent = tf('dashboard.chat.rate', { count: core.chatRate(state.messages, nowMs()) });
     waiting.forEach(function (entry) {
       entry.node.textContent = metaText(entry.item);
     });
@@ -1962,6 +2057,13 @@
         buildForms();
         showView(core.parseView(location.hash), false, core.parseSection(location.hash));
         setPane(pane);
+        var folded = false;
+        try {
+          folded = localStorage.getItem('spectre.rail') === '1';
+        } catch (error) {
+          folded = false;
+        }
+        setRail(folded);
         render();
         loadUpdate();
         if (!started) {

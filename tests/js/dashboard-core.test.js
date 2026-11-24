@@ -886,3 +886,20 @@ test('what the server says about updates is read, and only this project\'s links
   assert.equal(core.updateOf({ current: '0.1.0', latest: { version: 9, url: link } }).latest, null);
   for (const bad of [null, undefined, 'x', [], {}, { current: 1 }]) assert.equal(core.updateOf(bad), null, JSON.stringify(bad));
 });
+
+test('chat lines are narrowed by command, source and words, and the rate counts the last minute only', () => {
+  const l = (extra) => ({ name: 'Budi', text: 'Hello there', source: 'tiktok', command: false, at_ms: 0, ...extra });
+  assert.equal(core.chatMatches(l(), { source: 'all', query: '' }), true);
+  assert.equal(core.chatMatches(l(), { source: 'youtube', query: '' }), false);
+  assert.equal(core.chatMatches(l({ source: 'youtube' }), { source: 'youtube', query: '' }), true);
+  assert.equal(core.chatMatches(l(), { source: 'all', query: 'budi' }), true, 'the name counts');
+  assert.equal(core.chatMatches(l(), { source: 'all', query: 'there' }), true);
+  assert.equal(core.chatMatches(l(), { source: 'all', query: 'nope' }), false);
+  assert.equal(core.chatMatches(l(), { commandsOnly: true }), false);
+  assert.equal(core.chatMatches(l({ command: true }), { commandsOnly: true }), true);
+
+  const now = 1_700_000_000_000;
+  const messages = [l({ at_ms: now - 61000 }), l({ at_ms: now - 59000 }), l({ at_ms: now - 1 }), l({ at_ms: 0 })];
+  assert.equal(core.chatRate(messages, now), 2);
+  assert.equal(core.chatRate([], now), 0);
+});

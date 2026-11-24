@@ -82,6 +82,10 @@
         <span id="chat-status" class="pill"></span>
         <span id="chat-status-youtube" class="pill"></span>
       </div>
+      <button id="copy-overlay" type="button" class="copy-top">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M10.5 5.5v-2a1 1 0 0 0-1-1h-6a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2"/></svg>
+        <span data-i18n="dashboard.overlay.copy"></span>
+      </button>
       <div class="account-wrap">
         <button id="account-button" type="button" class="channel" aria-expanded="false" aria-controls="account-menu">
           <span id="channel-initial" class="avatar" aria-hidden="true"></span>
@@ -112,6 +116,7 @@
         <div class="title-row">
           <h1 id="queue-heading" tabindex="-1" data-i18n="dashboard.queue.heading"></h1>
           <p id="queue-summary" class="muted"></p>
+          <button id="rail-toggle" type="button" class="small rail-toggle" aria-pressed="false"></button>
         </div>
 
         <div class="pane-tabs" role="group">
@@ -124,7 +129,7 @@
           </button>
         </div>
 
-        <div class="queue-grid">
+        <div id="queue-grid" class="queue-grid">
           <section class="card onair" aria-labelledby="now-heading">
             <h2 id="now-heading" class="sr-only" data-i18n="dashboard.now_playing.title"></h2>
             <div id="now" class="now"></div>
@@ -198,15 +203,24 @@
           <p class="muted" data-i18n="dashboard.chat.hint"></p>
         </div>
         <section class="card chat-page" aria-labelledby="chat-heading">
-          <div class="card-head">
+          <div class="card-head chat-tools">
+            <button id="chat-pause" type="button" class="small" aria-pressed="false" data-i18n="dashboard.chat.pause"></button>
+            <div id="chat-sources" class="seg" role="group">
+              <button id="chat-src-all" type="button" class="small" aria-pressed="true" data-i18n="dashboard.chat.source.all"></button>
+              <button id="chat-src-youtube" type="button" class="small" aria-pressed="false" data-i18n="dashboard.chat.source.youtube"></button>
+              <button id="chat-src-tiktok" type="button" class="small" aria-pressed="false" data-i18n="dashboard.chat.source.tiktok"></button>
+            </div>
             <label class="toggle">
               <input id="chat-commands-only" type="checkbox">
               <span data-i18n="dashboard.chat.commands_only"></span>
             </label>
+            <input id="chat-search" type="search" class="chat-search" autocomplete="off" spellcheck="false">
+            <span id="chat-rate" class="muted small"></span>
           </div>
           <div class="chat-body">
             <ol id="chat-log" class="chat-log" tabindex="0"></ol>
             <p id="chat-empty" class="hint" data-i18n="dashboard.chat.empty"></p>
+            <button id="chat-jump" type="button" class="primary small chat-jump hidden"></button>
           </div>
         </section>
       </section>

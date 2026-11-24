@@ -531,6 +531,29 @@
   }
 
   /* Local time of day as HH:MM:SS, or '' when the time is not known. */
+  /* Whether a chat line passes the chat page's filters: `source` ('all',
+   * 'youtube' or 'tiktok'), `query` (lower case; in the name or the text) and
+   * `commandsOnly`. */
+  function chatMatches(line, filter) {
+    if (filter.commandsOnly && !line.command) return false;
+    if (filter.source && filter.source !== 'all' && line.source !== filter.source) return false;
+    if (filter.query && (line.name + ' ' + line.text).toLowerCase().indexOf(filter.query) < 0) return false;
+    return true;
+  }
+
+  /* Messages that came in during the last minute before `now` (both in
+   * milliseconds). Only the lines the page keeps are counted. */
+  function chatRate(messages, now) {
+    var count = 0;
+    for (var i = messages.length - 1; i >= 0; i -= 1) {
+      var at = messages[i].at_ms;
+      if (!(at > 0)) continue;
+      if (now - at >= 60000) break;
+      count += 1;
+    }
+    return count;
+  }
+
   function formatClock(ms) {
     if (!ms) return '';
     var date = new Date(ms);
@@ -966,6 +989,8 @@
     MENU_VIEWS: MENU_VIEWS,
     ACCOUNT_SECTIONS: ACCOUNT_SECTIONS,
     CHAT_SOURCES: CHAT_SOURCES,
+    chatMatches: chatMatches,
+    chatRate: chatRate,
     TINTS: TINTS,
     SETTINGS_FIELDS: SETTINGS_FIELDS,
     VIDEO_CATEGORIES: VIDEO_CATEGORIES,

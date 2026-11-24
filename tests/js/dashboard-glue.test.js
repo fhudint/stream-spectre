@@ -152,12 +152,13 @@ function load({
   routes = {},
   protocol = 'http:',
   storageBroken = false,
+  frames = false,
   clipboard = true,
   execCommandResult = true,
   clock = 1_000_000,
 } = {}) {
   let now = clock;
-  const log = { requests: [], sockets: [], timeouts: [], intervals: [], history: [], copied: [], documentListeners: {}, windowListeners: {} };
+  const log = { requests: [], sockets: [], timeouts: [], intervals: [], history: [], copied: [], documentListeners: {}, windowListeners: {}, frames: [] };
 
   const elements = {};
   const i18nNodes = [];
@@ -267,6 +268,8 @@ function load({
     },
     clearTimeout: () => {},
   };
+  // A browser that draws in frames: what is asked for waits until the test runs it.
+  if (frames) sandbox.requestAnimationFrame = (fn) => log.frames.push(fn);
   sandbox.window = sandbox;
   sandbox.addEventListener = (type, listener) => (log.windowListeners[type] ||= []).push(listener);
   sandbox.window.sessionStorage = storageBroken
@@ -320,9 +323,9 @@ test('it loads the state and texts, builds the page and connects', async () => {
   assert.equal(page.elements['pending-heading'].textContent, 'Awaiting approval');
   assert.equal(page.document.title, 'Moderation Dashboard');
   assert.equal(page.document.documentElement.lang, 'en');
-  assert.equal(page.elements['connection'].textContent, 'Disconnected');
+  assert.equal(page.elements['connection'].textContent, 'Program · Disconnected');
   page.socket().open();
-  assert.equal(page.elements['connection'].textContent, 'Connected');
+  assert.equal(page.elements['connection'].textContent, 'Program · Connected');
   assert.ok(page.elements['connection'].classes.has('state-ok'));
   assert.equal(page.elements['chat-status'].textContent, 'Connected to TikTok chat @streamer');
 });
@@ -427,8 +430,9 @@ test('the queue is drawn with titles, requesters and action buttons', async () =
 
 test('empty lists say so', async () => {
   const page = await ready({ routes: { 'GET /api/state': () => ({ status: 200, body: snapshot({ queue: { pending: [], approved: [], now_playing: null } }) }) } });
-  assert.equal(page.elements.pending.children[0].textContent, 'The queue is empty');
-  assert.equal(page.elements.approved.children[0].textContent, 'The queue is empty');
+  // Each list says what is true of it, so "empty" never contradicts a video playing.
+  assert.equal(page.elements.pending.children[0].textContent, 'No requests waiting for approval');
+  assert.equal(page.elements.approved.children[0].textContent, 'Nothing in the play queue');
   assert.equal(page.elements.now.textContent, 'Nothing is playing');
 });
 
@@ -528,7 +532,7 @@ test('events already covered by the snapshot are ignored', async () => {
 test('a new hello replaces the whole view', async () => {
   const page = await ready();
   page.socket().receive(envelope(50, 'hello', snapshot({ seq: 50, queue: { pending: [], approved: [], now_playing: item(99) } })));
-  assert.equal(page.elements.pending.children[0].textContent, 'The queue is empty');
+  assert.equal(page.elements.pending.children[0].textContent, 'No requests waiting for approval');
   assert.match(page.elements.now.textContent, /Title 99/);
 });
 
@@ -558,7 +562,7 @@ test('after a dropped connection it checks access, then reconnects with a growin
   const delays = [];
   for (let i = 0; i < 4; i += 1) {
     page.socket().close();
-    assert.equal(page.elements.connection.textContent, 'Reconnecting…');
+    assert.equal(page.elements.connection.textContent, 'Program · Reconnecting…');
     await settle();
     delays.push(page.log.timeouts.at(-1).delay);
     page.log.timeouts.at(-1).fn();
@@ -2937,8 +2941,10 @@ test('the server refusing the profile is shown and nothing is claimed saved', as
   assert.notEqual(page.elements.flash.textContent, 'Profile saved.');
 });
 
-test('the menu has no copy button of its own: the addresses are on the Overlay page', () => {
-  assert.ok(!html.includes('id="copy-overlay"') && !html.includes('overlay-address'));
+test('the top bar has the copy button, the menu none, and the addresses are on the Overlay page too', () => {
+  const top = html.slice(html.indexOf('<header class="topbar">'), html.indexOf('</header>'));
+  assert.ok(top.includes('id="copy-overlay"') && !html.includes('overlay-address'));
+  assert.ok(html.indexOf('id="copy-overlay"') > html.indexOf('id="status"'), 'after the status pills');
   assert.ok(html.includes('data-i18n="dashboard.overlay.mediashare_hint"'));
   assert.match(english['dashboard.overlay.mediashare_hint'], /1920 x 1080/);
 });
@@ -2960,4 +2966,103 @@ test('the developer notice has a switch on the Settings page, on by default, sav
   assert.equal(off.elements['developer-notice'].checked, false, 'a saved off is shown as off');
   // It sits above the update card in the page.
   assert.ok(html.indexOf('id="developer-notice"') < html.indexOf('id="update-check"'));
+});
+
+// --- the chat toolbar and the queue's side panel ---
+
+const names = (page) => chatItems(page).map((li) => readable(li));
+
+test('the chat can be narrowed to one source, to words, and to video requests, all together', async () => {
+  const log = [
+    line('hello from tt', { name: 'Rina' }),
+    line('hello from yt', { name: 'Budi', source: 'youtube' }),
+    line('!v dQw4w9WgXcQ', { name: 'Sari', command: true }),
+  ];
+  const page = await ready({ routes: { 'GET /api/state': () => ({ status: 200, body: snapshot({ chat_log: log }) }) } });
+  assert.equal(chatItems(page).length, 3);
+
+  page.elements['chat-src-youtube'].fire('click');
+  assert.deepEqual(names(page), ['Budi (Viewer): hello from yt']);
+  assert.equal(page.elements['chat-src-youtube'].attrs['aria-pressed'], 'true');
+  assert.equal(page.elements['chat-src-all'].attrs['aria-pressed'], 'false');
+
+  page.elements['chat-src-all'].fire('click');
+  page.elements['chat-search'].value = '  RINA ';
+  page.elements['chat-search'].fire('input');
+  assert.equal(chatItems(page).length, 1, 'the name is searched too, whatever the case');
+  page.elements['chat-search'].value = 'hello';
+  page.elements['chat-search'].fire('input');
+  assert.equal(chatItems(page).length, 2);
+  page.elements['chat-commands-only'].checked = true;
+  page.elements['chat-commands-only'].fire('change');
+  assert.equal(chatItems(page).length, 0, 'both filters hold');
+  page.socket().receive(envelope(6, 'chat_message', line('hello live', { name: 'Dewi', source: 'youtube' })));
+  assert.equal(chatItems(page).length, 0, 'a new line is filtered like the rest');
+});
+
+test('a paused chat is not followed, counts what comes in, and the jump button goes to the newest', async () => {
+  const page = await ready();
+  const box = page.elements['chat-log'];
+  box.scrollHeight = 1000;
+  box.clientHeight = 300;
+  box.scrollTop = 700;
+  assert.ok(page.elements['chat-jump'].classes.has('hidden'));
+
+  page.elements['chat-pause'].fire('click');
+  assert.equal(page.elements['chat-pause'].textContent, 'Resume scroll');
+  page.socket().receive(envelope(6, 'chat_message', line('a')));
+  page.socket().receive(envelope(7, 'chat_message', line('b')));
+  assert.equal(box.scrollTop, 700, 'the view stays where it was');
+  assert.ok(!page.elements['chat-jump'].classes.has('hidden'));
+  assert.equal(page.elements['chat-jump'].textContent, 'Jump to latest · 2 new');
+
+  page.elements['chat-jump'].fire('click');
+  assert.equal(box.scrollTop, 1000);
+  assert.ok(page.elements['chat-jump'].classes.has('hidden'));
+  assert.equal(page.elements['chat-pause'].textContent, 'Pause scroll', 'jumping goes on following');
+  page.socket().receive(envelope(8, 'chat_message', line('c')));
+  assert.equal(box.scrollTop, 1000);
+});
+
+test('lines that come in while the moderator reads older ones are counted, and reaching the bottom clears the count', async () => {
+  const page = await ready();
+  const box = page.elements['chat-log'];
+  box.scrollHeight = 1000;
+  box.clientHeight = 300;
+  box.scrollTop = 100;
+  page.socket().receive(envelope(6, 'chat_message', line('a')));
+  assert.equal(page.elements['chat-jump'].textContent, 'Jump to latest · 1 new');
+  box.scrollTop = 700;
+  box.fire('scroll');
+  assert.ok(page.elements['chat-jump'].classes.has('hidden'));
+});
+
+test('the chat page says how many messages came in during the last minute', async () => {
+  const now = 5_000_000; // the page's clock is the one the test sets
+  const log = [line('old', { at_ms: now - 120000 }), line('one', { at_ms: now - 30000 }), line('two', { at_ms: now - 1000 })];
+  const page = await ready({ clock: now, routes: { 'GET /api/state': () => ({ status: 200, body: snapshot({ chat_log: log }) }) } });
+  assert.equal(page.elements['chat-rate'].textContent, '2 messages/min');
+});
+
+test('chat messages that arrive in a burst are drawn once per frame, other events at once', async () => {
+  const page = await ready({ frames: true });
+  for (let i = 0; i < 5; i += 1) page.socket().receive(envelope(6 + i, 'chat_message', line(`m${i}`)));
+  assert.equal(chatItems(page).length, 0, 'nothing is drawn until the frame');
+  assert.equal(page.log.frames.length, 1, 'one frame was asked for');
+  page.log.frames[0]();
+  assert.equal(chatItems(page).length, 5);
+  page.socket().receive(envelope(11, 'volume', { volume: 30 }));
+  assert.equal(page.log.frames.length, 1, 'another kind of event is drawn without waiting');
+});
+
+test('the side panel of the queue page folds away and comes back', async () => {
+  const page = await ready();
+  assert.equal(page.elements['rail-toggle'].textContent, 'Hide side panel');
+  page.elements['rail-toggle'].fire('click');
+  assert.ok(page.elements['queue-grid'].classes.has('rail-collapsed'));
+  assert.equal(page.elements['rail-toggle'].textContent, 'Show side panel');
+  page.elements['rail-toggle'].fire('click');
+  assert.ok(!page.elements['queue-grid'].classes.has('rail-collapsed'));
+  const css = fs.readFileSync(path.join(root, 'static/dashboard/dashboard.css'), 'utf8');
+  assert.ok(css.includes('.rail-collapsed .today'), 'the style that hides the two cards exists');
 });
