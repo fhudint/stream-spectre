@@ -34,6 +34,10 @@
     <nav id="side-nav">
       <h2 class="sr-only" data-i18n="dashboard.nav.label"></h2>
       <p class="nav-group" data-i18n="dashboard.nav.group.moderation"></p>
+      <a id="nav-overview" class="nav-link" href="#overview">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.5" y="2.5" width="4.5" height="4.5" rx="1"/><rect x="9" y="2.5" width="4.5" height="4.5" rx="1"/><rect x="2.5" y="9" width="4.5" height="4.5" rx="1"/><rect x="9" y="9" width="4.5" height="4.5" rx="1"/></svg>
+        <span data-i18n="dashboard.nav.overview"></span>
+      </a>
       <a id="nav-queue" class="nav-link" href="#queue">
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><path d="M3 4h10M3 8h10M3 12h6"/></svg>
         <span data-i18n="dashboard.nav.queue"></span>
@@ -112,7 +116,48 @@
     </p>
 
     <main>
-      <section id="view-queue" class="view queue-view" data-pane="queue">
+      <section id="view-overview" class="view">
+        <div class="title-row">
+          <h1 id="overview-heading" tabindex="-1" data-i18n="dashboard.nav.overview"></h1>
+          <p class="muted" data-i18n="dashboard.overview.hint"></p>
+        </div>
+        <div class="ov-grid">
+          <section class="card ov-stat">
+            <h2 data-i18n="dashboard.overview.waiting"></h2>
+            <b id="ov-waiting">0</b>
+            <a href="#queue" class="link" data-i18n="dashboard.overview.open_queue"></a>
+          </section>
+          <section class="card ov-stat"><h2 data-i18n="dashboard.overview.received"></h2><b id="ov-received">0</b></section>
+          <section class="card ov-stat"><h2 data-i18n="dashboard.overview.approved"></h2><b id="ov-approved">0</b></section>
+          <section class="card ov-stat"><h2 data-i18n="dashboard.overview.rejected"></h2><b id="ov-rejected">0</b></section>
+          <section class="card ov-stat"><h2 data-i18n="dashboard.overview.rate"></h2><b id="ov-rate">0</b><span class="muted small" data-i18n="dashboard.overview.per_minute"></span></section>
+        </div>
+        <div class="ov-cols">
+          <div class="ov-col">
+            <section class="card ov-card">
+              <h2 data-i18n="dashboard.nav.sources"></h2>
+              <ul id="ov-sources" class="ov-sources"></ul>
+              <h3 class="ov-sub" data-i18n="dashboard.overview.chart"></h3>
+              <div id="ov-chart" class="spark" role="img"></div>
+            </section>
+          </div>
+          <div class="ov-col">
+            <section class="card ov-card">
+              <h2 data-i18n="dashboard.now_playing.title"></h2>
+              <div id="ov-now"></div>
+            </section>
+            <section class="card ov-card">
+              <div class="card-title">
+                <h2 data-i18n="dashboard.rules.title"></h2>
+                <a href="#rules" class="link" data-i18n="dashboard.rules.change"></a>
+              </div>
+              <ul id="ov-rules" class="chips"></ul>
+            </section>
+          </div>
+        </div>
+      </section>
+
+      <section id="view-queue" class="view queue-view hidden" data-pane="queue">
         <p id="setup-hint" class="banner banner-warn hidden">
           <span id="setup-hint-text"></span>
           <a href="#sources" class="link" data-i18n="dashboard.nav.sources"></a>
@@ -498,6 +543,10 @@
 
   <nav id="bottom-nav" class="bottom-nav">
     <h2 class="sr-only" data-i18n="dashboard.nav.label"></h2>
+    <a id="bnav-overview" href="#overview">
+      <svg width="20" height="20" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.5" y="2.5" width="4.5" height="4.5" rx="1"/><rect x="9" y="2.5" width="4.5" height="4.5" rx="1"/><rect x="2.5" y="9" width="4.5" height="4.5" rx="1"/><rect x="9" y="9" width="4.5" height="4.5" rx="1"/></svg>
+      <span data-i18n="dashboard.nav.overview"></span>
+    </a>
     <a id="bnav-queue" href="#queue">
       <svg width="20" height="20" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" aria-hidden="true"><path d="M3 4h10M3 8h10M3 12h6"/></svg>
       <span data-i18n="dashboard.nav.queue"></span>

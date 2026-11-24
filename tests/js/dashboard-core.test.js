@@ -618,17 +618,18 @@ test('the rules in force are listed as short texts', () => {
   assert.deepEqual(core.ruleChips({}, say), []);
 });
 
-test('the address bar picks a page, and anything else means the queue', () => {
+test('the address bar picks a page, and anything else means the overview', () => {
   for (const view of core.VIEWS) assert.equal(core.parseView('#' + view), view);
-  assert.deepEqual(core.VIEWS, ['queue', 'chat', 'requests', 'blacklist', 'sources', 'rules', 'overlay', 'settings', 'account']);
+  assert.deepEqual(core.VIEWS, ['overview', 'queue', 'chat', 'requests', 'blacklist', 'sources', 'rules', 'overlay', 'settings', 'account']);
   // The account dialog is reached from the avatar, so it is not in the side menu.
-  assert.deepEqual(core.MENU_VIEWS, ['queue', 'chat', 'requests', 'blacklist', 'sources', 'rules', 'overlay', 'settings']);
+  assert.deepEqual(core.MENU_VIEWS, ['overview', 'queue', 'chat', 'requests', 'blacklist', 'sources', 'rules', 'overlay', 'settings']);
   // What used to be tabs of the account dialog is the Sources page; old addresses lead there.
   for (const part of ['tiktok', 'youtube', 'youtube-chat']) assert.equal(core.parseView('#account/' + part), 'sources', part);
   assert.equal(core.parseView('#account/token'), 'account');
   assert.equal(core.parseView('#queue/anything'), 'queue');
+  assert.equal(core.parseView('#nope'), 'overview');
   for (const other of ['', '#', '#token=abc', '#nope', '#QUEUE', '#queue?x=1', undefined, null, '#__proto__', '#constructor']) {
-    assert.equal(core.parseView(other), 'queue', String(other));
+    assert.equal(core.parseView(other), 'overview', String(other));
   }
 });
 
@@ -926,4 +927,12 @@ test('the presets are told apart, and minutes and seconds convert both ways', ()
   assert.equal(core.minutesToSeconds('ten'), 'ten', 'what is not a number goes on to be refused');
   assert.equal(core.minutesToSeconds('-2'), '-2');
   assert.equal(core.minutesToSeconds(''), '');
+});
+
+test('the chart takes the last minutes, oldest first, with none counted for the quiet ones', () => {
+  const now = 60000 * 100 + 5000; // five seconds into minute 100
+  const counts = { 100: 7, 99: 2, 90: 4, 80: 9 };
+  assert.deepEqual(core.minuteBars(counts, now, 5), [0, 0, 0, 2, 7]);
+  assert.deepEqual(core.minuteBars(counts, now, 11), [4, 0, 0, 0, 0, 0, 0, 0, 0, 2, 7]);
+  assert.deepEqual(core.minuteBars({}, now, 3), [0, 0, 0]);
 });

@@ -15,6 +15,7 @@
   var TOKEN_KEY = 'stream-spectre-token';
   /* The heading each page moves the keyboard focus to when it is opened. */
   var HEADINGS = {
+    overview: 'overview-heading',
     queue: 'queue-heading',
     chat: 'chat-heading',
     requests: 'requests-heading',
@@ -76,8 +77,11 @@
   var chatPaused = false; // the moderator stopped the page from following the chat
   var chatUnread = 0; // lines added while the page was not following
   var frame = 0; // the animation frame that will draw chat lines that came in
-  var view = 'queue';
-  var lastView = 'queue'; // the page under the account dialog, which it returns to
+  var minuteCounts = {}; // chat messages seen in each minute, for the chart of the overview
+  var minutesSeeded = false;
+  var ovNowRefs = null; // the parts of the small "now playing" card that change
+  var view = 'overview';
+  var lastView = 'overview'; // the page under the account dialog, which it returns to
   var draftAvatar = null; // the picture chosen but not saved; '' means "remove"; null means no change
   var painted = {}; // what each avatar shows now, so a picture is not set again for nothing
   var pane = 'queue'; // queue | notices
@@ -302,6 +306,7 @@
     // measure: show the newest.
     if (name === 'chat') $('chat-log').scrollTop = $('chat-log').scrollHeight;
     if (name === 'sources') loadAccount();
+    if (name === 'overview') renderOverview();
     // An old address to a part of what is now this page opens the key's
     // details when it asks for the key.
     if (name === 'sources' && section === 'youtube') $('account-youtube').open = true;
@@ -776,13 +781,15 @@
     var chips = core.ruleChips(state.settings, function (key, values) {
       return tf(key, values);
     });
-    var list = $('rules-chips');
-    list.replaceChildren.apply(
-      list,
-      chips.map(function (text) {
-        return h('li', { className: 'chip', text: text });
-      })
-    );
+    ['rules-chips', 'ov-rules'].forEach(function (id) {
+      var list = $(id);
+      list.replaceChildren.apply(
+        list,
+        chips.map(function (text) {
+          return h('li', { className: 'chip', text: text });
+        })
+      );
+    });
   }
 
   /* The card for the video that is playing. It is built once per video and
@@ -1154,6 +1161,94 @@
   }
 
   /* The pause button, the jump button and the rate beside the filters. */
+  /* One more message in the minute it arrived in; minutes an hour old are forgotten. */
+  function countMinute(at) {
+    var minute = Math.floor((at > 0 ? at : nowMs()) / 60000);
+    minuteCounts[minute] = (minuteCounts[minute] || 0) + 1;
+    var oldest = Math.floor(nowMs() / 60000) - 60;
+    Object.keys(minuteCounts).forEach(function (key) {
+      if (Number(key) < oldest) delete minuteCounts[key];
+    });
+  }
+
+  /* The overview: what the other pages own, in one look. */
+  var OVERVIEW_MINUTES = 15;
+  function renderOverview() {
+    if (view !== 'overview') return;
+    $('ov-waiting').textContent = String(state.queue.pending.length);
+    $('ov-received').textContent = String(state.stats.received);
+    $('ov-approved').textContent = String(state.stats.approved);
+    $('ov-rejected').textContent = String(state.stats.rejected);
+    $('ov-rate').textContent = String(core.chatRate(state.messages, nowMs()));
+
+    var sources = $('ov-sources');
+    sources.replaceChildren.apply(
+      sources,
+      ['youtube', 'tiktok'].map(function (source) {
+        var status = state.chats[source];
+        var idle = !status || typeof status.text !== 'string' || isIdle(status);
+        var kids = [
+          h('span', { className: 'dot ' + (!idle && status.state === 'connected' ? 'ok' : idle ? '' : 'bad') }),
+          h('span', { className: 'ov-source-name', text: t('dashboard.chat.source.' + source) }),
+          h('span', { className: 'muted', text: idle ? t('dashboard.overview.source_idle') : status.text }),
+        ];
+        if (idle) kids.push(h('a', { className: 'link', text: t('dashboard.nav.sources'), attrs: { href: '#sources' } }));
+        return h('li', {}, kids);
+      })
+    );
+
+    var bars = core.minuteBars(minuteCounts, nowMs(), OVERVIEW_MINUTES);
+    var peak = Math.max.apply(null, bars.concat([1]));
+    var chart = $('ov-chart');
+    chart.replaceChildren.apply(
+      chart,
+      bars.map(function (count) {
+        return h('i', { className: 'h' + Math.round((count / peak) * 10) });
+      })
+    );
+    chart.setAttribute(
+      'aria-label',
+      tf('dashboard.overview.chart_label', { peak: Math.max.apply(null, bars), minutes: OVERVIEW_MINUTES })
+    );
+    renderOverviewNow();
+  }
+
+  /* The playing video in miniature; built again only for another video. */
+  function renderOverviewNow() {
+    var item = state.queue.now_playing;
+    if (!item) {
+      ovNowRefs = null;
+      $('ov-now').replaceChildren(h('p', { className: 'empty', text: t('dashboard.now_playing.none') }));
+      return;
+    }
+    if (!ovNowRefs || ovNowRefs.id !== item.id) {
+      var picture = thumb(item, 'preview', 160, 90);
+      var progress = h('progress', { attrs: { max: String(Math.max(1, item.duration_secs)), value: '0' } });
+      var pause = button('dashboard.action.pause', 'pause', togglePause);
+      ovNowRefs = { id: item.id, progress: progress, pause: pause };
+      $('ov-now').replaceChildren(
+        h('div', { className: 'ov-now' }, [
+          h('div', { className: picture.className }, picture.children),
+          h('div', { className: 'ov-now-info' }, [
+            h('div', { className: 'now-title', text: item.title }),
+            h('div', { className: 'row-sub', text: tf('dashboard.item.requested_by', { name: item.requested_by.name }) }),
+            progress,
+            h('div', { className: 'actions' }, [
+              pause,
+              button('dashboard.action.skip', 'skip', function () {
+                act('POST', '/api/skip');
+              }),
+            ]),
+          ]),
+        ])
+      );
+    }
+    ovNowRefs.progress.setAttribute('max', String(Math.max(1, core.playbackDuration(state))));
+    ovNowRefs.progress.setAttribute('value', String(core.playbackPosition(state)));
+    ovNowRefs.pause.textContent = t(state.paused ? 'dashboard.action.resume' : 'dashboard.action.pause');
+    ovNowRefs.pause.setAttribute('aria-pressed', state.paused ? 'true' : 'false');
+  }
+
   function renderChatTools() {
     $('chat-pause').textContent = t(chatPaused ? 'dashboard.chat.resume' : 'dashboard.chat.pause');
     $('chat-pause').setAttribute('aria-pressed', chatPaused ? 'true' : 'false');
@@ -1394,6 +1489,7 @@
     renderSettings();
     renderChatAccount();
     renderOverlay();
+    renderOverview();
   }
 
   // --- forms ---
@@ -2096,7 +2192,10 @@
       if (message && typeof message.ts === 'number' && isFinite(message.ts) && message.ts > 0) {
         clockOffset = Date.now() - message.ts;
       }
+      var lastLine = state.messages.length ? state.messages[state.messages.length - 1] : null;
       state = core.reduce(state, message);
+      var newLine = state.messages.length ? state.messages[state.messages.length - 1] : null;
+      if (message && message.type === 'chat_message' && newLine && newLine !== lastLine) countMinute(newLine.at_ms);
       // A busy chat is drawn once per frame, not once per message.
       if (message && message.type === 'chat_message' && typeof requestAnimationFrame === 'function') {
         if (!frame) {
@@ -2131,6 +2230,7 @@
     renderSummary();
     $('chat-rate').textContent = tf('dashboard.chat.rate', { count: core.chatRate(state.messages, nowMs()) });
     if (view === 'sources') renderChatAccount();
+    if (view === 'overview') renderOverview();
     waiting.forEach(function (entry) {
       entry.node.textContent = metaText(entry.item);
     });
@@ -2154,6 +2254,12 @@
       return api('GET', '/api/i18n').then(function (i18n) {
         if (i18n.ok && i18n.data && typeof i18n.data === 'object') Object.assign(texts, i18n.data);
         adopt(result.data);
+        if (!minutesSeeded) {
+          minutesSeeded = true;
+          state.messages.forEach(function (line) {
+            countMinute(line.at_ms);
+          });
+        }
         applyTexts();
         buildForms();
         showView(core.parseView(location.hash), false, core.parseSection(location.hash));

@@ -34,10 +34,10 @@
   var TIKTOK_ACCOUNT = /^[A-Za-z0-9_.]{1,64}$/;
   var TIKTOK_SHORT_CODE = /^[A-Za-z0-9]{6,12}$/;
   /* The pages of the dashboard, in the order of the menu. */
-  var VIEWS = ['queue', 'chat', 'requests', 'blacklist', 'sources', 'rules', 'overlay', 'settings', 'account'];
+  var VIEWS = ['overview', 'queue', 'chat', 'requests', 'blacklist', 'sources', 'rules', 'overlay', 'settings', 'account'];
   /* The ones with an entry in the side menu. The account page is reached from
    * the avatar instead. */
-  var MENU_VIEWS = ['queue', 'chat', 'requests', 'blacklist', 'sources', 'rules', 'overlay', 'settings'];
+  var MENU_VIEWS = ['overview', 'queue', 'chat', 'requests', 'blacklist', 'sources', 'rules', 'overlay', 'settings'];
   /* The parts of the account page: #account/tiktok and so on. */
   var ACCOUNT_SECTIONS = ['profile', 'tiktok', 'youtube-chat', 'youtube', 'token'];
   /* The tab of the account dialog each part belongs to; the YouTube chat and
@@ -572,6 +572,16 @@
   }
 
   /* Local time of day as HH:MM:SS, or '' when the time is not known. */
+  /* The messages of each of the last `count` minutes before `now`, oldest
+   * first; `counts` maps a minute (milliseconds / 60000, rounded down) to how
+   * many came in. */
+  function minuteBars(counts, now, count) {
+    var last = Math.floor(now / 60000);
+    var bars = [];
+    for (var minute = last - count + 1; minute <= last; minute += 1) bars.push(counts[minute] || 0);
+    return bars;
+  }
+
   /* Whether a chat line passes the chat page's filters: `source` ('all',
    * 'youtube' or 'tiktok'), `query` (lower case; in the name or the text) and
    * `commandsOnly`. */
@@ -725,7 +735,7 @@
     var parts = String(hash || '').replace(/^#/, '').split('/');
     var name = parts[0];
     if (name === 'account' && parts.length === 2 && SOURCE_SECTIONS.indexOf(parts[1]) >= 0) return 'sources';
-    return VIEWS.indexOf(name) >= 0 ? name : 'queue';
+    return VIEWS.indexOf(name) >= 0 ? name : 'overview';
   }
 
   /* The part of the account page the address asks for ('#account/youtube'),
@@ -1033,6 +1043,7 @@
     CHAT_SOURCES: CHAT_SOURCES,
     chatMatches: chatMatches,
     chatRate: chatRate,
+    minuteBars: minuteBars,
     TINTS: TINTS,
     SETTINGS_FIELDS: SETTINGS_FIELDS,
     RULE_GROUPS: RULE_GROUPS,

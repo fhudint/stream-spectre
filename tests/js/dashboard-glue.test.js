@@ -147,7 +147,8 @@ const settle = async () => {
 };
 
 function load({
-  hash = '',
+  // Most tests are about the queue page; the landing page has tests of its own.
+  hash = '#queue',
   stored = null,
   routes = {},
   protocol = 'http:',
@@ -1082,17 +1083,17 @@ test('every text the page uses exists in both languages', () => {
 
 // --- the pages of the menu ---
 
-const MENU_VIEWS = ['queue', 'chat', 'requests', 'blacklist', 'sources', 'rules', 'overlay', 'settings'];
+const MENU_VIEWS = ['overview', 'queue', 'chat', 'requests', 'blacklist', 'sources', 'rules', 'overlay', 'settings'];
 const VIEWS = [...MENU_VIEWS, 'account'];
 const shown = (page) => VIEWS.filter((v) => !page.elements[`view-${v}`].hidden);
 const current = (page, prefix) => MENU_VIEWS.filter((v) => page.elements[`${prefix}-${v}`].attrs['aria-current'] === 'page');
 
-test('the queue page is shown first, and both menus mark it', async () => {
-  const page = await ready();
-  assert.deepEqual(shown(page), ['queue']);
-  assert.deepEqual(current(page, 'nav'), ['queue']);
-  assert.deepEqual(current(page, 'bnav'), ['queue']);
-  assert.ok(!page.elements['queue-heading'].focused, 'opening the page does not steal the focus');
+test('the overview is the landing page, and both menus mark it', async () => {
+  const page = await ready({ hash: '' });
+  assert.deepEqual(shown(page), ['overview']);
+  assert.deepEqual(current(page, 'nav'), ['overview']);
+  assert.deepEqual(current(page, 'bnav'), ['overview']);
+  assert.ok(!page.elements['overview-heading'].focused, 'opening the page does not steal the focus');
 });
 
 test('the address bar chooses the page, also when it changes later', async () => {
@@ -1111,13 +1112,13 @@ test('the address bar chooses the page, also when it changes later', async () =>
   page.go('#settings');
   assert.ok(page.elements['chat-settings-heading'].focused);
   page.go('#nothing-like-this');
-  assert.deepEqual(shown(page), ['queue']);
-  assert.ok(page.elements['queue-heading'].focused);
+  assert.deepEqual(shown(page), ['overview']);
+  assert.ok(page.elements['overview-heading'].focused);
 });
 
 test('a token in the address is not taken for a page', async () => {
   const page = await ready({ hash: '#token=abc' });
-  assert.deepEqual(shown(page), ['queue']);
+  assert.deepEqual(shown(page), ['overview']);
 });
 
 test('the phone tabs choose between the queue and the notices on the queue page', async () => {
@@ -1841,8 +1842,8 @@ test('without a channel the avatar says Account, and still opens the menu', asyn
 test('#account opens the account dialog over the page, marks no menu entry, and loads what is set', async () => {
   const page = await ready({ hash: '#account' });
   await settle();
-  assert.deepEqual(shown(page), ['queue', 'account'], 'a dialog over the page, not a page');
-  assert.deepEqual(current(page, 'nav'), ['queue'], 'the page under it stays marked');
+  assert.deepEqual(shown(page), ['overview', 'account'], 'a dialog over the page, not a page');
+  assert.deepEqual(current(page, 'nav'), ['overview'], 'the page under it stays marked');
   assert.equal(page.log.requests.filter((r) => r.path === '/api/account').length, 1);
   assert.equal(page.elements['key-status'].textContent, 'A key is set (it ends in rstu).');
 });
@@ -3136,4 +3137,78 @@ test('a value that cannot be read still counts as unsaved, and is refused on sav
   await settle();
   assert.equal(page.log.requests.filter((r) => r.method === 'PATCH').length, 0);
   assert.ok(!page.elements.error.hidden);
+});
+
+// --- the overview ---
+
+const kids = (node) => descendants(node);
+
+test('the overview counts what the queue page counts, and links to it', async () => {
+  const body = snapshot({ stats: { since_ms: 0, received: 24, approved: 18, rejected: 3 } });
+  const page = await ready({ hash: '', routes: { 'GET /api/state': () => ({ status: 200, body }) } });
+  assert.equal(page.elements['ov-waiting'].textContent, '2', 'the two waiting requests of the snapshot');
+  assert.equal(page.elements['ov-received'].textContent, '24');
+  assert.equal(page.elements['ov-approved'].textContent, '18');
+  assert.equal(page.elements['ov-rejected'].textContent, '3');
+  page.socket().receive(envelope(6, 'queue_updated', { pending: [item(7)], approved: [], now_playing: null }));
+  assert.equal(page.elements['ov-waiting'].textContent, '1', 'it follows the queue');
+  assert.ok(html.includes('href="#queue"'));
+});
+
+test('each chat source says how it is doing, or that there is nothing to read with a link to Sources', async () => {
+  const page = await ready({ hash: '', ...withChats(twoChats()) });
+  const rows = () =>
+    page.elements['ov-sources'].children.map((li) =>
+      kids(li).filter((n) => n.tag !== 'a' && n.textContent).map((n) => n.textContent).join('|')
+    );
+  assert.deepEqual(rows(), ['YouTube|YouTube waits', 'TikTok|TikTok is connected']);
+  assert.ok(kids(page.elements['ov-sources']).every((n) => n.tag !== 'a'), 'no link while both are being read');
+  page.socket().receive(envelope(6, 'chat_status', chatView('youtube', 'not_configured', '', '')));
+  assert.deepEqual(rows(), ['YouTube|Nothing to read', 'TikTok|TikTok is connected']);
+  const link = kids(page.elements['ov-sources']).find((n) => n.tag === 'a');
+  assert.equal(link.attrs.href, '#sources');
+});
+
+test('the chart counts the messages of each minute as they come, and says its busiest minute', async () => {
+  const page = await ready({ hash: '' });
+  const bars = () => page.elements['ov-chart'].children.map((n) => n.className);
+  assert.equal(bars().length, 15);
+  assert.ok(bars().every((c) => c === 'h0'), 'quiet to begin with');
+  for (let i = 0; i < 4; i += 1) page.socket().receive(envelope(6 + i, 'chat_message', line(`m${i}`, { at_ms: 1_000_000 })));
+  const now = bars();
+  assert.equal(now[14], 'h10', 'the newest minute is the busiest');
+  assert.equal(now[13], 'h0');
+  assert.match(page.elements['ov-chart'].attrs['aria-label'], /at most 4/);
+  assert.equal(page.elements['ov-rate'].textContent, '4');
+  // A message the snapshot already holds is not counted twice.
+  page.socket().receive(envelope(2, 'chat_message', line('old', { at_ms: 1_000_000 })));
+  assert.match(page.elements['ov-chart'].attrs['aria-label'], /at most 4/);
+});
+
+test('the playing video is shown in miniature, with the pause and skip buttons that work', async () => {
+  const page = await ready({ hash: '' });
+  const box = page.elements['ov-now'];
+  assert.match(box.textContent, /Title 3/);
+  assert.match(box.textContent, /Viewer 3/);
+  const button = (action) => kids(box).find((n) => n.tag === 'button' && n.attrs['data-action'] === action);
+  page.table['PUT /api/playback/pause'] = { status: 200, body: snapshot({ playback_paused: true }) };
+  button('pause').fire('click');
+  await settle();
+  assert.equal(page.log.requests.find((r) => r.path === '/api/playback/pause').body.paused, true);
+  assert.equal(button('pause').textContent, 'Resume');
+  page.table['POST /api/skip'] = { status: 204 };
+  button('skip').fire('click');
+  await settle();
+  assert.ok(page.log.requests.some((r) => r.path === '/api/skip'));
+  page.socket().receive(envelope(7, 'queue_updated', { pending: [], approved: [], now_playing: null }));
+  assert.equal(box.textContent, 'Nothing is playing');
+});
+
+test('the overview lists the rules in force, like the queue page does', async () => {
+  const page = await ready({ hash: '' });
+  assert.ok(page.elements['ov-rules'].children.length > 0);
+  assert.deepEqual(
+    page.elements['ov-rules'].children.map((n) => n.textContent),
+    page.elements['rules-chips'].children.map((n) => n.textContent)
+  );
 });
