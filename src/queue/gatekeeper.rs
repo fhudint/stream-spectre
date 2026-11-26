@@ -256,15 +256,32 @@ impl Gatekeeper {
 
     /// Stage 2, with the looked-up video.
     pub fn vet(&self, video: &VideoDetails) -> Result<(), Denial> {
+        self.vet_by(
+            video,
+            self.settings.max_duration_secs,
+            &self.settings.allowed_categories,
+        )
+    }
+
+    /// Stage 2 for a song: its own longest length and categories.
+    pub fn vet_song(&self, video: &VideoDetails) -> Result<(), Denial> {
+        self.vet_by(
+            video,
+            self.settings.song_max_duration_secs,
+            &self.settings.song_allowed_categories,
+        )
+    }
+
+    fn vet_by(
+        &self,
+        video: &VideoDetails,
+        max_duration_secs: u64,
+        categories: &[crate::config::VideoCategory],
+    ) -> Result<(), Denial> {
         let policy = VideoPolicy {
-            max_duration_secs: self.settings.max_duration_secs,
+            max_duration_secs,
             allow_live: self.settings.allow_live,
-            allowed_categories: self
-                .settings
-                .allowed_categories
-                .iter()
-                .map(|category| category.id())
-                .collect(),
+            allowed_categories: categories.iter().map(|category| category.id()).collect(),
         };
         check_video(video, &policy).map_err(Denial::Video)?;
         match self.blacklist.check_details(video) {

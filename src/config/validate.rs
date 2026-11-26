@@ -92,6 +92,10 @@ impl ModerationConfig {
     /// validated when changed at runtime (for example from the dashboard).
     pub fn validate(&self) -> Result<(), ConfigError> {
         require_positive("moderation.max_duration_secs", self.max_duration_secs)?;
+        require_positive(
+            "moderation.song_max_duration_secs",
+            self.song_max_duration_secs,
+        )?;
         require_positive("moderation.max_queue_len", self.max_queue_len as u64)?;
         if self.max_volume > 100 {
             return Err(ConfigError::invalid(
@@ -489,7 +493,7 @@ mod tests {
     #[test]
     fn zero_limits_are_rejected() {
         type Mutate = fn(&mut Config);
-        let cases: [(&str, Mutate); 5] = [
+        let cases: [(&str, Mutate); 6] = [
             ("youtube.cache_ttl_secs", |c| c.youtube.cache_ttl_secs = 0),
             ("youtube.cache_max_entries", |c| {
                 c.youtube.cache_max_entries = 0
@@ -502,6 +506,9 @@ mod tests {
             }),
             ("moderation.max_queue_len", |c| {
                 c.moderation.max_queue_len = 0
+            }),
+            ("moderation.song_max_duration_secs", |c| {
+                c.moderation.song_max_duration_secs = 0
             }),
         ];
         for (field, mutate) in cases {

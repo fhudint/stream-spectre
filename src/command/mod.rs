@@ -40,6 +40,9 @@ pub enum Parsed {
         message: String,
         short: bool,
     },
+    /// A valid song request: a YouTube video (not a Short) for the song
+    /// overlay.
+    Song { id: VideoId, message: String },
     /// A valid TikTok request. A short code still has to be looked up.
     Tiktok { target: TiktokRef, message: String },
 }
@@ -108,6 +111,15 @@ impl CommandParser {
         match source {
             CommandSource::Youtube => match extract_video(argument) {
                 Some((id, short)) => Parsed::Youtube { id, message, short },
+                None if is_link(argument) && extract_tiktok_ref(argument).is_some() => {
+                    invalid(InvalidReason::WrongSource(CommandSource::Tiktok))
+                }
+                None => invalid(InvalidReason::InvalidLink),
+            },
+            CommandSource::Song => match extract_video(argument) {
+                Some((id, false)) => Parsed::Song { id, message },
+                // A Short is not a song.
+                Some((_, true)) => invalid(InvalidReason::InvalidLink),
                 None if is_link(argument) && extract_tiktok_ref(argument).is_some() => {
                     invalid(InvalidReason::WrongSource(CommandSource::Tiktok))
                 }
@@ -554,5 +566,50 @@ mod tests {
             videos > 100,
             "generator should hit valid commands too ({videos})"
         );
+    }
+
+    #[test]
+    fn the_song_command_takes_a_youtube_video_that_is_not_a_short() {
+        let parser = CommandParser::new(&CommandConfig {
+            prefix: "@".to_owned(),
+            commands: vec![CommandEntry::youtube("yt"), CommandEntry::song("song")],
+        });
+        let invalid = |reason| Parsed::Invalid {
+            source: CommandSource::Song,
+            reason,
+        };
+        assert_eq!(
+            parser.parse(&format!("@song {ID} for you")),
+            Parsed::Song {
+                id: VideoId::parse(ID).unwrap(),
+                message: "for you".to_owned()
+            }
+        );
+        assert!(matches!(
+            parser.parse(&format!("@SONG https://music.youtube.com/watch?v={ID}")),
+            Parsed::Song { .. }
+        ));
+        assert_eq!(
+            parser.parse(&format!("@song https://youtube.com/shorts/{ID}")),
+            invalid(InvalidReason::InvalidLink)
+        );
+        assert_eq!(
+            parser.parse("@song https://www.tiktok.com/@a/video/7700124541145599252"),
+            invalid(InvalidReason::WrongSource(CommandSource::Tiktok))
+        );
+        assert_eq!(
+            parser.parse("@song"),
+            invalid(InvalidReason::MissingArgument)
+        );
+        assert_eq!(
+            parser.parse("@songs x"),
+            Parsed::NotACommand,
+            "a whole word only"
+        );
+        // The video command is not changed by it.
+        assert!(matches!(
+            parser.parse(&format!("@yt {ID}")),
+            Parsed::Youtube { .. }
+        ));
     }
 }

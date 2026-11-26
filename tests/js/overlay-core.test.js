@@ -97,7 +97,7 @@ test('hello with a video playing starts it with the caption and volume', () => {
   t.controller.handle(hello(7, item(3), 40));
   assert.deepEqual(t.calls, [
     ['play', ID_A, 40],
-    ['show', { requestedBy: 'Diminta oleh Viewer 3', name: 'Viewer 3', role: '', title: 'Title 3', channel: '' }],
+    ['show', { requestedBy: 'Diminta oleh Viewer 3', name: 'Viewer 3', role: '', title: 'Title 3', channel: '', message: '', videoTitle: 'Title 3', videoChannel: '' }],
   ]);
   assert.equal(t.controller.state().lastSeq, 7);
   assert.equal(t.controller.state().current.id, 3);
@@ -224,7 +224,7 @@ test('the caption and title are handed over as plain strings', () => {
 test('missing or odd item fields fall back to empty text', () => {
   const t = setup();
   t.controller.handle(envelope(1, 'play', { item: { id: 1, video_id: ID_A, title: 5, requested_by: null }, volume: 50 }));
-  assert.deepEqual(t.calls.find((c) => c[0] === 'show')[1], { requestedBy: 'Requested by ', name: '', role: '', title: '', channel: '' });
+  assert.deepEqual(t.calls.find((c) => c[0] === 'show')[1], { requestedBy: 'Requested by ', name: '', role: '', title: '', channel: '', message: '', videoTitle: '', videoChannel: '' });
 });
 
 test('an item with an invalid video id is reported, not played', () => {

@@ -56,6 +56,8 @@ pub struct ItemView {
     pub requested_at_ms: u64,
     /// What the viewer wrote after the link; empty when nothing.
     pub message: String,
+    /// Asked for as a song: the song overlay plays it, not the mediashare one.
+    pub song: bool,
 }
 
 impl From<&QueueItem> for ItemView {
@@ -69,7 +71,7 @@ impl From<&QueueItem> for ItemView {
             duration_secs: item.media.duration_secs().unwrap_or(0),
             thumbnail_url: match &item.media {
                 // Safe to build: the ID is validated to 11 URL-safe characters.
-                Media::Youtube(video) => {
+                Media::Youtube(video) | Media::Song(video) => {
                     format!("https://i.ytimg.com/vi/{}/mqdefault.jpg", video.id)
                 }
                 Media::Tiktok(_) => String::new(),
@@ -81,6 +83,7 @@ impl From<&QueueItem> for ItemView {
             },
             requested_at_ms: unix_ms(item.requested_at),
             message: item.message.clone(),
+            song: item.media.is_song(),
         }
     }
 }
@@ -238,6 +241,36 @@ impl Hello {
     /// and how loud. Waiting requests (with viewers' names), the blacklist and
     /// the chat status stay out.
     pub fn for_mediashare(mut self) -> Self {
+        // A song is for the song overlay.
+        if self
+            .queue
+            .now_playing
+            .as_ref()
+            .is_some_and(|item| item.song)
+        {
+            self.queue.now_playing = None;
+            self.playback_paused = false;
+        }
+        self.trimmed()
+    }
+
+    /// The version sent to the song overlay: the same, but with a video that is
+    /// playing left out (it is the mediashare overlay's).
+    pub fn for_song(mut self) -> Self {
+        if self
+            .queue
+            .now_playing
+            .as_ref()
+            .is_some_and(|item| !item.song)
+        {
+            self.queue.now_playing = None;
+            self.playback_paused = false;
+        }
+        self.trimmed()
+    }
+
+    /// What no page in OBS is told: waiting requests, the blacklist, the chat.
+    fn trimmed(mut self) -> Self {
         self.queue.pending.clear();
         self.queue.approved.clear();
         self.settings.blacklist = BlacklistConfig::default();
@@ -448,7 +481,8 @@ mod tests {
             "thumbnail_url": "https://i.ytimg.com/vi/dQw4w9WgXcQ/mqdefault.jpg",
             "requested_by": {"name": "Budi", "role": "subscriber", "source": "tiktok"},
             "requested_at_ms": 1_700_000_000_123u64,
-            "message": "halo ka"
+            "message": "halo ka",
+            "song": false
         })
     }
 
@@ -786,6 +820,19 @@ mod tests {
             },
             playback_paused: true,
         };
+        // A song that is playing is the song overlay's, a video the mediashare overlay's.
+        let mut as_song = hello.clone();
+        if let Some(playing) = as_song.queue.now_playing.as_mut() {
+            playing.song = true;
+        }
+        let for_media = as_song.clone().for_mediashare();
+        assert!(for_media.queue.now_playing.is_none() && !for_media.playback_paused);
+        let for_song = as_song.for_song();
+        assert_eq!(for_song.queue.now_playing.as_ref().map(|i| i.id), Some(3));
+        assert!(for_song.playback_paused && for_song.queue.pending.is_empty());
+        let video_for_song = hello.clone().for_song();
+        assert!(video_for_song.queue.now_playing.is_none() && !video_for_song.playback_paused);
+
         let overlay = hello.for_mediashare();
         assert_eq!(overlay.seq, 3);
         assert_eq!(overlay.volume, 42);

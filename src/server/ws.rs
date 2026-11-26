@@ -35,6 +35,8 @@ const SEND_TIMEOUT: Duration = Duration::from_secs(10);
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Kind {
     Mediashare,
+    /// The song overlay: plays what was asked for with the song command.
+    Song,
     /// The chat overlay with a background.
     ChatPanel,
     /// The transparent chat overlay.
@@ -42,11 +44,46 @@ enum Kind {
     Dashboard,
 }
 
+/// What a socket is sent for an event.
+#[derive(Debug, PartialEq, Eq)]
+enum Show {
+    /// The event as it is.
+    Same,
+    /// A stop in its place: what starts is for the other video overlay, so this
+    /// one must clear what it shows.
+    Stop,
+    Nothing,
+}
+
 impl Kind {
+    /// What this socket gets for `event`. A video starts on the mediashare
+    /// overlay and a song on the song overlay; the other one is told to stop.
+    fn show(self, event: &Event) -> Show {
+        if let Event::Play { item, .. } = event {
+            match (self, item.song) {
+                (Self::Mediashare, true) | (Self::Song, false) => return Show::Stop,
+                _ => {}
+            }
+        }
+        if self.wants(event) {
+            Show::Same
+        } else {
+            Show::Nothing
+        }
+    }
+
     /// The overlay needs only what changes what is on screen.
     fn wants(self, event: &Event) -> bool {
         match self {
             Self::Dashboard => true,
+            Self::Song => matches!(
+                event,
+                Event::Play { .. }
+                    | Event::Skip { .. }
+                    | Event::Stop {}
+                    | Event::Volume { .. }
+                    | Event::PlaybackPaused { .. }
+            ),
             Self::Mediashare => matches!(
                 event,
                 Event::Play { .. }
@@ -108,6 +145,13 @@ pub async fn mediashare<S: VideoSource + 'static>(
     accept(state, upgrade, Kind::Mediashare)
 }
 
+pub async fn song<S: VideoSource + 'static>(
+    State(state): State<ServerState<S>>,
+    upgrade: WebSocketUpgrade,
+) -> Response {
+    accept(state, upgrade, Kind::Song)
+}
+
 pub async fn chat_panel<S: VideoSource + 'static>(
     State(state): State<ServerState<S>>,
     upgrade: WebSocketUpgrade,
@@ -160,6 +204,7 @@ async fn send_hello<S: VideoSource + 'static>(
     let seq = hello.seq;
     let hello = match kind {
         Kind::Mediashare => hello.for_mediashare(),
+        Kind::Song => hello.for_song(),
         Kind::ChatPanel | Kind::ChatFloat => hello.for_chat(),
         Kind::Dashboard => hello,
     };
@@ -210,7 +255,7 @@ async fn run<S: VideoSource + 'static>(
             incoming = socket.recv() => match incoming {
                 None | Some(Err(_) | Ok(Message::Close(_))) => break,
                 Some(Ok(Message::Text(text))) => {
-                    if kind == Kind::Mediashare {
+                    if matches!(kind, Kind::Mediashare | Kind::Song) {
                         handle_overlay_message(&state, text.as_str());
                     }
                 }
@@ -218,8 +263,18 @@ async fn run<S: VideoSource + 'static>(
             },
             event = events.recv() => match event {
                 Ok(envelope) => {
-                    if newer_than_snapshot(envelope.seq, snapshot_seq) && kind.wants(&envelope.event) {
-                        let Ok(json) = serde_json::to_string(&*envelope) else { continue };
+                    if newer_than_snapshot(envelope.seq, snapshot_seq) {
+                        let json = match kind.show(&envelope.event) {
+                            Show::Nothing => continue,
+                            Show::Same => serde_json::to_string(&*envelope),
+                            Show::Stop => serde_json::to_string(&Envelope {
+                                v: envelope.v,
+                                seq: envelope.seq,
+                                ts: envelope.ts,
+                                event: Event::Stop {},
+                            }),
+                        };
+                        let Ok(json) = json else { continue };
                         if send(&mut socket, Message::text(json)).await.is_err() {
                             break;
                         }
@@ -421,5 +476,50 @@ mod tests {
         assert!(Slot::take(&counter).is_some());
         drop(slots);
         assert_eq!(counter.load(Ordering::SeqCst), 0);
+    }
+
+    #[test]
+    fn a_video_starts_on_the_mediashare_overlay_and_a_song_on_the_song_overlay() {
+        let play = |song: bool| {
+            let mut item = crate::app::ItemView::from(&crate::queue::QueueItem {
+                id: ItemId(1),
+                media: Media::Youtube(VideoDetails {
+                    id: crate::youtube::VideoId::parse("dQw4w9WgXcQ").unwrap(),
+                    title: "t".to_owned(),
+                    channel: "c".to_owned(),
+                    duration_secs: 60,
+                    embeddable: true,
+                    age_restricted: false,
+                    live: crate::youtube::LiveStatus::None,
+                    private: false,
+                    category_id: 10,
+                }),
+                sender: crate::chat::Sender::new("1", "a", crate::chat::Role::Follower),
+                requested_at: SystemTime::now(),
+                message: String::new(),
+            });
+            item.song = song;
+            Event::Play { item, volume: 50 }
+        };
+        // The overlay that is not for it is told to clear, so what it shows is not left behind.
+        assert_eq!(Kind::Mediashare.show(&play(false)), Show::Same);
+        assert_eq!(Kind::Mediashare.show(&play(true)), Show::Stop);
+        assert_eq!(Kind::Song.show(&play(true)), Show::Same);
+        assert_eq!(Kind::Song.show(&play(false)), Show::Stop);
+        assert_eq!(Kind::Dashboard.show(&play(true)), Show::Same);
+        for kind in [Kind::ChatPanel, Kind::ChatFloat] {
+            assert_eq!(kind.show(&play(true)), Show::Nothing);
+        }
+        // Both video overlays hear of stops, volume and pauses; only the mediashare one of notices.
+        for event in [Event::Stop {}, Event::Volume { volume: 5 }] {
+            assert_eq!(Kind::Song.show(&event), Show::Same);
+        }
+        let notice = Event::DeveloperNotice {
+            name: "a".to_owned(),
+            text: "b".to_owned(),
+            duration_ms: 8_000,
+        };
+        assert_eq!(Kind::Song.show(&notice), Show::Nothing);
+        assert_eq!(Kind::Mediashare.show(&notice), Show::Same);
     }
 }

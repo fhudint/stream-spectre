@@ -58,7 +58,7 @@
   var MAX_COMMANDS = 8;
   var MAX_PREFIX_LEN = 4;
   var MAX_COMMAND_NAME_LEN = 32;
-  var COMMAND_SOURCES = ['youtube', 'tiktok'];
+  var COMMAND_SOURCES = ['youtube', 'tiktok', 'song'];
   /* Colours for viewers' avatars and names: see .tint-N in dashboard.css. */
   var TINTS = 6;
   var THUMBNAIL = /^https:\/\/i\.ytimg\.com\/vi\/[A-Za-z0-9_-]{11}\/[A-Za-z0-9_]+\.jpg$/;
@@ -77,7 +77,7 @@
   ];
   /* The tabs of the Rules page, and of the Overlay page. */
   var RULES_TABS = ['general', 'youtube', 'tiktok'];
-  var OVERLAY_TABS = ['mediashare', 'chat-panel', 'chat-float'];
+  var OVERLAY_TABS = ['mediashare', 'song', 'chat-panel', 'chat-float'];
 
   /* The fields of the Rules page, each on the tab of the rules it belongs to:
    * the general ones, those of the YouTube chat and those of the TikTok chat.
@@ -108,6 +108,17 @@
       tab: 'general',
       kind: 'multi',
       label: 'dashboard.settings.allowed_categories',
+      options: VIDEO_CATEGORIES.map(function (name) {
+        return { value: name, label: 'dashboard.category.' + name };
+      }),
+    },
+    { key: 'song_max_duration_secs', group: 'songs', tab: 'general', kind: 'number', unit: 'minutes', label: 'dashboard.settings.song_max_duration_secs' },
+    {
+      key: 'song_allowed_categories',
+      group: 'songs',
+      tab: 'general',
+      kind: 'multi',
+      label: 'dashboard.settings.song_allowed_categories',
       options: VIDEO_CATEGORIES.map(function (name) {
         return { value: name, label: 'dashboard.category.' + name };
       }),
@@ -152,7 +163,7 @@
   ];
 
   /* The cards of a tab of the Rules page, in the order they are shown. */
-  var RULE_GROUPS = ['who', 'limits', 'content', 'categories'];
+  var RULE_GROUPS = ['who', 'limits', 'content', 'categories', 'songs'];
 
   /* The presets of the Rules page: each sets the rules below it at once (what a
    * preset leaves out is not touched). Seconds, as the server keeps them. */
@@ -256,6 +267,8 @@
       requested_at_ms: wholeNumber(item.requested_at_ms),
       // What the viewer wrote after the link.
       message: typeof item.message === 'string' ? item.message : '',
+      // Asked for as a song: the song overlay plays it.
+      song: item.song === true,
       requested_by: {
         name: typeof by.name === 'string' ? by.name : '',
         role: typeof by.role === 'string' ? by.role : 'everyone',
@@ -797,7 +810,7 @@
   /* The overlay's address to give to OBS. A loopback IP is turned into
    * `localhost`: YouTube's player refuses every video on a page opened by an
    * IP address. The token, when there is one, goes in the query. */
-  var OVERLAY_PATHS = { 'chat-panel': 'chat/panel', 'chat-float': 'chat/float' };
+  var OVERLAY_PATHS = { song: 'song', 'chat-panel': 'chat/panel', 'chat-float': 'chat/float' };
 
   function overlayUrl(protocol, host, token, overlay) {
     var shown = String(host).replace(/^(127\.0\.0\.1|\[::1\])(?=:|$)/, 'localhost');

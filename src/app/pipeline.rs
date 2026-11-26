@@ -319,7 +319,12 @@ impl<S: VideoSource> Pipeline<S> {
                 self.tell_invalid(&parser, &sender, source, reason);
             }
             Parsed::Youtube { id, message, short } => {
-                self.request_youtube(sender, id, message, short, now).await;
+                self.request_youtube(sender, id, message, short, false, now)
+                    .await;
+            }
+            Parsed::Song { id, message } => {
+                self.request_youtube(sender, id, message, false, true, now)
+                    .await;
             }
             Parsed::Tiktok { target, message } => {
                 self.request_tiktok(sender, target, message, now).await;
@@ -370,14 +375,16 @@ impl<S: VideoSource> Pipeline<S> {
             return;
         }
         let own = match source {
-            CommandSource::Youtube => "reject.invalid_link",
+            CommandSource::Youtube | CommandSource::Song => "reject.invalid_link",
             CommandSource::Tiktok => "reject.invalid_tiktok_link",
         };
         let (key, text) = match reason {
             InvalidReason::WrongSource(other) => match parser.command_for(other) {
                 Some(command) => {
                     let key = match other {
-                        CommandSource::Youtube => "reject.use_youtube_command",
+                        CommandSource::Youtube | CommandSource::Song => {
+                            "reject.use_youtube_command"
+                        }
                         CommandSource::Tiktok => "reject.use_tiktok_command",
                     };
                     (key, self.i18n.t_with(key, &[("command", &command)]))
@@ -397,6 +404,7 @@ impl<S: VideoSource> Pipeline<S> {
         video_id: VideoId,
         message: String,
         short: bool,
+        song: bool,
         now: Instant,
     ) {
         // Stage 1: everything that needs no YouTube call.
@@ -446,7 +454,12 @@ impl<S: VideoSource> Pipeline<S> {
         };
 
         // Stage 2: rules that need the video's details, then queue it.
-        self.enqueue(&sender, details.into(), message);
+        let media = if song {
+            Media::Song(details)
+        } else {
+            details.into()
+        };
+        self.enqueue(&sender, media, message);
     }
 
     async fn request_tiktok(
@@ -537,6 +550,7 @@ impl<S: VideoSource> Pipeline<S> {
         let mut inner = self.lock();
         match &media {
             Media::Youtube(details) => inner.gatekeeper.vet(details)?,
+            Media::Song(details) => inner.gatekeeper.vet_song(details)?,
             Media::Tiktok(details) => inner.gatekeeper.vet_tiktok(details)?,
         }
         let settings = inner.gatekeeper.settings().clone();
@@ -1827,6 +1841,97 @@ mod tests {
         )
         .await;
         assert_eq!(p.hello().queue.pending.len(), 1);
+    }
+
+    fn song_config(mutate: impl FnOnce(&mut ModerationConfig)) -> Config {
+        let mut config = config(mutate);
+        config.command.commands = vec![
+            crate::config::CommandEntry::youtube("v"),
+            crate::config::CommandEntry::song("song"),
+        ];
+        config
+    }
+
+    #[tokio::test]
+    async fn a_song_goes_through_the_same_queue_and_is_marked_as_a_song() {
+        let p = pipeline(&song_config(|_| {}));
+        say(
+            &p,
+            sender(1, Role::Follower),
+            &format!("!song {ID_A} for you"),
+        )
+        .await;
+        say(&p, sender(2, Role::Follower), &format!("!v {ID_B}")).await;
+        let pending = p.hello().queue.pending;
+        assert_eq!(pending.len(), 2);
+        assert!(pending[0].song && pending[0].video_id == ID_A);
+        assert_eq!(pending[0].message, "for you");
+        assert!(!pending[1].song);
+        // A song is a YouTube video as far as links and pictures go.
+        assert_eq!(pending[0].source, CommandSource::Youtube);
+        assert!(pending[0].thumbnail_url.contains(ID_A));
+    }
+
+    #[tokio::test]
+    async fn a_song_has_its_own_length_and_categories() {
+        let p = pipeline(&song_config(|m| {
+            m.max_duration_secs = 10 * 60;
+            m.song_max_duration_secs = 100;
+            m.song_allowed_categories = vec![crate::config::VideoCategory::Music];
+        }));
+        // 200 seconds is fine for a video, too long for a song.
+        say(&p, sender(1, Role::Follower), &format!("!song {ID_A}")).await;
+        say(&p, sender(2, Role::Follower), &format!("!v {ID_A}")).await;
+        let pending = p.hello().queue.pending;
+        assert_eq!(pending.len(), 1);
+        assert!(!pending[0].song);
+
+        // A video of another category is no song, though it is a video.
+        let mut other = video(ID_B);
+        other.duration_secs = 60;
+        other.category_id = 20; // Gaming
+        p.lookup
+            .source()
+            .overrides
+            .lock()
+            .unwrap()
+            .insert(ID_B.to_owned(), Some(other));
+        say(&p, sender(3, Role::Follower), &format!("!song {ID_B}")).await;
+        say(&p, sender(4, Role::Follower), &format!("!v {ID_B}")).await;
+        let pending = p.hello().queue.pending;
+        assert_eq!(
+            pending.len(),
+            2,
+            "only the video of the other category got in"
+        );
+        assert!(!pending[1].song);
+    }
+
+    #[tokio::test]
+    async fn a_short_or_a_tiktok_link_is_no_song_and_a_music_link_is_one() {
+        let p = pipeline(&song_config(|_| {}));
+        say(
+            &p,
+            sender(1, Role::Follower),
+            &format!("!song https://www.youtube.com/shorts/{ID_A}"),
+        )
+        .await;
+        say(
+            &p,
+            sender(2, Role::Follower),
+            "!song https://www.tiktok.com/@a/video/7700124541145599252",
+        )
+        .await;
+        assert!(p.hello().queue.pending.is_empty());
+        say(
+            &p,
+            sender(3, Role::Follower),
+            &format!("!song https://music.youtube.com/watch?v={ID_B}&si=x"),
+        )
+        .await;
+        let pending = p.hello().queue.pending;
+        assert_eq!(pending.len(), 1);
+        assert!(pending[0].song && pending[0].video_id == ID_B);
     }
 
     fn developer() -> Sender {

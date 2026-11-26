@@ -355,6 +355,10 @@
         role: roleName(role, requester && requester.source),
         title: message || videoTitle,
         channel: message ? videoTitle : channel,
+        // As they are, for an overlay that lays them out differently (the song overlay).
+        message: message,
+        videoTitle: videoTitle,
+        videoChannel: channel,
       });
       showPaused(); // a new video always plays: the notice goes away
     }

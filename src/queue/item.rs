@@ -30,6 +30,8 @@ pub struct TiktokDetails {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Media {
     Youtube(VideoDetails),
+    /// A YouTube video asked for as a song: played by the song overlay.
+    Song(VideoDetails),
     Tiktok(TiktokDetails),
 }
 
@@ -40,9 +42,11 @@ impl From<VideoDetails> for Media {
 }
 
 impl Media {
+    /// Where the video is from: a song is a YouTube video, so its links, IDs and
+    /// thumbnails are those of one.
     pub fn source(&self) -> CommandSource {
         match self {
-            Self::Youtube(_) => CommandSource::Youtube,
+            Self::Youtube(_) | Self::Song(_) => CommandSource::Youtube,
             Self::Tiktok(_) => CommandSource::Tiktok,
         }
     }
@@ -50,7 +54,7 @@ impl Media {
     /// The ID in the source's own form; safe to put in a URL.
     pub fn video_id(&self) -> String {
         match self {
-            Self::Youtube(video) => video.id.to_string(),
+            Self::Youtube(video) | Self::Song(video) => video.id.to_string(),
             Self::Tiktok(video) => video.id.to_string(),
         }
     }
@@ -59,7 +63,7 @@ impl Media {
     /// when the link did not say.
     pub fn title(&self) -> String {
         match self {
-            Self::Youtube(video) => video.title.clone(),
+            Self::Youtube(video) | Self::Song(video) => video.title.clone(),
             Self::Tiktok(video) => match &video.account {
                 Some(account) => format!("@{account}"),
                 None => video.id.to_string(),
@@ -69,7 +73,7 @@ impl Media {
 
     pub fn channel(&self) -> String {
         match self {
-            Self::Youtube(video) => video.channel.clone(),
+            Self::Youtube(video) | Self::Song(video) => video.channel.clone(),
             Self::Tiktok(_) => "TikTok".to_owned(),
         }
     }
@@ -77,7 +81,7 @@ impl Media {
     /// The length, when it is known.
     pub fn duration_secs(&self) -> Option<u64> {
         match self {
-            Self::Youtube(video) => Some(video.duration_secs),
+            Self::Youtube(video) | Self::Song(video) => Some(video.duration_secs),
             Self::Tiktok(_) => None,
         }
     }
@@ -85,7 +89,12 @@ impl Media {
     /// Whether automatic approval may let this through. A TikTok video has
     /// had no length, age or embedding check, so a person always looks first.
     pub fn can_auto_approve(&self) -> bool {
-        matches!(self, Self::Youtube(_))
+        matches!(self, Self::Youtube(_) | Self::Song(_))
+    }
+
+    /// Whether the song overlay plays it, not the mediashare overlay.
+    pub fn is_song(&self) -> bool {
+        matches!(self, Self::Song(_))
     }
 }
 

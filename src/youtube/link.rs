@@ -7,7 +7,12 @@ use super::video_id::VideoId;
 const MAX_TOKEN_LEN: usize = 512;
 
 const SHORT_HOST: &str = "youtu.be";
-const LONG_HOSTS: [&str; 3] = ["youtube.com", "www.youtube.com", "m.youtube.com"];
+const LONG_HOSTS: [&str; 4] = [
+    "youtube.com",
+    "www.youtube.com",
+    "m.youtube.com",
+    "music.youtube.com",
+];
 
 /// Extracts a video ID from one whitespace-free token typed in chat.
 ///
@@ -147,6 +152,8 @@ mod tests {
     #[test]
     fn accepts_mobile_host_and_missing_or_plain_scheme() {
         accepted("https://m.youtube.com/watch?v=dQw4w9WgXcQ");
+        // A song's link on YouTube Music is the same video.
+        accepted("https://music.youtube.com/watch?v=dQw4w9WgXcQ&si=abc");
         accepted("http://youtu.be/dQw4w9WgXcQ");
         accepted("youtu.be/dQw4w9WgXcQ");
         accepted("youtube.com/watch?v=dQw4w9WgXcQ");

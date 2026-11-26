@@ -9,6 +9,7 @@ of truth; this page describes them for people writing clients.
 | Endpoint | Purpose |
 |----------|---------|
 | `GET /ws/overlay/mediashare` | WebSocket for the OBS mediashare overlay page |
+| `GET /ws/overlay/song` | WebSocket for the OBS song overlay |
 | `GET /ws/overlay/chat/panel` | WebSocket for the OBS chat overlay with a background |
 | `GET /ws/overlay/chat/float` | WebSocket for the transparent OBS chat overlay |
 | `GET /ws/dashboard` | WebSocket for the dashboard page |
@@ -24,7 +25,7 @@ of truth; this page describes them for people writing clients.
 | `PATCH /api/overlay/mediashare` | Change the mediashare overlay's look (`{"theme": "pixel"}`) and whether the developer's `@dev` notice is shown (`{"developer_notice": false}`); an unknown theme is refused |
 | `PATCH /api/overlay/chat/panel` | Change the look of the chat overlay with a background (`{"theme": "ticker"}`); an unknown theme, or one of the transparent overlay, is refused |
 | `PATCH /api/overlay/chat/float` | The same for the transparent chat overlay (`outline`, `comic`, `notes`) |
-| `PATCH /api/commands` | Change the chat commands: `{"prefix": "!", "commands": [{"name": "v", "source": "youtube"}, {"name": "vt", "source": "tiktok"}]}`. `source` is `youtube` or `tiktok`. Either field may be left out; `commands` is always the whole list. Takes effect for the next chat message. `400` for an empty list, more than 8, a name used twice (capitals do not count), a name with anything but ASCII letters, digits and `_`, an unknown source, or a prefix that is empty, longer than 4 or has spaces. Answers the new state. |
+| `PATCH /api/commands` | Change the chat commands: `{"prefix": "!", "commands": [{"name": "v", "source": "youtube"}, {"name": "vt", "source": "tiktok"}]}`. `source` is `youtube`, `tiktok` or `song` (a YouTube video played by the song overlay). Either field may be left out; `commands` is always the whole list. Takes effect for the next chat message. `400` for an empty list, more than 8, a name used twice (capitals do not count), a name with anything but ASCII letters, digits and `_`, an unknown source, or a prefix that is empty, longer than 4 or has spaces. Answers the new state. |
 | `PATCH /api/chat/tiktok` | Body `{"username": "name", "enabled": true}`, either or both: set the TikTok username (an empty string stops reading chat) and switch the chat on or off; the chat follows without a restart. Letters, digits, `_` and `.`, at most 64; a leading `@` and spaces are dropped. Answers the new state. |
 | `PATCH /api/chat/youtube` | Body `{"video": "link or ID", "enabled": true}`, either or both: set the YouTube live whose chat is read (a link or an 11-character ID, kept as the ID; an empty string stops reading chat) and switch the chat on or off. Something that is not a video is refused. Answers the new state. |
 | `PUT /api/playback/pause` | Body `{"paused": true or false}`: pauses or resumes the video that is playing. Answers the new state. Works for YouTube and TikTok videos alike. `409` with `"code": "nothing_playing"` when no video is playing. |
@@ -40,7 +41,10 @@ an IPv4 address mapped into IPv6), even when the dashboard is opened to the
 network with a token; any other connection gets `403` with `"code": "loopback_only"`.
 Reading `GET /api/account` is allowed to anyone with the token.
 
-The sockets carry the events below. The mediashare overlay socket only receives
+The sockets carry the events below. The song overlay socket receives `play` (of
+songs only; a video's `play` is a `stop` there), `skip`, `stop`, `volume` and
+`playback_paused`, and a `hello` with the song that is playing, if any, and
+nothing else. The mediashare overlay socket only receives
 what changes the screen (`play`, `skip`, `stop`, `volume`, `overlay_theme` of its
 own look, `playback_paused`, `developer_notice`) and a trimmed `hello` without waiting requests, blacklist,
 chat status or chat messages. Each chat overlay socket (`panel` and `float`) receives
@@ -176,7 +180,8 @@ The queue changed. `data` is the whole queue:
   "thumbnail_url": "https://i.ytimg.com/vi/dQw4w9WgXcQ/mqdefault.jpg",
   "requested_by": { "name": "Budi", "role": "subscriber", "source": "tiktok" },
   "requested_at_ms": 1700000000123,
-  "message": "halo ka"
+  "message": "halo ka",
+  "song": false
 }
 ```
 
@@ -230,6 +235,11 @@ Start playing this video now (overlay).
 ```
 
 `volume` is 0 to 100.
+
+An item with `"song": true` is for the song overlay: the mediashare socket gets a
+`stop` (with the same `seq`) in place of its `play`, so that it clears what it
+shows, and the song socket gets a `play`. For an item with `"song": false` it is
+the other way round. Both overlays report `ended` and `player_error` the same way.
 
 ### `skip`
 

@@ -95,6 +95,7 @@ test('diffSettings returns only what changed', () => {
 const goodRules = () => ({
   mode: 'auto', cooldown_secs: '60', max_duration_secs: '600', max_queue_len: '20', max_volume: '80',
   allow_live: true, allow_shorts: false, allowed_categories: ['gaming', 'music'],
+  song_max_duration_secs: '420', song_allowed_categories: ['entertainment', 'music'],
   youtube_min_role: 'member', youtube_superchat_bypass: true, youtube_auto_approve: 'moderator',
   youtube_cooldown_secs: ' 10 ', youtube_max_waiting: '3',
   tiktok_min_role: 'subscriber', min_gifter_level: '3', min_fan_club_level: ' 0 ',
@@ -105,6 +106,7 @@ test('readSettings accepts good values and names the first bad field', () => {
   assert.deepEqual(core.readSettings(goodRules()).value, {
     mode: 'auto', cooldown_secs: 60, max_duration_secs: 600, max_queue_len: 20, max_volume: 80,
     allow_live: true, allow_shorts: false, allowed_categories: ['music', 'gaming'],
+    song_max_duration_secs: 420, song_allowed_categories: ['music', 'entertainment'],
     youtube_min_role: 'member', youtube_superchat_bypass: true, youtube_auto_approve: 'moderator',
     youtube_cooldown_secs: 10, youtube_max_waiting: 3,
     tiktok_min_role: 'subscriber', min_gifter_level: 3, min_fan_club_level: 0,
@@ -116,7 +118,7 @@ test('readSettings accepts good values and names the first bad field', () => {
     ['max_queue_len', '1.5'], ['max_volume', 'loud'], ['min_gifter_level', '1e2'], ['max_duration_secs', '0x10'],
     ['youtube_cooldown_secs', '-5'], ['youtube_cooldown_secs', '1.5'], ['tiktok_max_waiting', 'many'],
     ['allow_live', 'true'], ['allow_shorts', 1], ['allowed_categories', 'music'], ['allowed_categories', ['cooking']],
-    ['allowed_categories', null],
+    ['allowed_categories', null], ['song_max_duration_secs', '7 min'], ['song_allowed_categories', ['cooking']],
   ]) {
     assert.equal(core.readSettings({ ...goodRules(), [key]: bad }).error, key, `${key}=${bad}`);
   }
@@ -140,7 +142,7 @@ test('diffSettings compares lists and unset options', () => {
 test('every rule is on the tab of the rules it belongs to', () => {
   assert.deepEqual(core.RULES_TABS, ['general', 'youtube', 'tiktok']);
   const on = (tab) => core.SETTINGS_FIELDS.filter((f) => f.tab === tab).map((f) => f.key);
-  assert.deepEqual(on('general'), ['mode', 'cooldown_secs', 'max_duration_secs', 'max_queue_len', 'max_volume', 'allow_live', 'allow_shorts', 'allowed_categories']);
+  assert.deepEqual(on('general'), ['mode', 'cooldown_secs', 'max_duration_secs', 'max_queue_len', 'max_volume', 'allow_live', 'allow_shorts', 'allowed_categories', 'song_max_duration_secs', 'song_allowed_categories']);
   assert.deepEqual(on('youtube'), ['youtube_min_role', 'youtube_superchat_bypass', 'youtube_auto_approve', 'youtube_cooldown_secs', 'youtube_max_waiting']);
   assert.deepEqual(on('tiktok'), ['tiktok_min_role', 'min_gifter_level', 'min_fan_club_level', 'tiktok_cooldown_secs', 'tiktok_max_waiting']);
   for (const field of core.SETTINGS_FIELDS) assert.ok(core.RULES_TABS.includes(field.tab), field.key);
@@ -860,6 +862,7 @@ test('the two chat overlays have their own addresses and their own looks', () =>
   assert.equal(core.overlayUrl('http:', '127.0.0.1:8787', '', 'chat-float'), 'http://localhost:8787/overlay/chat/float/');
   assert.equal(core.overlayUrl('https:', 'x.example', 'a b', 'chat-float'), 'https://x.example/overlay/chat/float/?token=a%20b');
   assert.equal(core.overlayUrl('http:', 'x', '', 'nope'), 'http://x/overlay/mediashare/', 'an unknown overlay is the mediashare one');
+  assert.equal(core.overlayUrl('http:', '127.0.0.1:8787', 'tok', 'song'), 'http://localhost:8787/overlay/song/?token=tok');
   assert.deepEqual(core.CHAT_PANEL_THEMES, ['obsidian', 'paper', 'brutal', 'terminal', 'candy', 'pixel', 'receipt', 'messages', 'ticker']);
   assert.deepEqual(core.CHAT_FLOAT_THEMES, ['outline', 'comic', 'notes']);
   assert.equal(core.chatPanelTheme({ overlay: { chat_panel: { theme: 'ticker' } } }), 'ticker');
@@ -870,7 +873,7 @@ test('the two chat overlays have their own addresses and their own looks', () =>
   for (const bad of [null, {}, { overlay: { chat_float: { theme: 'obsidian' } } }, { overlay: { chat_panel: { theme: 'pixel' } } }]) {
     assert.equal(core.chatFloatTheme(bad), 'outline', JSON.stringify(bad));
   }
-  assert.deepEqual(core.OVERLAY_TABS, ['mediashare', 'chat-panel', 'chat-float']);
+  assert.deepEqual(core.OVERLAY_TABS, ['mediashare', 'song', 'chat-panel', 'chat-float']);
 });
 
 test('what the server says about updates is read, and only this project\'s links are taken', () => {

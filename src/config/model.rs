@@ -145,6 +145,9 @@ impl YoutubeChatConfig {
 pub enum CommandSource {
     Youtube,
     Tiktok,
+    /// A song: a YouTube video played by the song overlay, with the rules for
+    /// songs. Only YouTube links and IDs.
+    Song,
 }
 
 /// One chat word and what it asks for.
@@ -168,6 +171,13 @@ impl CommandEntry {
         Self {
             name: name.into(),
             source: CommandSource::Tiktok,
+        }
+    }
+
+    pub fn song(name: impl Into<String>) -> Self {
+        Self {
+            name: name.into(),
+            source: CommandSource::Song,
         }
     }
 }
@@ -297,6 +307,11 @@ pub struct ModerationConfig {
     /// Only videos of these categories may be requested; all of them when
     /// empty.
     pub allowed_categories: Vec<VideoCategory>,
+    /// The longest song that may be requested, in seconds.
+    pub song_max_duration_secs: u64,
+    /// Only songs of these categories may be requested; all of them when
+    /// empty. Many songs are filed under Entertainment, not only Music.
+    pub song_allowed_categories: Vec<VideoCategory>,
     /// Initial volume, 0-100.
     pub volume: u8,
     /// Upper bound for the volume, 0-100.
@@ -449,6 +464,8 @@ impl Default for ModerationConfig {
             allow_live: false,
             allow_shorts: true,
             allowed_categories: Vec::new(),
+            song_max_duration_secs: 7 * 60,
+            song_allowed_categories: vec![VideoCategory::Music, VideoCategory::Entertainment],
             volume: 50,
             max_volume: 80,
         }

@@ -114,7 +114,7 @@ impl From<&Media> for Subject {
             video_id: media.video_id(),
             title: media.title(),
             channel: match media {
-                Media::Youtube(_) => media.channel(),
+                Media::Youtube(_) | Media::Song(_) => media.channel(),
                 Media::Tiktok(video) => video.account.clone().unwrap_or_default(),
             },
             message: String::new(),

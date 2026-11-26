@@ -393,6 +393,7 @@
         </div>
         <div id="overlay-tabs" class="tabs page-tabs" role="tablist">
           <button id="otab-mediashare" type="button" class="tab" role="tab" aria-controls="overlay-mediashare" data-i18n="dashboard.overlay.tab.mediashare"></button>
+          <button id="otab-song" type="button" class="tab" role="tab" aria-controls="overlay-song" data-i18n="dashboard.overlay.tab.song"></button>
           <button id="otab-chat-panel" type="button" class="tab" role="tab" aria-controls="overlay-chat-panel" data-i18n="dashboard.overlay.tab.chat_panel"></button>
           <button id="otab-chat-float" type="button" class="tab" role="tab" aria-controls="overlay-chat-float" data-i18n="dashboard.overlay.tab.chat_float"></button>
         </div>
@@ -417,6 +418,17 @@
               <input id="volume" type="range" min="0" max="100" step="1">
               <output id="volume-value" for="volume"></output>
             </div>
+          </div>
+        </div>
+        <div id="overlay-song" class="card page-card">
+          <h2 data-i18n="dashboard.overlay.song"></h2>
+          <p class="muted" data-i18n="dashboard.overlay.song_hint"></p>
+          <div class="field">
+            <span class="field-label" data-i18n="dashboard.overlay.address"></span>
+            <code id="song-shown" class="address"></code>
+          </div>
+          <div class="actions">
+            <button id="copy-song" type="button" class="primary" data-i18n="dashboard.overlay.copy"></button>
           </div>
         </div>
         <div id="overlay-chat-panel" class="card page-card">

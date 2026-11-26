@@ -5,8 +5,8 @@
 //!
 //! | Route | What |
 //! |-------|------|
-//! | `/overlay/mediashare/`, `/overlay/chat/panel/`, `/overlay/chat/float/`, `/dashboard/` | the pages (embedded in the binary); `/overlay/` goes to the first |
-//! | `/ws/overlay/mediashare`, `/ws/overlay/chat/panel`, `/ws/overlay/chat/float`, `/ws/dashboard` | event stream (WebSocket) |
+//! | `/overlay/mediashare/`, `/overlay/song/`, `/overlay/chat/panel/`, `/overlay/chat/float/`, `/dashboard/` | the pages (embedded in the binary); `/overlay/` goes to the first |
+//! | `/ws/overlay/mediashare`, `/ws/overlay/song`, `/ws/overlay/chat/panel`, `/ws/overlay/chat/float`, `/ws/dashboard` | event stream (WebSocket) |
 //! | `/api/...` | dashboard actions and state (JSON) |
 //!
 //! See `guard` for how requests are checked and `docs/websocket-events.md`
@@ -92,6 +92,8 @@ pub fn router<S: VideoSource + 'static>(state: ServerState<S>, guard: Arc<Guard>
         .route("/overlay/", get(assets::to_mediashare))
         .route("/overlay/mediashare", get(assets::to_mediashare))
         .route("/overlay/mediashare/", get(assets::mediashare_index))
+        .route("/overlay/song", get(assets::to_song_slash))
+        .route("/overlay/song/", get(assets::song_index))
         .route("/overlay/chat", get(assets::to_chat_panel))
         .route("/overlay/chat/", get(assets::to_chat_panel))
         .route("/overlay/chat/panel", get(assets::to_chat_panel_slash))
@@ -100,6 +102,7 @@ pub fn router<S: VideoSource + 'static>(state: ServerState<S>, guard: Arc<Guard>
         .route("/overlay/chat/float/", get(assets::chat_index))
         .route("/overlay/{*path}", get(assets::overlay_file))
         .route("/ws/overlay/mediashare", get(ws::mediashare::<S>))
+        .route("/ws/overlay/song", get(ws::song::<S>))
         .route("/ws/overlay/chat/panel", get(ws::chat_panel::<S>))
         .route("/ws/overlay/chat/float", get(ws::chat_float::<S>))
         .route("/ws/dashboard", get(ws::dashboard::<S>))
@@ -1477,6 +1480,83 @@ mod tests {
                 "{overlay} {bad}"
             );
         }
+    }
+
+    #[tokio::test]
+    async fn the_song_overlay_is_served_and_a_song_plays_there_and_not_on_the_mediashare_overlay() {
+        let server = start(None).await;
+        for path in [
+            "/overlay/song/",
+            "/overlay/song/song.css",
+            "/overlay/song/song.js",
+        ] {
+            let response = server.http.get(server.url(path)).send().await.unwrap();
+            assert_eq!(response.status(), 200, "{path}");
+        }
+        for (path, target) in [
+            ("/overlay/song", "/overlay/song/"),
+            ("/overlay/song?token=x", "/overlay/song/?token=x"),
+        ] {
+            let response = server.http.get(server.url(path)).send().await.unwrap();
+            assert_eq!(response.status(), 307, "{path}");
+            assert_eq!(response.headers()["location"], target, "{path}");
+        }
+
+        // A song command next to the video one.
+        let patched = server
+            .http
+            .patch(server.url("/api/commands"))
+            .json(&json!({"prefix": "!", "commands": [
+                {"name": "v", "source": "youtube"},
+                {"name": "song", "source": "song"},
+            ]}))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(patched.status(), 200);
+
+        let mut song = connect(&server, "/ws/overlay/song", None).await.unwrap();
+        let mut media = connect(&server, "/ws/overlay/mediashare", None)
+            .await
+            .unwrap();
+        next_json(&mut song).await;
+        next_json(&mut media).await;
+
+        let sender = Sender::new("user-1", "Viewer 1", Role::Follower);
+        server
+            .pipeline
+            .handle_chat(ChatMessage {
+                sender,
+                text: format!("!song {ID_A}"),
+            })
+            .await;
+        let pending = server.pipeline.hello().queue.pending;
+        assert!(pending[0].song);
+        let approved = server
+            .http
+            .post(server.url(&format!("/api/queue/{}/approve", pending[0].id)))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(approved.status(), 204);
+
+        let on_song = next_json(&mut song).await;
+        assert_eq!(on_song["type"], "play");
+        assert_eq!(on_song["data"]["item"]["song"], true);
+        // The mediashare overlay is told to clear instead, with the same sequence number.
+        let on_media = next_json(&mut media).await;
+        assert_eq!(on_media["type"], "stop");
+        assert_eq!(on_media["seq"], on_song["seq"]);
+
+        // A later page load: the song is the song overlay's, not the mediashare's.
+        let mut late_song = connect(&server, "/ws/overlay/song", None).await.unwrap();
+        let mut late_media = connect(&server, "/ws/overlay/mediashare", None)
+            .await
+            .unwrap();
+        let late_song = next_json(&mut late_song).await;
+        let late_media = next_json(&mut late_media).await;
+        assert_eq!(late_song["data"]["queue"]["now_playing"]["video_id"], ID_A);
+        assert!(late_media["data"]["queue"]["now_playing"].is_null());
     }
 
     #[tokio::test]

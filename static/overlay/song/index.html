@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>stream-spectre song overlay</title>
+<link rel="stylesheet" href="song.css">
+</head>
+<body>
+<main id="root" class="hidden">
+  <div id="card">
+    <div id="cover"><div id="player"></div></div>
+    <div id="info">
+      <span id="kicker"></span>
+      <div id="title"></div>
+      <div id="channel"></div>
+      <div id="who">
+        <span id="eq" aria-hidden="true"><i></i><i></i><i></i></span>
+        <span id="requested"></span>
+      </div>
+      <div id="message"></div>
+      <div id="bar"><div id="bar-fill"></div></div>
+      <div id="times"><span id="time"></span><span id="left"></span></div>
+      <div id="paused" role="status"></div>
+    </div>
+  </div>
+</main>
+<script src="../mediashare/overlay-core.js"></script>
+<script src="song.js"></script>
+</body>
+</html>

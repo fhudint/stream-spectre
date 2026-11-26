@@ -588,6 +588,7 @@ kbd { padding: 1px 6px; border-radius: 4px; background: var(--button); color: va
 .ov-now-info { display: flex; flex-direction: column; gap: 8px; min-width: 0; flex: 1; }
 @media (max-width: 860px) { .ov-cols { grid-template-columns: 1fr; } }
 .rail-toggle { margin-left: auto; }
+.song-tag { display: inline-block; margin-right: 8px; padding: 0 8px; border-radius: 999px; background: var(--accent-bg); color: var(--accent); font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; vertical-align: 1px; }
 /* The Rules page: presets, then cards, and a bar that is there only while something is unsaved. */
 .rules-form, .rules-panel { display: flex; flex-direction: column; gap: 14px; }
 .rules-panel.hidden { display: none; }

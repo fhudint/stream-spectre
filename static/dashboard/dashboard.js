@@ -630,7 +630,10 @@
       [
         h('div', { className: picture.className }, picture.children),
         h('div', { className: 'info' }, [
-          h('div', { className: 'row-title', text: item.title }),
+          h('div', { className: 'row-title' }, [
+            item.song ? h('span', { className: 'song-tag', text: t('dashboard.item.song') }) : null,
+            h('span', { text: item.title }),
+          ]),
           messageLine(item.message),
           h('div', { className: 'row-sub' }, [
             h('span', { text: item.channel }),
@@ -1430,6 +1433,7 @@
     $('overlay-shown').textContent = shown();
     $('chat-panel-shown').textContent = shown('chat-panel');
     $('chat-float-shown').textContent = shown('chat-float');
+    $('song-shown').textContent = shown('song');
     var mediashare = state.settings && state.settings.overlay && state.settings.overlay.mediashare;
     $('developer-notice').checked = !mediashare || mediashare.developer_notice !== false;
     themeInputs.forEach(function (entry) {
@@ -1719,6 +1723,7 @@
     });
     pageTabs('otab-', core.OVERLAY_TABS, {
       mediashare: ['overlay-mediashare'],
+      song: ['overlay-song'],
       'chat-panel': ['overlay-chat-panel'],
       'chat-float': ['overlay-chat-float'],
     });
@@ -2115,6 +2120,9 @@
   function copyOverlay() {
     copyText(core.overlayUrl(location.protocol, location.host, token), 'dashboard.overlay.copied');
   }
+  function copySong() {
+    copyText(core.overlayUrl(location.protocol, location.host, token, 'song'), 'dashboard.overlay.copied');
+  }
   function copyChatPanel() {
     copyText(core.overlayUrl(location.protocol, location.host, token, 'chat-panel'), 'dashboard.overlay.copied');
   }
@@ -2123,6 +2131,7 @@
   }
 
   $('copy-overlay-page').addEventListener('click', copyOverlay);
+  $('copy-song').addEventListener('click', copySong);
   $('copy-chat-panel').addEventListener('click', copyChatPanel);
   $('copy-chat-float').addEventListener('click', copyChatFloat);
 

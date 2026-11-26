@@ -64,6 +64,15 @@ pub async fn mediashare_index() -> Response {
     respond(Section::Overlay, "mediashare/index.html")
 }
 
+pub async fn song_index() -> Response {
+    respond(Section::Overlay, "song/index.html")
+}
+
+/// `/overlay/song` lacks the slash its own files need.
+pub async fn to_song_slash(RawQuery(query): RawQuery) -> Response {
+    redirect_with_query("/overlay/song/", query)
+}
+
 /// The page of both chat overlays: it asks its own address which one it is.
 pub async fn chat_index() -> Response {
     respond(Section::Overlay, "chat/index.html")
@@ -195,6 +204,7 @@ mod tests {
     #[test]
     fn the_embedded_index_pages_exist() {
         assert!(Assets::get("overlay/mediashare/index.html").is_some());
+        assert!(Assets::get("overlay/song/index.html").is_some());
         assert!(Assets::get("dashboard/index.html").is_some());
         assert!(Assets::get("overlay/nope.js").is_none());
     }
@@ -299,6 +309,7 @@ mod tests {
     #[test]
     fn the_pages_obey_their_own_content_security_policy() {
         assert_csp_clean("overlay/mediashare");
+        assert_csp_clean("overlay/song");
         assert_csp_clean("dashboard");
     }
 

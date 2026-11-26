@@ -121,7 +121,7 @@ const snapshot = (extra = {}) => ({
       mode: 'manual', tiktok_min_role: 'follower', youtube_min_role: 'viewer', youtube_superchat_bypass: false,
       min_gifter_level: 0, min_fan_club_level: 0,
       cooldown_secs: 60, max_duration_secs: 600, max_queue_len: 20, youtube_max_waiting: 0, tiktok_max_waiting: 0,
-      allow_live: false, allow_shorts: true, allowed_categories: [], volume: 50, max_volume: 80,
+      allow_live: false, allow_shorts: true, allowed_categories: [], song_max_duration_secs: 420, song_allowed_categories: ['music', 'entertainment'], volume: 50, max_volume: 80,
     },
     blacklist: { video_ids: ['aaaaaaaaaaa'], channels: [], title_words: [], senders: [] },
     dashboard: { chat_history: 20 },
@@ -2523,7 +2523,7 @@ test('a command can be given the TikTok source on the rules page', async () => {
   const page = await ready();
   page.click(page.elements['commands-add']);
   const [first, second] = commandRows(page);
-  assert.deepEqual(first.source.children.map((o) => [o.attrs.value, o.textContent]), [['youtube', 'YouTube'], ['tiktok', 'TikTok']]);
+  assert.deepEqual(first.source.children.map((o) => [o.attrs.value, o.textContent]), [['youtube', 'YouTube'], ['tiktok', 'TikTok'], ['song', 'Song']]);
   second.name.value = '!vt';
   second.source.value = 'tiktok';
   const saved = withCommands({ prefix: '!', commands: [{ name: 'v', source: 'youtube' }, { name: 'vt', source: 'tiktok' }] });
@@ -2700,7 +2700,7 @@ test('the rules are on three tabs, each with the rules of its own, and one Save 
     descendants(page.elements[id])
       .filter((n) => n.attrs.id && /^setting-[a-z_]+$/.test(n.attrs.id))
       .map((n) => n.attrs.id.slice(8));
-  assert.deepEqual(inside('rules-general'), ['mode', 'cooldown_secs', 'max_duration_secs', 'max_queue_len', 'max_volume', 'allow_live', 'allow_shorts', 'allowed_categories']);
+  assert.deepEqual(inside('rules-general'), ['mode', 'cooldown_secs', 'max_duration_secs', 'max_queue_len', 'max_volume', 'allow_live', 'allow_shorts', 'allowed_categories', 'song_max_duration_secs', 'song_allowed_categories']);
   assert.deepEqual(inside('rules-youtube'), ['youtube_min_role', 'youtube_superchat_bypass', 'youtube_auto_approve', 'youtube_cooldown_secs', 'youtube_max_waiting']);
   assert.deepEqual(inside('rules-tiktok'), ['tiktok_min_role', 'min_gifter_level', 'min_fan_club_level', 'tiktok_cooldown_secs', 'tiktok_max_waiting']);
 
@@ -3075,7 +3075,7 @@ test('the side panel of the queue page folds away and comes back', async () => {
 test('the rules of a tab are cards by group, the duration is in minutes, and the preset it matches is marked', async () => {
   const page = await ready();
   const heading = (id) => descendants(page.elements[id]).filter((n) => n.tag === 'h2').map((n) => n.textContent);
-  assert.deepEqual(heading('rules-general'), ['Who can request', 'Limits', 'Allowed content', 'Categories']);
+  assert.deepEqual(heading('rules-general'), ['Who can request', 'Limits', 'Allowed content', 'Categories', 'Songs']);
   assert.deepEqual(heading('rules-youtube'), ['Who can request', 'Limits']);
   assert.deepEqual(heading('rules-tiktok'), ['Who can request', 'Limits']);
   assert.equal(page.elements['setting-max_duration_secs'].value, '10', '600 seconds shown as minutes');
@@ -3210,4 +3210,41 @@ test('the overview lists the rules in force, like the queue page does', async ()
     page.elements['ov-rules'].children.map((n) => n.textContent),
     page.elements['rules-chips'].children.map((n) => n.textContent)
   );
+});
+
+// --- songs ---
+
+test('the song overlay has its own tab, address and copy button, and the one that is for songs on the Overlay page', async () => {
+  const page = await ready({ stored: 'tok en' });
+  assert.equal(page.elements['song-shown'].textContent, 'localhost:8787/overlay/song/');
+  page.elements['copy-song'].fire('click');
+  await settle();
+  assert.equal(page.log.clipboard, 'http://localhost:8787/overlay/song/?token=tok%20en');
+  assert.ok(html.indexOf('id="otab-song"') > html.indexOf('id="otab-mediashare"') && html.indexOf('id="otab-song"') < html.indexOf('id="otab-chat-panel"'));
+  assert.match(english['dashboard.overlay.song_hint'], /1920 x 1080/);
+});
+
+test('a request asked for as a song says so in the queue, and a video does not', async () => {
+  const body = snapshot({ queue: { pending: [item(7, { song: true, title: 'A song' }), item(8)], approved: [], now_playing: null } });
+  const page = await ready({ routes: { 'GET /api/state': () => ({ status: 200, body }) } });
+  const tags = (li) => descendants(li).filter((n) => n.classes.has('song-tag')).map((n) => n.textContent);
+  assert.deepEqual(tags(page.elements.pending.children[0]), ['Song']);
+  assert.deepEqual(tags(page.elements.pending.children[1]), []);
+});
+
+test('the rules have a card for songs: their longest length in minutes and their categories', async () => {
+  const page = await ready();
+  assert.equal(page.elements['setting-song_max_duration_secs'].value, '7');
+  assert.equal(page.elements['setting-song_allowed_categories-music'].checked, true);
+  assert.equal(page.elements['setting-song_allowed_categories-entertainment'].checked, true);
+  assert.equal(page.elements['setting-song_allowed_categories-gaming'].checked, false);
+  const updated = snapshot();
+  updated.settings.moderation.song_max_duration_secs = 300;
+  updated.settings.moderation.song_allowed_categories = ['music'];
+  page.table['PATCH /api/settings'] = { status: 200, body: updated };
+  page.elements['setting-song_max_duration_secs'].value = '5';
+  page.elements['setting-song_allowed_categories-entertainment'].checked = false;
+  page.elements['settings-form'].fire('submit');
+  await settle();
+  assert.deepEqual(page.log.requests.find((r) => r.method === 'PATCH').body, { song_max_duration_secs: 300, song_allowed_categories: ['music'] });
 });
