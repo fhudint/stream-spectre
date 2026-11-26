@@ -168,13 +168,15 @@ YouTube videos, and now and then a TikTok one, every few seconds, using the
 commands of `config.example.toml` (`@yt` and `@vt`). The demo approves requests by
 itself, so a YouTube video plays in <http://localhost:8787/overlay/mediashare/>
 without a click; a TikTok one waits for you to approve it, as it always does.
+Every fourth request is a song (`@song`): it plays in
+<http://localhost:8787/overlay/song/>, which you add as a second browser source.
 
 Always use `localhost`, not `127.0.0.1`, in these addresses: see
 [the note on addresses](#use-localhost-not-an-ip-address) below.
 
 To try videos of your own, copy `demo-videos.example.json` to
 `demo-videos.json` (it is git-ignored, like `.env`) and list the videos in it:
-`youtube` takes IDs or links, `tiktok` takes IDs, short link codes or links. A
+`youtube` and `songs` take IDs or links, `tiktok` takes IDs, short link codes or links. A
 key you leave out keeps the built-in list, `[]` turns that source off, and an
 entry the program would not understand is reported and skipped. `DEMO_VIDEOS`
 names another file.

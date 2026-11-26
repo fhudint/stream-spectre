@@ -10,16 +10,18 @@
 //! <http://localhost:8787/overlay/mediashare/> as a browser source (use `localhost`, not
 //! `127.0.0.1`: YouTube's player refuses to play from an IP address). A pretend
 //! viewer asks for a video every few seconds (most add a few words, which the
-//! overlay shows), mostly YouTube and now and then
-//! TikTok; approve one in the dashboard and it plays in the overlay. A TikTok
-//! video has to be skipped by hand when it is over.
+//! overlay shows), mostly YouTube, every third one TikTok and every fourth of the
+//! others a song (`@song`, played by <http://localhost:8787/overlay/song/>, a
+//! second browser source). Requests are approved by themselves, except TikTok
+//! ones, which wait for you. A TikTok video has to be skipped by hand when it is
+//! over.
 //!
 //! **Which videos.** By default a short built-in list. To try your own, copy
 //! `demo-videos.example.json` to `demo-videos.json` (git-ignored, like `.env`)
 //! and put the videos in it:
 //!
 //! ```json
-//! { "youtube": ["dQw4w9WgXcQ"], "tiktok": ["7700124541145599252"] }
+//! { "youtube": ["dQw4w9WgXcQ"], "tiktok": ["7700124541145599252"], "songs": ["9bZkp7q19f0"] }
 //! ```
 //!
 //! An entry is what a viewer would type after the command: for YouTube an ID or
@@ -69,12 +71,15 @@ const DEFAULT_YOUTUBE: [&str; 5] = [
     "M7lc1UVf-VE",
 ];
 const DEFAULT_TIKTOK: [&str; 2] = ["7700124541145599252", "7219950637247728923"];
+/// Songs, which are YouTube videos too, asked for with the song command.
+const DEFAULT_SONGS: [&str; 3] = ["dQw4w9WgXcQ", "9bZkp7q19f0", "kJQP7kiw5Fk"];
 
 /// The videos the pretend viewers ask for, as they would type them.
 #[derive(Clone)]
 struct Videos {
     youtube: Vec<String>,
     tiktok: Vec<String>,
+    songs: Vec<String>,
 }
 
 /// `demo-videos.json`. A key that is left out keeps the built-in list.
@@ -83,6 +88,7 @@ struct Videos {
 struct VideosFile {
     youtube: Option<Vec<String>>,
     tiktok: Option<Vec<String>>,
+    songs: Option<Vec<String>>,
 }
 
 impl Videos {
@@ -91,6 +97,7 @@ impl Videos {
         Self {
             youtube: own(&DEFAULT_YOUTUBE),
             tiktok: own(&DEFAULT_TIKTOK),
+            songs: own(&DEFAULT_SONGS),
         }
     }
 
@@ -131,6 +138,9 @@ impl Videos {
                     extract_tiktok_ref(entry).is_some()
                 })
             }),
+            songs: file.songs.map_or(built_in.songs, |entries| {
+                keep(entries, "song", |entry| extract_video_id(entry).is_some())
+            }),
         })
     }
 
@@ -150,17 +160,19 @@ impl Videos {
         };
         let videos = Self::from_file(&path)?;
         println!(
-            "videos:    {} ({} YouTube, {} TikTok)",
+            "videos:    {} ({} YouTube, {} TikTok, {} songs)",
             path.display(),
             videos.youtube.len(),
-            videos.tiktok.len()
+            videos.tiktok.len(),
+            videos.songs.len()
         );
         Ok(videos)
     }
 }
 
-/// Every how many requests one is for TikTok.
+/// Every how many requests one is for TikTok, and (of the others) for a song.
 const TIKTOK_EVERY: usize = 3;
+const SONG_EVERY: usize = 4;
 
 const VIEWERS: [&str; 4] = ["Budi", "Sari", "Dewi", "Agus"];
 
@@ -211,6 +223,7 @@ struct Plan {
 struct Commands {
     youtube: Option<String>,
     tiktok: Option<String>,
+    song: Option<String>,
 }
 
 impl Commands {
@@ -225,36 +238,50 @@ impl Commands {
         Self {
             youtube: first(CommandSource::Youtube),
             tiktok: first(CommandSource::Tiktok),
+            song: first(CommandSource::Song),
         }
     }
 }
 
-/// The text of round `round`'s request: mostly YouTube, every third one
-/// TikTok. A source with no command in the settings or no video in the list is
-/// left out, and the other one is used for everything.
-fn request_text(commands: &Commands, videos: &Videos, round: usize) -> Option<String> {
-    let youtube = commands
-        .youtube
-        .as_ref()
-        .filter(|_| !videos.youtube.is_empty())
-        .map(|command| (command, &videos.youtube));
-    let tiktok = commands
-        .tiktok
-        .as_ref()
-        .filter(|_| !videos.tiktok.is_empty())
-        .map(|command| (command, &videos.tiktok));
-    let wants_tiktok = round % TIKTOK_EVERY == TIKTOK_EVERY - 1;
-    let (command, list) = match (youtube, tiktok) {
-        (_, Some(chosen)) if wants_tiktok => chosen,
-        (Some(chosen), _) | (None, Some(chosen)) => chosen,
-        (None, None) => return None,
-    };
-    // Each source keeps its own turn, so every video comes up in time.
-    let turn = if wants_tiktok {
-        round / TIKTOK_EVERY
+/// What round `round` asks for: every third request is TikTok, every fourth of
+/// the rest a song, and the others YouTube videos.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Kind {
+    Youtube,
+    Tiktok,
+    Song,
+}
+
+fn kind_of(round: usize) -> Kind {
+    if round % TIKTOK_EVERY == TIKTOK_EVERY - 1 {
+        Kind::Tiktok
+    } else if round % SONG_EVERY == SONG_EVERY - 1 {
+        Kind::Song
     } else {
-        round - round / TIKTOK_EVERY
+        Kind::Youtube
+    }
+}
+
+/// The text of round `round`'s request. A kind with no command in the settings
+/// or no video in the list is left out, and another one is used in its place.
+fn request_text(commands: &Commands, videos: &Videos, round: usize) -> Option<String> {
+    let choice = |kind: Kind| match kind {
+        Kind::Youtube => commands.youtube.as_ref().map(|c| (c, &videos.youtube)),
+        Kind::Tiktok => commands.tiktok.as_ref().map(|c| (c, &videos.tiktok)),
+        Kind::Song => commands.song.as_ref().map(|c| (c, &videos.songs)),
     };
+    let wanted = kind_of(round);
+    let (kind, command, list) = [wanted, Kind::Youtube, Kind::Tiktok, Kind::Song]
+        .into_iter()
+        .find_map(|kind| {
+            choice(kind)
+                .filter(|(_, list)| !list.is_empty())
+                .map(|(command, list)| (kind, command, list))
+        })?;
+    // Each kind keeps its own turn, so every video comes up in time.
+    let turn = (0..round)
+        .filter(|earlier| kind_of(*earlier) == kind)
+        .count();
     let message = MESSAGES[round % MESSAGES.len()];
     Some(format!("{command} {} {message}", list[turn % list.len()]))
 }
@@ -340,6 +367,7 @@ async fn main() -> anyhow::Result<()> {
     let host = server::browser_host(address);
     println!("dashboard: http://{host}/dashboard/");
     println!("overlay:   http://{host}/overlay/mediashare/");
+    println!("songs:     http://{host}/overlay/song/");
 
     pipeline.chat_status(
         ChatSourceKind::Tiktok,
