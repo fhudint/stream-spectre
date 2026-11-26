@@ -30,8 +30,9 @@
 //! understood is reported and skipped. `DEMO_VIDEOS` names another file.
 //!
 //! The settings are those of `config.example.toml` (so the commands are the
-//! ones written there, `!yt` and `!vt`), with a made-up TikTok username and no
-//! cooldown. Nothing is saved to disk. `DEMO_PORT` changes the port.
+//! ones written there, `!yt` and `!vt`), with a made-up TikTok username, no
+//! cooldown and automatic approval (a TikTok video still waits for you, as in
+//! the real application). Nothing is saved to disk. `DEMO_PORT` changes the port.
 //! `DASHBOARD_TOKEN` turns on the token check, as in the real application.
 //! YouTube titles are made up; the videos themselves are real, so the overlay
 //! plays them for real.
@@ -44,7 +45,9 @@ use std::time::Duration;
 use anyhow::Context;
 use stream_spectre::app::{Credentials, Pipeline};
 use stream_spectre::chat::{ChatMessage, ChatStatus, Role, Sender};
-use stream_spectre::config::{self, ChatSourceKind, CommandConfig, CommandSource, Secret};
+use stream_spectre::config::{
+    self, ChatSourceKind, CommandConfig, CommandSource, ModerationMode, Secret,
+};
 use stream_spectre::i18n::I18n;
 use stream_spectre::tiktok::extract_tiktok_ref;
 use stream_spectre::youtube::{
@@ -318,6 +321,9 @@ async fn main() -> anyhow::Result<()> {
     )?;
     config.chat.tiktok.username = "demo_streamer".to_owned();
     config.moderation.cooldown_secs = 0;
+    // Requests are approved at once, so the overlay plays without anyone
+    // pressing anything. (A TikTok video always waits for a person.)
+    config.moderation.mode = ModerationMode::Auto;
     config.validate()?;
     let plan = Plan {
         commands: Commands::from_config(&config.command),

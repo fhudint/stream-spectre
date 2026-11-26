@@ -165,8 +165,9 @@ cargo run --example demo
 
 Open <http://localhost:8787/dashboard/>. Pretend viewers send real public
 YouTube videos, and now and then a TikTok one, every few seconds, using the
-commands of `config.example.toml` (`@yt` and `@vt`); approve one and it plays in
-<http://localhost:8787/overlay/mediashare/>.
+commands of `config.example.toml` (`@yt` and `@vt`). The demo approves requests by
+itself, so a YouTube video plays in <http://localhost:8787/overlay/mediashare/>
+without a click; a TikTok one waits for you to approve it, as it always does.
 
 Always use `localhost`, not `127.0.0.1`, in these addresses: see
 [the note on addresses](#use-localhost-not-an-ip-address) below.
