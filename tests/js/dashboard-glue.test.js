@@ -2243,9 +2243,10 @@ test('the keyboard hint lists P', () => {
 const commandPatches = (page) => page.log.requests.filter((r) => r.path === '/api/commands');
 const commandRows = (page) =>
   page.elements['commands-rows'].children.map((row) => ({
-    name: row.children[0],
-    source: row.children[1],
-    remove: row.children[2],
+    enabled: row.children[0],
+    name: row.children[1],
+    source: row.children[2],
+    remove: row.children[3],
   }));
 const typedCommands = (page) => commandRows(page).map((row) => [row.name.value, row.source.value]);
 const withCommands = (command) => {
@@ -2286,11 +2287,25 @@ test('adding a word and saving sends the whole list, and shows the answer', asyn
   assert.equal(commandPatches(page).length, 1);
   assert.deepEqual(commandPatches(page)[0].body, {
     prefix: '!',
-    commands: [{ name: 'v', source: 'youtube' }, { name: 'vt', source: 'youtube' }],
+    commands: [{ name: 'v', source: 'youtube', enabled: true }, { name: 'vt', source: 'youtube', enabled: true }],
   });
   assert.deepEqual(typedCommands(page), [['v', 'youtube'], ['vt', 'youtube']]);
   assert.equal(page.elements.flash.textContent, 'Chat commands saved');
   assert.ok(page.elements.error.hidden);
+});
+
+test('a word can be turned off and on again without being removed', async () => {
+  const page = await ready();
+  page.table['PATCH /api/commands'] = { status: 200, body: withCommands({ prefix: '!', commands: [{ name: 'v', source: 'youtube', enabled: false }] }) };
+  assert.equal(commandRows(page)[0].enabled.checked, true);
+  commandRows(page)[0].enabled.checked = false;
+  commandRows(page)[0].enabled.fire('change');
+  page.elements['commands-form'].fire('submit');
+  await settle();
+  assert.deepEqual(commandPatches(page)[0].body.commands, [{ name: 'v', source: 'youtube', enabled: false }]);
+  assert.equal(commandRows(page)[0].enabled.checked, false);
+  // A word that is off is not offered to viewers as an example.
+  assert.equal(page.elements['commands-example'].textContent, '');
 });
 
 test('the prefix can be changed on its own', async () => {
@@ -2299,7 +2314,7 @@ test('the prefix can be changed on its own', async () => {
   page.elements['commands-prefix'].value = '?';
   page.elements['commands-form'].fire('submit');
   await settle();
-  assert.deepEqual(commandPatches(page)[0].body, { prefix: '?', commands: [{ name: 'v', source: 'youtube' }] });
+  assert.deepEqual(commandPatches(page)[0].body, { prefix: '?', commands: [{ name: 'v', source: 'youtube', enabled: true }] });
   assert.equal(page.elements['commands-example'].textContent, 'Example: ?v dQw4w9WgXcQ');
 });
 
@@ -2314,7 +2329,7 @@ test('a word can be removed, and a changed word is sent', async () => {
   commandRows(page)[0].name.value = 'clip';
   page.elements['commands-form'].fire('submit');
   await settle();
-  assert.deepEqual(commandPatches(page)[0].body.commands, [{ name: 'clip', source: 'youtube' }]);
+  assert.deepEqual(commandPatches(page)[0].body.commands, [{ name: 'clip', source: 'youtube', enabled: true }]);
 });
 
 test('saving what is already in force sends nothing and tidies what was typed', async () => {
@@ -2530,7 +2545,7 @@ test('a command can be given the TikTok source on the rules page', async () => {
   page.table['PATCH /api/commands'] = { status: 200, body: saved };
   page.elements['commands-form'].fire('submit');
   await settle();
-  assert.deepEqual(commandPatches(page)[0].body.commands, [{ name: 'v', source: 'youtube' }, { name: 'vt', source: 'tiktok' }]);
+  assert.deepEqual(commandPatches(page)[0].body.commands, [{ name: 'v', source: 'youtube', enabled: true }, { name: 'vt', source: 'tiktok', enabled: true }]);
   assert.deepEqual(typedCommands(page), [['v', 'youtube'], ['vt', 'tiktok']]);
   assert.ok(page.elements['rules-chips'].children.some((chip) => chip.textContent === 'Commands !v !vt'));
 });

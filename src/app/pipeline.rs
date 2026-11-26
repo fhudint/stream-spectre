@@ -358,7 +358,7 @@ impl<S: VideoSource> Pipeline<S> {
         self.show_chat(
             &sender,
             &text,
-            !matches!(parsed, Parsed::NotACommand),
+            !matches!(parsed, Parsed::NotACommand | Parsed::Disabled { .. }),
             false,
             now,
         );
@@ -369,6 +369,20 @@ impl<S: VideoSource> Pipeline<S> {
 
         match parsed {
             Parsed::NotACommand => {}
+            Parsed::Disabled { name } => {
+                // Quiet to the viewer; only the moderators are told.
+                if self.lock().gatekeeper.check_sender(&sender).is_ok() {
+                    let text = self
+                        .i18n
+                        .t_with("notice.command_disabled", &[("command", &name)]);
+                    self.notice(
+                        NoticeLevel::Info,
+                        "notice.command_disabled",
+                        text,
+                        Some(&sender),
+                    );
+                }
+            }
             Parsed::Invalid { source, reason } => {
                 self.tell_invalid(&parser, &sender, source, reason);
             }
@@ -2178,6 +2192,27 @@ mod tests {
             2,
             "the third result was not looked at"
         );
+    }
+
+    #[tokio::test]
+    async fn a_command_that_is_turned_off_is_plain_chat_and_only_the_moderators_hear_of_it() {
+        let mut config = search_config(|_| {});
+        for command in &mut config.command.commands {
+            command.enabled = command.source != CommandSource::Search;
+        }
+        let p = pipeline(&config);
+        let mut rx = p.subscribe();
+        say(&p, sender(1, Role::Follower), "!req dirimu melodi").await;
+        let events = drain_all(&mut rx);
+        assert!(p.lookup.source().searches().is_empty());
+        assert!(p.hello().queue.pending.is_empty());
+        let told = notice_texts(&events);
+        assert_eq!(told.len(), 1);
+        assert!(told[0].contains("!req"), "{told:?}");
+        assert!(events.iter().any(|e| matches!(
+            &e.event,
+            Event::ChatMessage(line) if !line.command
+        )));
     }
 
     #[tokio::test]

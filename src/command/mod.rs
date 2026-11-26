@@ -26,6 +26,9 @@ pub enum InvalidReason {
 pub enum Parsed {
     /// Ordinary chat; ignore it.
     NotACommand,
+    /// A command that is turned off. Plain chat to everyone but the
+    /// moderators, who are told.
+    Disabled { name: String },
     /// A video command with an unusable argument; worth telling the sender.
     /// `source` is the one the command is for.
     Invalid {
@@ -71,7 +74,7 @@ impl CommandParser {
     pub fn command_for(&self, source: CommandSource) -> Option<String> {
         self.commands
             .iter()
-            .find(|command| command.source == source)
+            .find(|command| command.enabled && command.source == source)
             .map(|command| format!("{}{}", self.prefix, command.name))
     }
 
@@ -100,6 +103,11 @@ impl CommandParser {
         else {
             return Parsed::NotACommand;
         };
+        if !command.enabled {
+            return Parsed::Disabled {
+                name: format!("{}{}", self.prefix, command.name),
+            };
+        }
 
         let source = command.source;
         let invalid = |reason| Parsed::Invalid { source, reason };
@@ -598,6 +606,27 @@ mod tests {
             videos > 100,
             "generator should hit valid commands too ({videos})"
         );
+    }
+
+    #[test]
+    fn a_command_that_is_turned_off_is_known_but_does_nothing() {
+        let mut off = CommandEntry::search("req");
+        off.enabled = false;
+        let parser = CommandParser::new(&CommandConfig {
+            prefix: "@".to_owned(),
+            commands: vec![CommandEntry::youtube("yt"), off],
+        });
+        assert_eq!(
+            parser.parse("@REQ dirimu melodi"),
+            Parsed::Disabled {
+                name: "@req".to_owned()
+            }
+        );
+        assert_eq!(parser.command_for(CommandSource::Search), None);
+        assert!(matches!(
+            parser.parse(&format!("@yt {ID}")),
+            Parsed::Youtube { .. }
+        ));
     }
 
     #[test]

@@ -1032,7 +1032,7 @@
       var key = name.toLowerCase();
       if (seen[key]) return { error: 'duplicate', index: i };
       seen[key] = true;
-      commands.push({ name: name, source: rows[i].source });
+      commands.push({ name: name, source: rows[i].source, enabled: rows[i].enabled !== false });
     }
     return { value: { prefix: prefix, commands: commands } };
   }
@@ -1040,9 +1040,13 @@
   /* What a viewer types for a command, like "!vt". */
   function commandWords(command) {
     if (!isObject(command) || !Array.isArray(command.commands)) return [];
-    return command.commands.map(function (entry) {
-      return String(command.prefix) + String(entry.name);
-    });
+    return command.commands
+      .filter(function (entry) {
+        return entry.enabled !== false;
+      })
+      .map(function (entry) {
+        return String(command.prefix) + String(entry.name);
+      });
   }
 
   return {

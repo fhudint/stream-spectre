@@ -161,6 +161,14 @@ pub struct CommandEntry {
     /// The word after the prefix, without it (`v` for `!v`).
     pub name: String,
     pub source: CommandSource,
+    /// A command that is turned off stays in the list but is read as plain
+    /// chat; the moderators are told when a viewer tries it.
+    #[serde(default = "enabled_by_default")]
+    pub enabled: bool,
+}
+
+fn enabled_by_default() -> bool {
+    true
 }
 
 impl CommandEntry {
@@ -168,6 +176,7 @@ impl CommandEntry {
         Self {
             name: name.into(),
             source: CommandSource::Youtube,
+            enabled: true,
         }
     }
 
@@ -175,6 +184,7 @@ impl CommandEntry {
         Self {
             name: name.into(),
             source: CommandSource::Tiktok,
+            enabled: true,
         }
     }
 
@@ -182,6 +192,7 @@ impl CommandEntry {
         Self {
             name: name.into(),
             source: CommandSource::Song,
+            enabled: true,
         }
     }
 
@@ -189,6 +200,7 @@ impl CommandEntry {
         Self {
             name: name.into(),
             source: CommandSource::Search,
+            enabled: true,
         }
     }
 }

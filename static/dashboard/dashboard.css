@@ -743,7 +743,7 @@ button[data-action='approve']:hover, button[data-action='pause']:hover { backgro
 .field label, .field-label { color: var(--muted); }
 input[type='text'].short { max-width: 120px; }
 .command-rows { display: flex; flex-direction: column; gap: 10px; }
-.command-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 160px) auto; gap: 8px; align-items: center; }
+.command-row { display: grid; grid-template-columns: auto minmax(0, 1fr) minmax(0, 160px) auto; gap: 8px; align-items: center; }
 .command-row button:disabled { opacity: 0.4; cursor: default; }
 .address { padding: 10px 12px; border-radius: 12px; background: var(--button); overflow-wrap: anywhere; }
 
@@ -794,9 +794,10 @@ input[type='text'].short { max-width: 120px; }
   .toggle { min-height: 44px; padding: 0 14px; }
   input[type='checkbox'] { width: 18px; height: 18px; }
 
-  .command-row { grid-template-columns: minmax(0, 1fr) auto; }
-  .command-row select { grid-column: 1; }
-  .command-row button { grid-row: 1 / span 2; grid-column: 2; }
+  .command-row { grid-template-columns: auto minmax(0, 1fr) auto; }
+  .command-row input[type="checkbox"] { grid-row: 1 / span 2; }
+  .command-row select { grid-column: 2; }
+  .command-row button { grid-row: 1 / span 2; grid-column: 3; }
 
   .queue-grid { grid-template-columns: 1fr; }
   .today, .rules, .keys, .rail-toggle { display: none; }

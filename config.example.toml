@@ -82,6 +82,8 @@ commands = [
   { name = "song", source = "song" },
   { name = "req", source = "search" },
 ]
+# Add `enabled = false` to a command to turn it off without removing it: chat
+# that starts with it is then read as plain chat, and the dashboard says so.
 # An older file with `name = "v"` instead of `commands` still works.
 
 [youtube]

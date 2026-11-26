@@ -725,10 +725,13 @@ test('the pause comes with hello and playback_paused, and any new video or empty
 
 test('the commands form is read the way the server will take it', () => {
   const row = (name, source = 'youtube') => ({ name, source });
-  assert.deepEqual(core.readCommands({ prefix: '!', commands: [row('v')] }), { value: { prefix: '!', commands: [row('v')] } });
+  const on = (r) => ({ ...r, enabled: true });
+  assert.deepEqual(core.readCommands({ prefix: '!', commands: [row('v')] }), { value: { prefix: '!', commands: [on(row('v'))] } });
+  // A word that is turned off is kept as it is.
+  assert.equal(core.readCommands({ prefix: '!', commands: [{ ...row('v'), enabled: false }] }).value.commands[0].enabled, false);
   // Spaces around are dropped, and so is a prefix typed in front of a word.
   assert.deepEqual(core.readCommands({ prefix: ' ? ', commands: [row(' ?vt '), row('yt')] }), {
-    value: { prefix: '?', commands: [row('vt'), row('yt')] },
+    value: { prefix: '?', commands: [on(row('vt')), on(row('yt'))] },
   });
   assert.deepEqual(core.readCommands({ prefix: '!?', commands: [row('a_1')] }).value.prefix, '!?');
   assert.deepEqual(core.readCommands({ prefix: '😀', commands: [row('v')] }).value.prefix, '😀');
@@ -757,6 +760,7 @@ test('the commands form is read the way the server will take it', () => {
 
 test('the commands are shown the way viewers type them', () => {
   assert.deepEqual(core.commandWords({ prefix: '!', commands: [{ name: 'v' }, { name: 'yt' }] }), ['!v', '!yt']);
+  assert.deepEqual(core.commandWords({ prefix: '!', commands: [{ name: 'v' }, { name: 'req', enabled: false }] }), ['!v']);
   assert.deepEqual(core.commandWords(null), []);
   assert.deepEqual(core.commandWords({ prefix: '!' }), []);
   const say = (key, values) => `${key}${JSON.stringify(values)}`;

@@ -1312,7 +1312,9 @@
     var command = state.settings && state.settings.command;
     if (!command || !Array.isArray(command.commands) || command.commands.length === 0) return;
     var words = core.commandWords(command);
-    $('commands-example').textContent = tf('dashboard.commands.example', { example: words[0] + ' dQw4w9WgXcQ' });
+    $('commands-example').textContent = words.length
+      ? tf('dashboard.commands.example', { example: words[0] + ' dQw4w9WgXcQ' })
+      : '';
     if (!commandsDirty) showCommands();
   }
 
@@ -1330,7 +1332,7 @@
   /* What is typed in the rows now. */
   function readCommandRows() {
     return commandRefs.map(function (row) {
-      return { name: row.name.value, source: row.source.value };
+      return { name: row.name.value, source: row.source.value, enabled: row.enabled.checked };
     });
   }
 
@@ -1361,6 +1363,11 @@
         })
       );
       source.value = String(entry.source);
+      var enabled = h('input', {
+        attrs: { id: 'command-enabled-' + index, type: 'checkbox', 'aria-label': t('dashboard.commands.enabled') },
+        on: { change: markCommandsDirty },
+      });
+      enabled.checked = entry.enabled !== false;
       var remove = h('button', {
         text: t('dashboard.commands.remove'),
         attrs: { type: 'button', 'data-action': 'remove-command' },
@@ -1376,8 +1383,8 @@
       });
       // The last word cannot go: there must be a command.
       remove.disabled = entries.length <= 1;
-      list.appendChild(h('div', { className: 'command-row' }, [name, source, remove]));
-      return { name: name, source: source };
+      list.appendChild(h('div', { className: 'command-row' }, [enabled, name, source, remove]));
+      return { name: name, source: source, enabled: enabled };
     });
   }
 
@@ -1412,7 +1419,7 @@
       JSON.stringify({
         prefix: current.prefix,
         commands: current.commands.map(function (entry) {
-          return { name: entry.name, source: entry.source };
+          return { name: entry.name, source: entry.source, enabled: entry.enabled !== false };
         }),
       }) === JSON.stringify(read.value);
     if (same) {
@@ -1699,7 +1706,7 @@
     $('commands-prefix').addEventListener('input', markCommandsDirty);
     $('commands-add').addEventListener('click', function () {
       changeCommandRows(function (rows) {
-        return rows.concat([{ name: '', source: core.COMMAND_SOURCES[0] }]);
+        return rows.concat([{ name: '', source: core.COMMAND_SOURCES[0], enabled: true }]);
       });
       var last = commandRefs[commandRefs.length - 1];
       if (last) last.name.focus();
