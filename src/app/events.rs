@@ -207,6 +207,9 @@ pub struct StatsView {
     pub approved: u64,
     /// Requests rejected by a moderator, before or after approval.
     pub rejected: u64,
+    /// Searches by title today that used the YouTube API (100 quota units
+    /// each); the day is the UTC day, as seen at the last search.
+    pub searches_today: u32,
 }
 
 /// Sent to each client right after it connects.
@@ -732,6 +735,7 @@ mod tests {
                 received: 5,
                 approved: 3,
                 rejected: 1,
+                searches_today: 0,
             },
             playback_paused: true,
         };
@@ -740,7 +744,7 @@ mod tests {
         let data = &value["data"];
         assert_eq!(
             data["stats"],
-            json!({"since_ms": 1000, "received": 5, "approved": 3, "rejected": 1})
+            json!({"since_ms": 1000, "received": 5, "approved": 3, "rejected": 1, "searches_today": 0})
         );
         assert_eq!(data["playback_paused"], true);
         assert_eq!(data["server_version"], "1.2.3");
@@ -817,6 +821,7 @@ mod tests {
                 received: 5,
                 approved: 3,
                 rejected: 1,
+                searches_today: 0,
             },
             playback_paused: true,
         };
@@ -901,10 +906,11 @@ mod tests {
                 since_ms: 5,
                 received: 4,
                 approved: 3,
-                rejected: 1
+                rejected: 1,
+                searches_today: 2
             })),
             json!({"type": "stats_updated", "data": {
-                "since_ms": 5, "received": 4, "approved": 3, "rejected": 1
+                "since_ms": 5, "received": 4, "approved": 3, "rejected": 1, "searches_today": 2
             }})
         );
         assert_eq!(

@@ -63,10 +63,12 @@ port = 8787
 # for YouTube, "@vt 7700124541145599252" for TikTok (a TikTok video ID, the
 # code of a short link such as ZSpGELffb, or a link) or "@song dQw4w9WgXcQ" for
 # a song (a YouTube video, played by the song overlay with the rules for songs
-# below).
+# below), or "@req dirimu melodi" for a song looked for by its title (the first
+# result that passes the rules for songs waits for approval like any request).
 # One prefix (1 to 4 characters, no spaces) is shared by every command. Each
 # command is a name (letters, digits and _, at most 32; capitals do not count)
-# and the source its links come from: "youtube", "tiktok" or "song". A command takes
+# and the source its links come from: "youtube", "tiktok", "song" or "search"
+# (words to look for, not a link). A command takes
 # only links and IDs of its own source. TikTok videos always wait for a
 # moderator, even in automatic mode. Up to 8 commands, no name twice. Several
 # names for one source work like several words for the same thing. Also
@@ -78,6 +80,7 @@ commands = [
   { name = "yt", source = "youtube" },
   { name = "vt", source = "tiktok" },
   { name = "song", source = "song" },
+  { name = "req", source = "search" },
 ]
 # An older file with `name = "v"` instead of `commands` still works.
 
@@ -115,6 +118,11 @@ allowed_categories = []
 # allowed by default; empty means any category. A Shorts link is no song.
 song_max_duration_secs = 420
 song_allowed_categories = ["music", "entertainment"]
+# Searching a song by its title tries YouTube's own search page first, which costs
+# no quota. Only when that does not answer is the YouTube Data API used: 100 of the
+# 10,000 quota units of a day for each search. This is the most such searches a
+# day; 0 never uses the API for it (the page alone is tried).
+search_daily_limit = 30
 
 # --- the YouTube chat ---
 # Minimum role: "viewer" (anyone), "member" (of the channel) or "moderator".

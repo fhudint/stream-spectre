@@ -772,6 +772,11 @@
 
   function renderToday() {
     var stats = state.stats;
+    var moderation = state.settings && state.settings.moderation;
+    $('search-used').textContent =
+      moderation && typeof moderation.search_daily_limit === 'number'
+        ? tf('dashboard.rules.search_used', { used: stats.searches_today, limit: moderation.search_daily_limit })
+        : '';
     $('stat-received').textContent = String(stats.received);
     $('stat-approved').textContent = String(stats.approved);
     $('stat-rejected').textContent = String(stats.rejected);
@@ -1673,9 +1678,10 @@
           return spec.tab === tab && spec.group === group;
         });
         if (specs.length === 0) return;
-        rulesPanels[tab].appendChild(
-          h('div', { className: 'card page-card' }, [h('h2', { text: t('dashboard.rules.group.' + group) })].concat(specs.map(settingControl)))
-        );
+        var card = h('div', { className: 'card page-card' }, [h('h2', { text: t('dashboard.rules.group.' + group) })].concat(specs.map(settingControl)));
+        // How much of the day's searches with the API is used, under the songs' rules.
+        if (group === 'songs') card.appendChild($('search-used'));
+        rulesPanels[tab].appendChild(card);
       });
     });
     core.SETTINGS_FIELDS.forEach(function (spec) {

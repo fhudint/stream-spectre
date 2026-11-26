@@ -8,6 +8,7 @@ use url::Url;
 use super::error::YoutubeError;
 use super::model::VideoDetails;
 use super::response::{PARTS, interpret_response};
+use super::search::{MAX_RESULTS, SearchResult, ids_from_api, ids_from_page};
 use super::video_id::VideoId;
 use crate::config::Secret;
 
@@ -19,6 +20,18 @@ pub trait VideoSource: Send + Sync {
         &self,
         id: &VideoId,
     ) -> impl Future<Output = Result<Option<VideoDetails>, YoutubeError>> + Send;
+
+    /// Looks for a video by words: YouTube's own search page first, which
+    /// costs no quota, and the Data API (100 quota units) only when
+    /// `official_allowed` and the page did not give an answer. Sources that
+    /// cannot search find nothing.
+    fn search(
+        &self,
+        _query: &str,
+        _official_allowed: bool,
+    ) -> impl Future<Output = Result<SearchResult, YoutubeError>> + Send {
+        async { Ok(SearchResult::default()) }
+    }
 
     /// Uses another API key from now on (`None`: no key). Sources that have
     /// no key ignore this. On an error nothing changes.
@@ -42,7 +55,15 @@ const CHECK_VIDEO_ID: &str = "dQw4w9WgXcQ";
 
 const DEFAULT_BASE_URL: &str = "https://www.googleapis.com/";
 const VIDEOS_PATH: &str = "youtube/v3/videos";
+const SEARCH_PATH: &str = "youtube/v3/search";
 const API_KEY_HEADER: &str = "x-goog-api-key";
+
+/// YouTube's own search, asked the way its web page asks it. No key, no quota.
+const PAGE_SEARCH_URL: &str = "https://www.youtube.com/youtubei/v1/search?prettyPrint=false";
+/// Which version of its web page the question says it comes from.
+const PAGE_CLIENT_VERSION: &str = "2.20240101.00.00";
+/// The answer of the search page is a few hundred kilobytes.
+const MAX_PAGE_BYTES: usize = 3 * 1024 * 1024;
 
 /// A `videos.list` response is a few kilobytes; anything near this is wrong.
 const MAX_BODY_BYTES: usize = 1024 * 1024;
@@ -58,6 +79,9 @@ pub struct YoutubeClient {
     http: Arc<RwLock<Option<reqwest::Client>>>,
     base_url: Url,
     timeout: Duration,
+    /// For YouTube's own search page; carries no key.
+    page: reqwest::Client,
+    page_url: Url,
 }
 
 impl YoutubeClient {
@@ -78,11 +102,24 @@ impl YoutubeClient {
         let http = api_key
             .map(|key| build_http(key, timeout, &base_url))
             .transpose()?;
+        let page_url = Url::parse(PAGE_SEARCH_URL)
+            .map_err(|_| YoutubeError::BadResponse("invalid built-in search URL"))?;
+        let page = build_page_http(timeout, &page_url)?;
         Ok(Self {
             http: Arc::new(RwLock::new(http)),
             base_url,
             timeout,
+            page,
+            page_url,
         })
+    }
+
+    /// Asks another address than YouTube's for the search page (for tests).
+    #[cfg(test)]
+    fn with_page_url(mut self, page_url: Url) -> Result<Self, YoutubeError> {
+        self.page = build_page_http(self.timeout, &page_url)?;
+        self.page_url = page_url;
+        Ok(self)
     }
 
     fn current_http(&self) -> Option<reqwest::Client> {
@@ -124,6 +161,91 @@ impl YoutubeClient {
 
         interpret_response(id, status, &body)
     }
+
+    /// The answer to `body` from `http` as bytes, and the status, refusing one
+    /// that is too big.
+    async fn read(
+        response: reqwest::Response,
+        limit: usize,
+    ) -> Result<(u16, Vec<u8>), YoutubeError> {
+        let mut response = response;
+        let status = response.status().as_u16();
+        let mut body: Vec<u8> = Vec::new();
+        while let Some(chunk) = response.chunk().await.map_err(|e| describe(&e))? {
+            if body.len() + chunk.len() > limit {
+                return Err(YoutubeError::ResponseTooLarge);
+            }
+            body.extend_from_slice(&chunk);
+        }
+        Ok((status, body))
+    }
+
+    /// YouTube's own search. `Ok(None)`: the answer is not what is expected.
+    async fn search_page(&self, query: &str) -> Result<Option<Vec<VideoId>>, YoutubeError> {
+        let question = serde_json::json!({
+            "context": {"client": {
+                "clientName": "WEB",
+                "clientVersion": PAGE_CLIENT_VERSION,
+                "hl": "en",
+                "gl": "US",
+            }},
+            "query": query,
+        });
+        let question = serde_json::to_vec(&question)
+            .map_err(|_| YoutubeError::BadResponse("cannot build the search question"))?;
+        let response = self
+            .page
+            .post(self.page_url.clone())
+            .header(reqwest::header::CONTENT_TYPE, "application/json")
+            .body(question)
+            .send()
+            .await
+            .map_err(|e| describe(&e))?;
+        let (status, body) = Self::read(response, MAX_PAGE_BYTES).await?;
+        if status != 200 {
+            return Ok(None);
+        }
+        Ok(ids_from_page(&body))
+    }
+
+    /// The Data API's `search.list`: 100 quota units.
+    async fn search_api(
+        &self,
+        http: &reqwest::Client,
+        query: &str,
+    ) -> Result<Vec<VideoId>, YoutubeError> {
+        let mut url = self.base_url.clone();
+        url.set_path(SEARCH_PATH);
+        url.query_pairs_mut()
+            .clear()
+            .append_pair("part", "id")
+            .append_pair("type", "video")
+            .append_pair("videoEmbeddable", "true")
+            .append_pair("maxResults", &MAX_RESULTS.to_string())
+            .append_pair("q", query);
+        let response = http.get(url).send().await.map_err(|e| describe(&e))?;
+        let (status, body) = Self::read(response, MAX_BODY_BYTES).await?;
+        ids_from_api(status, &body)
+    }
+}
+
+/// An HTTP client for YouTube's search page: no key, nothing sent along.
+fn build_page_http(timeout: Duration, url: &Url) -> Result<reqwest::Client, YoutubeError> {
+    let mut builder = reqwest::Client::builder()
+        .timeout(timeout)
+        .user_agent(concat!(
+            env!("CARGO_PKG_NAME"),
+            "/",
+            env!("CARGO_PKG_VERSION")
+        ))
+        .redirect(reqwest::redirect::Policy::none())
+        .https_only(url.scheme() == "https");
+    if is_loopback_host(url) {
+        builder = builder.no_proxy();
+    }
+    builder
+        .build()
+        .map_err(|_| YoutubeError::Network("cannot build HTTP client"))
 }
 
 /// An HTTP client that sends `api_key` with every request.
@@ -183,6 +305,34 @@ impl VideoSource for YoutubeClient {
             return Err(YoutubeError::NoApiKey);
         };
         self.fetch_via(&http, id).await
+    }
+
+    async fn search(
+        &self,
+        query: &str,
+        official_allowed: bool,
+    ) -> Result<SearchResult, YoutubeError> {
+        match self.search_page(query).await {
+            Ok(Some(ids)) => {
+                return Ok(SearchResult {
+                    ids,
+                    official: false,
+                });
+            }
+            Ok(None) => tracing::warn!("YouTube's search page did not answer as expected"),
+            Err(error) => tracing::debug!(%error, "YouTube's search page could not be read"),
+        }
+        if !official_allowed {
+            return Err(YoutubeError::SearchUnavailable);
+        }
+        let Some(http) = self.current_http() else {
+            return Err(YoutubeError::NoApiKey);
+        };
+        let ids = self.search_api(&http, query).await?;
+        Ok(SearchResult {
+            ids,
+            official: true,
+        })
     }
 
     fn set_api_key(&self, key: Option<&Secret>) -> Result<(), YoutubeError> {
@@ -497,5 +647,105 @@ mod tests {
                 "{url}"
             );
         }
+    }
+
+    // --- searching by words ---
+
+    const FOUND: &str = "aaaaaaaaaaa";
+
+    fn page_with(id: &str) -> String {
+        format!(r#"{{"contents":{{"list":[{{"videoRenderer":{{"videoId":"{id}"}}}}]}}}}"#)
+    }
+
+    fn api_with(id: &str) -> String {
+        format!(r#"{{"items":[{{"id":{{"kind":"youtube#video","videoId":"{id}"}}}}]}}"#)
+    }
+
+    #[tokio::test]
+    async fn a_search_asks_the_page_first_with_no_key_and_no_quota() {
+        let (page, server) = serve_once("200 OK", page_with(FOUND)).await;
+        // Nothing listens on the API address: asking it would fail.
+        let api = Url::parse("http://127.0.0.1:1/").unwrap();
+        let client = client(api).with_page_url(page).unwrap();
+        let found = client.search("dirimu melodi", true).await.unwrap();
+        assert_eq!(found.ids, vec![VideoId::parse(FOUND).unwrap()]);
+        assert!(!found.official);
+        let head = server.await.unwrap();
+        assert!(head.starts_with("POST / "), "{head}");
+        assert_eq!(
+            header_of(&head, "content-type").as_deref(),
+            Some("application/json")
+        );
+        assert!(
+            header_of(&head, "x-goog-api-key").is_none(),
+            "the page gets no key"
+        );
+    }
+
+    #[tokio::test]
+    async fn when_the_page_fails_the_api_is_used_if_allowed() {
+        let (page, _page) = serve_once("200 OK", "{}".to_owned()).await;
+        let (api, server) = serve_once("200 OK", api_with(FOUND)).await;
+        let client = client(api).with_page_url(page).unwrap();
+        let found = client.search("dirimu melodi", true).await.unwrap();
+        assert_eq!(found.ids.len(), 1);
+        assert!(
+            found.official,
+            "the caller counts it against the day's limit"
+        );
+        let head = server.await.unwrap();
+        let request_line = head.lines().next().unwrap();
+        assert!(
+            request_line.starts_with(
+                "GET /youtube/v3/search?part=id&type=video&videoEmbeddable=true&maxResults=5&q=dirimu+melodi "
+            ),
+            "{request_line}"
+        );
+        assert_eq!(header_of(&head, "x-goog-api-key").as_deref(), Some(KEY));
+        assert!(!request_line.contains(KEY));
+    }
+
+    #[tokio::test]
+    async fn a_page_that_found_nothing_is_an_answer_and_does_not_use_the_api() {
+        let (page, _page) = serve_once("200 OK", r#"{"contents":{}}"#.to_owned()).await;
+        let api = Url::parse("http://127.0.0.1:1/").unwrap();
+        let found = client(api)
+            .with_page_url(page)
+            .unwrap()
+            .search("zzzz qqqq", true)
+            .await
+            .unwrap();
+        assert!(found.ids.is_empty() && !found.official);
+    }
+
+    #[tokio::test]
+    async fn without_the_page_the_api_is_not_used_beyond_the_limit_or_without_a_key() {
+        let down = Url::parse("http://127.0.0.1:1/").unwrap();
+        let limited = client(down.clone()).with_page_url(down.clone()).unwrap();
+        assert_eq!(
+            limited.search("x", false).await,
+            Err(YoutubeError::SearchUnavailable)
+        );
+        let keyless = YoutubeClient::with_base_url(None, Duration::from_secs(1), down.clone())
+            .unwrap()
+            .with_page_url(down)
+            .unwrap();
+        assert_eq!(keyless.search("x", true).await, Err(YoutubeError::NoApiKey));
+    }
+
+    #[tokio::test]
+    async fn the_api_saying_the_quota_is_used_up_is_an_error_to_pass_on() {
+        let (page, _page) = serve_once("500 Internal Server Error", "{}".to_owned()).await;
+        let (api, _api) = serve_once(
+            "403 Forbidden",
+            r#"{"error":{"errors":[{"reason":"quotaExceeded"}]}}"#.to_owned(),
+        )
+        .await;
+        let result = client(api)
+            .with_page_url(page)
+            .unwrap()
+            .search("x", true)
+            .await;
+        assert_eq!(result, Err(YoutubeError::QuotaExceeded));
     }
 }

@@ -1,4 +1,4 @@
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant, SystemTime};
 
@@ -95,6 +95,58 @@ impl<T> PerSource<T> {
 /// Both chat sources, TikTok first.
 const CHAT_SOURCES: [ChatSourceKind; 2] = [ChatSourceKind::Tiktok, ChatSourceKind::Youtube];
 
+/// How long the answer to a search by title is kept, and how many are kept.
+const SEARCH_ANSWER_TTL: Duration = Duration::from_secs(10 * 60);
+const SEARCH_ANSWERS_MAX: usize = 200;
+
+/// What the searches by title have used, and what they found lately.
+#[derive(Default)]
+struct Searches {
+    /// The UTC day (days since the Unix epoch) `used` counts for.
+    day: u64,
+    /// Searches of that day that used the YouTube API.
+    used: u32,
+    /// After the API's quota ran out, it is not tried before this.
+    blocked_until: Option<Instant>,
+    /// The ids found for a (lower case) search, and when.
+    answers: HashMap<String, (Instant, Vec<VideoId>)>,
+}
+
+impl Searches {
+    /// Starts counting again on a new day.
+    fn roll_over(&mut self, now_ms: u64) {
+        let day = now_ms / 86_400_000;
+        if day != self.day {
+            self.day = day;
+            self.used = 0;
+        }
+    }
+
+    fn cached(&mut self, key: &str, now: Instant) -> Option<Vec<VideoId>> {
+        match self.answers.get(key) {
+            Some((at, ids)) if now.saturating_duration_since(*at) < SEARCH_ANSWER_TTL => {
+                Some(ids.clone())
+            }
+            Some(_) => {
+                self.answers.remove(key);
+                None
+            }
+            None => None,
+        }
+    }
+
+    fn remember(&mut self, key: String, ids: Vec<VideoId>, now: Instant) {
+        if self.answers.len() >= SEARCH_ANSWERS_MAX {
+            self.answers
+                .retain(|_, (at, _)| now.saturating_duration_since(*at) < SEARCH_ANSWER_TTL);
+        }
+        if self.answers.len() >= SEARCH_ANSWERS_MAX {
+            self.answers.clear();
+        }
+        self.answers.insert(key, (now, ids));
+    }
+}
+
 /// How long a developer notice stays, the most it says, and the wait between two.
 const NOTICE_MILLIS: u64 = 8_000;
 const NOTICE_MAX_CHARS: usize = 120;
@@ -131,6 +183,7 @@ struct Inner {
     learned_duration: Option<(ItemId, u64)>,
     /// When the last developer notice was shown.
     last_notice: Option<Instant>,
+    searches: Searches,
 }
 
 /// What came of a request to pause or resume the playing video.
@@ -210,6 +263,7 @@ impl<S: VideoSource> Pipeline<S> {
                 progress: None,
                 learned_duration: None,
                 last_notice: None,
+                searches: Searches::default(),
             }),
         })
     }
@@ -326,6 +380,9 @@ impl<S: VideoSource> Pipeline<S> {
                 self.request_youtube(sender, id, message, false, true, now)
                     .await;
             }
+            Parsed::Search { query } => {
+                self.request_search(sender, query, now).await;
+            }
             Parsed::Tiktok { target, message } => {
                 self.request_tiktok(sender, target, message, now).await;
             }
@@ -376,13 +433,14 @@ impl<S: VideoSource> Pipeline<S> {
         }
         let own = match source {
             CommandSource::Youtube | CommandSource::Song => "reject.invalid_link",
+            CommandSource::Search => "reject.missing_title",
             CommandSource::Tiktok => "reject.invalid_tiktok_link",
         };
         let (key, text) = match reason {
             InvalidReason::WrongSource(other) => match parser.command_for(other) {
                 Some(command) => {
                     let key = match other {
-                        CommandSource::Youtube | CommandSource::Song => {
+                        CommandSource::Youtube | CommandSource::Song | CommandSource::Search => {
                             "reject.use_youtube_command"
                         }
                         CommandSource::Tiktok => "reject.use_tiktok_command",
@@ -434,21 +492,7 @@ impl<S: VideoSource> Pipeline<S> {
                 return;
             }
             Err(error) => {
-                // Not the sender's fault: give the cooldown back.
-                self.lock().gatekeeper.refund(&sender);
-                if error.is_config_problem() {
-                    tracing::error!(%error, "YouTube lookups are failing; check the API key");
-                } else {
-                    tracing::warn!(%error, "YouTube lookup failed");
-                }
-                let level = if error.is_config_problem() {
-                    NoticeLevel::Error
-                } else {
-                    NoticeLevel::Warning
-                };
-                let text = self.i18n.t(error.notice_key()).to_owned();
-                self.notice(level, error.notice_key(), text.clone(), Some(&sender));
-                self.log_refused(&sender, bare, text);
+                self.lookup_failed(&sender, bare, &error);
                 return;
             }
         };
@@ -460,6 +504,123 @@ impl<S: VideoSource> Pipeline<S> {
             details.into()
         };
         self.enqueue(&sender, media, message);
+    }
+
+    /// A lookup or a search failed through no fault of the sender: they get
+    /// their cooldown back, and the moderators are told.
+    fn lookup_failed(&self, sender: &Sender, subject: Subject, error: &YoutubeError) {
+        self.lock().gatekeeper.refund(sender);
+        if error.is_config_problem() {
+            tracing::error!(%error, "YouTube lookups are failing; check the API key");
+        } else {
+            tracing::warn!(%error, "YouTube lookup failed");
+        }
+        let level = if error.is_config_problem() {
+            NoticeLevel::Error
+        } else {
+            NoticeLevel::Warning
+        };
+        let text = self.i18n.t(error.notice_key()).to_owned();
+        self.notice(level, error.notice_key(), text.clone(), Some(sender));
+        self.log_refused(sender, subject, text);
+    }
+
+    /// A song asked for by its title: the words are searched for, and the
+    /// first result that passes the rules for songs is the request. It waits
+    /// for approval like any other, with the words as its message.
+    async fn request_search(&self, sender: Sender, query: String, now: Instant) {
+        // Stage 1: everything that needs no search. The words stand in for the
+        // video, and for the message, so a banned word in them is refused.
+        let admitted = {
+            let mut inner = self.lock();
+            let waiting = inner.queue.waiting_len();
+            let from_chat = inner.queue.waiting_from(sender.source);
+            let gatekeeper = &mut inner.gatekeeper;
+            gatekeeper
+                .check_sender(&sender)
+                .and_then(|()| gatekeeper.check_share(&sender, from_chat))
+                .and_then(|()| gatekeeper.admit_with_message(&sender, &query, &query, waiting, now))
+        };
+        let subject = Subject::search(&query);
+        if let Err(denial) = admitted {
+            self.deny(&sender, subject, denial);
+            return;
+        }
+
+        let ids = match self.search_ids(&query, now).await {
+            Ok(ids) => ids,
+            Err(error) => {
+                self.lookup_failed(&sender, subject, &error);
+                return;
+            }
+        };
+
+        // Stage 2: the first result that passes the rules for songs. When
+        // none does, the moderators are told why the first one did not.
+        let mut first_refusal = None;
+        for id in ids {
+            match self.lookup.lookup(&id).await {
+                Ok(Some(details)) => {
+                    let verdict = self.lock().gatekeeper.vet_song(&details);
+                    match verdict {
+                        Ok(()) => {
+                            self.enqueue(&sender, Media::Song(details), query);
+                            return;
+                        }
+                        Err(denial) => {
+                            first_refusal.get_or_insert(denial);
+                        }
+                    }
+                }
+                Ok(None) => {}
+                Err(error) => {
+                    self.lookup_failed(&sender, subject, &error);
+                    return;
+                }
+            }
+        }
+        self.deny(
+            &sender,
+            subject,
+            first_refusal.unwrap_or(Denial::NoSongFound),
+        );
+    }
+
+    /// The video ids found for `query`: kept from a search a moment ago, else
+    /// found by YouTube's own page, else (within the day's limit) by the API.
+    async fn search_ids(&self, query: &str, now: Instant) -> Result<Vec<VideoId>, YoutubeError> {
+        let key = query.to_lowercase();
+        let official_allowed = {
+            let mut inner = self.lock();
+            if let Some(ids) = inner.searches.cached(&key, now) {
+                return Ok(ids);
+            }
+            inner.searches.roll_over(unix_ms(SystemTime::now()));
+            let limit = inner.gatekeeper.settings().search_daily_limit;
+            inner.searches.used < limit
+                && inner
+                    .searches
+                    .blocked_until
+                    .is_none_or(|until| now >= until)
+        };
+        match self.lookup.source().search(query, official_allowed).await {
+            Ok(found) => {
+                let mut inner = self.lock();
+                if found.official {
+                    inner.searches.used += 1;
+                    inner.stats.searches_today = inner.searches.used;
+                    self.publish_stats(&inner);
+                }
+                inner.searches.remember(key, found.ids.clone(), now);
+                Ok(found.ids)
+            }
+            Err(error) => {
+                if error == YoutubeError::QuotaExceeded {
+                    self.lock().searches.blocked_until = Some(now + crate::youtube::QUOTA_BACKOFF);
+                }
+                Err(error)
+            }
+        }
     }
 
     async fn request_tiktok(
@@ -1269,11 +1430,27 @@ mod tests {
         overrides: Mutex<HashMap<String, Option<VideoDetails>>>,
         failure: Mutex<Option<YoutubeError>>,
         calls: AtomicUsize,
+        /// What a search finds, and whether it says it used the API.
+        found: Mutex<Vec<VideoId>>,
+        found_by_api: std::sync::atomic::AtomicBool,
+        search_failure: Mutex<Option<YoutubeError>>,
+        /// Every search: its words and whether the API was allowed.
+        searches: Mutex<Vec<(String, bool)>>,
     }
 
     impl FakeSource {
         fn calls(&self) -> usize {
             self.calls.load(Ordering::SeqCst)
+        }
+
+        fn will_find(&self, ids: &[&str], by_api: bool) {
+            *self.found.lock().unwrap() =
+                ids.iter().map(|id| VideoId::parse(id).unwrap()).collect();
+            self.found_by_api.store(by_api, Ordering::SeqCst);
+        }
+
+        fn searches(&self) -> Vec<(String, bool)> {
+            self.searches.lock().unwrap().clone()
         }
     }
 
@@ -1292,6 +1469,28 @@ mod tests {
     }
 
     impl VideoSource for FakeSource {
+        async fn search(
+            &self,
+            query: &str,
+            official_allowed: bool,
+        ) -> Result<crate::youtube::SearchResult, YoutubeError> {
+            self.searches
+                .lock()
+                .unwrap()
+                .push((query.to_owned(), official_allowed));
+            if let Some(error) = self.search_failure.lock().unwrap().clone() {
+                return Err(error);
+            }
+            let official = self.found_by_api.load(Ordering::SeqCst);
+            if official && !official_allowed {
+                return Err(YoutubeError::SearchUnavailable);
+            }
+            Ok(crate::youtube::SearchResult {
+                ids: self.found.lock().unwrap().clone(),
+                official,
+            })
+        }
+
         async fn fetch(&self, id: &VideoId) -> Result<Option<VideoDetails>, YoutubeError> {
             self.calls.fetch_add(1, Ordering::SeqCst);
             if let Some(error) = self.failure.lock().unwrap().clone() {
@@ -1932,6 +2131,161 @@ mod tests {
         let pending = p.hello().queue.pending;
         assert_eq!(pending.len(), 1);
         assert!(pending[0].song && pending[0].video_id == ID_B);
+    }
+
+    fn search_config(mutate: impl FnOnce(&mut ModerationConfig)) -> Config {
+        let mut config = song_config(mutate);
+        config
+            .command
+            .commands
+            .push(crate::config::CommandEntry::search("req"));
+        config
+    }
+
+    async fn search_for(p: &Pipeline<FakeSource>, n: u32, words: &str) {
+        say(p, sender(n, Role::Follower), &format!("!req {words}")).await;
+    }
+
+    #[tokio::test]
+    async fn a_search_by_title_queues_the_first_result_that_passes_the_rules_for_songs() {
+        let p = pipeline(&search_config(|m| m.song_max_duration_secs = 100));
+        // The best match is too long for a song; the next one is not.
+        let mut long = video(ID_A);
+        long.duration_secs = 5000;
+        let mut short = video(ID_B);
+        short.duration_secs = 90;
+        {
+            let mut found = p.lookup.source().overrides.lock().unwrap();
+            found.insert(ID_A.to_owned(), Some(long));
+            found.insert(ID_B.to_owned(), Some(short));
+        }
+        p.lookup.source().will_find(&[ID_A, ID_B, ID_C], false);
+        search_for(&p, 1, "Dirimu   Melodi").await;
+
+        let pending = p.hello().queue.pending;
+        assert_eq!(pending.len(), 1);
+        assert!(pending[0].song && pending[0].video_id == ID_B);
+        assert_eq!(
+            pending[0].message, "Dirimu Melodi",
+            "the words are shown with it"
+        );
+        assert_eq!(
+            p.lookup.source().searches(),
+            vec![("Dirimu Melodi".to_owned(), true)]
+        );
+        assert_eq!(
+            p.lookup.source().calls(),
+            2,
+            "the third result was not looked at"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_search_with_nothing_good_says_why_and_a_search_with_no_result_says_so() {
+        let p = pipeline(&search_config(|m| m.song_max_duration_secs = 100));
+        let mut rx = p.subscribe();
+        search_for(&p, 1, "nothing here").await;
+        let refused = notice_texts(&drain_all(&mut rx));
+        assert_eq!(refused, vec!["No song found for that title".to_owned()]);
+
+        p.lookup.source().will_find(&[ID_A], false); // 200 seconds: too long
+        search_for(&p, 2, "too long").await;
+        assert!(p.hello().queue.pending.is_empty());
+        let refused = notice_texts(&drain_all(&mut rx));
+        assert_eq!(refused.len(), 1);
+        assert_ne!(
+            refused[0], "No song found for that title",
+            "the reason is the first result's"
+        );
+    }
+
+    fn notice_texts(events: &[Arc<Envelope>]) -> Vec<String> {
+        events
+            .iter()
+            .filter_map(|e| match &e.event {
+                Event::Notice { text, .. } => Some(text.clone()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn the_api_is_used_for_so_many_searches_a_day_and_then_only_the_page() {
+        let p = pipeline(&search_config(|m| m.search_daily_limit = 2));
+        p.lookup.source().will_find(&[ID_A], true);
+        for (n, words) in ["one", "two"].into_iter().enumerate() {
+            search_for(&p, n as u32 + 1, words).await;
+        }
+        assert_eq!(p.hello().stats.searches_today, 2);
+        let used: Vec<bool> = p
+            .lookup
+            .source()
+            .searches()
+            .into_iter()
+            .map(|s| s.1)
+            .collect();
+        assert_eq!(used, vec![true, true]);
+
+        // The limit is reached: the API is not allowed, and a search that
+        // needs it fails, with the cooldown given back.
+        let mut rx = p.subscribe();
+        search_for(&p, 3, "three").await;
+        assert!(!p.lookup.source().searches().last().unwrap().1);
+        let refused = notice_texts(&drain_all(&mut rx));
+        assert_eq!(refused.len(), 1);
+        assert!(refused[0].contains("search"), "{refused:?}");
+        assert_eq!(p.hello().stats.searches_today, 2);
+        // The same viewer may try again at once.
+        p.lookup.source().will_find(&[ID_B], false);
+        search_for(&p, 3, "three").await;
+        assert_eq!(p.hello().queue.pending.len(), 3);
+    }
+
+    #[tokio::test]
+    async fn the_same_search_a_moment_later_is_not_made_again() {
+        let p = pipeline(&search_config(|_| {}));
+        p.lookup.source().will_find(&[ID_A], true);
+        search_for(&p, 1, "Some Song").await;
+        search_for(&p, 2, "some   song").await;
+        assert_eq!(
+            p.lookup.source().searches().len(),
+            1,
+            "words that differ in case and spaces are the same"
+        );
+        assert_eq!(p.hello().stats.searches_today, 1);
+        assert_eq!(p.hello().queue.pending.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn when_the_api_has_no_quota_left_it_is_left_alone_for_a_while() {
+        let p = pipeline(&search_config(|_| {}));
+        *p.lookup.source().search_failure.lock().unwrap() = Some(YoutubeError::QuotaExceeded);
+        search_for(&p, 1, "one").await;
+        search_for(&p, 2, "two").await;
+        let allowed: Vec<bool> = p
+            .lookup
+            .source()
+            .searches()
+            .into_iter()
+            .map(|s| s.1)
+            .collect();
+        assert_eq!(
+            allowed,
+            vec![true, false],
+            "the second search is told not to use the API"
+        );
+        assert!(p.hello().queue.pending.is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_banned_word_in_the_title_and_a_missing_title_are_refused_before_any_search() {
+        let mut config = search_config(|_| {});
+        config.blacklist.title_words = vec!["badword".to_owned()];
+        let p = pipeline(&config);
+        search_for(&p, 1, "a BADWORD song").await;
+        say(&p, sender(2, Role::Follower), "!req").await;
+        assert!(p.lookup.source().searches().is_empty());
+        assert!(p.hello().queue.pending.is_empty());
     }
 
     fn developer() -> Sender {

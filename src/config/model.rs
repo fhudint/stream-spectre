@@ -148,6 +148,10 @@ pub enum CommandSource {
     /// A song: a YouTube video played by the song overlay, with the rules for
     /// songs. Only YouTube links and IDs.
     Song,
+    /// A song looked for by its title: the words after the command are
+    /// searched for, and the first result that passes the rules for songs is
+    /// the request.
+    Search,
 }
 
 /// One chat word and what it asks for.
@@ -178,6 +182,13 @@ impl CommandEntry {
         Self {
             name: name.into(),
             source: CommandSource::Song,
+        }
+    }
+
+    pub fn search(name: impl Into<String>) -> Self {
+        Self {
+            name: name.into(),
+            source: CommandSource::Search,
         }
     }
 }
@@ -312,6 +323,10 @@ pub struct ModerationConfig {
     /// Only songs of these categories may be requested; all of them when
     /// empty. Many songs are filed under Entertainment, not only Music.
     pub song_allowed_categories: Vec<VideoCategory>,
+    /// Most searches a day that may use the YouTube API (100 quota units
+    /// each). A search by title tries YouTube's own page first, which costs no
+    /// quota; 0 never uses the API for it.
+    pub search_daily_limit: u32,
     /// Initial volume, 0-100.
     pub volume: u8,
     /// Upper bound for the volume, 0-100.
@@ -466,6 +481,7 @@ impl Default for ModerationConfig {
             allowed_categories: Vec::new(),
             song_max_duration_secs: 7 * 60,
             song_allowed_categories: vec![VideoCategory::Music, VideoCategory::Entertainment],
+            search_daily_limit: 30,
             volume: 50,
             max_volume: 80,
         }

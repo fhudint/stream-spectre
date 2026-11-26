@@ -8,6 +8,7 @@ mod link;
 mod model;
 mod policy;
 mod response;
+mod search;
 mod service;
 mod video_id;
 
@@ -18,5 +19,6 @@ pub use link::{extract_video, extract_video_id};
 pub(crate) use link::{is_safe_token, parse_url};
 pub use model::{LiveStatus, VideoDetails};
 pub use policy::{Rejection, VideoPolicy, check as check_video};
+pub use search::{MAX_RESULTS, SearchResult};
 pub use service::{NEGATIVE_TTL, QUOTA_BACKOFF, RATE_LIMIT_BACKOFF, VideoLookup};
 pub use video_id::{InvalidVideoId, VIDEO_ID_LEN, VideoId};

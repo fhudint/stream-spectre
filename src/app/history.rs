@@ -100,6 +100,18 @@ impl Subject {
         }
     }
 
+    /// A request for a song looked for by its title, which has no video yet:
+    /// the words stand in the title's place.
+    pub fn search(query: &str) -> Self {
+        Self {
+            source: CommandSource::Youtube,
+            video_id: String::new(),
+            title: sanitize_text(query),
+            channel: String::new(),
+            message: String::new(),
+        }
+    }
+
     /// The same, with what the viewer wrote after the link.
     pub fn with_message(mut self, message: &str) -> Self {
         self.message = message.to_owned();

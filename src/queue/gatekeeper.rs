@@ -37,6 +37,8 @@ pub enum Denial {
     Cooldown {
         remaining: Duration,
     },
+    /// A search by title found no song (or no video at all).
+    NoSongFound,
     /// The video itself is not acceptable.
     Video(Rejection),
 }
@@ -56,6 +58,7 @@ impl Denial {
             Self::BlacklistedWord => "reject.blacklisted_word",
             Self::BlacklistedMessage => "reject.blacklisted_message",
             Self::Cooldown { .. } => "reject.cooldown",
+            Self::NoSongFound => "reject.no_song_found",
             Self::Video(rejection) => rejection.i18n_key(),
         }
     }
@@ -109,6 +112,7 @@ impl Denial {
                 let seconds = remaining.as_secs() + u64::from(remaining.subsec_nanos() > 0);
                 i18n.t_with("reject.cooldown", &[("seconds", &seconds.to_string())])
             }
+            Self::NoSongFound => i18n.t("reject.no_song_found").to_owned(),
             Self::Video(rejection) => {
                 let args = rejection.i18n_args();
                 let args: Vec<(&str, &str)> = args.iter().map(|(k, v)| (*k, v.as_str())).collect();

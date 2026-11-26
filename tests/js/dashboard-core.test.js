@@ -95,7 +95,7 @@ test('diffSettings returns only what changed', () => {
 const goodRules = () => ({
   mode: 'auto', cooldown_secs: '60', max_duration_secs: '600', max_queue_len: '20', max_volume: '80',
   allow_live: true, allow_shorts: false, allowed_categories: ['gaming', 'music'],
-  song_max_duration_secs: '420', song_allowed_categories: ['entertainment', 'music'],
+  song_max_duration_secs: '420', search_daily_limit: ' 30 ', song_allowed_categories: ['entertainment', 'music'],
   youtube_min_role: 'member', youtube_superchat_bypass: true, youtube_auto_approve: 'moderator',
   youtube_cooldown_secs: ' 10 ', youtube_max_waiting: '3',
   tiktok_min_role: 'subscriber', min_gifter_level: '3', min_fan_club_level: ' 0 ',
@@ -106,7 +106,7 @@ test('readSettings accepts good values and names the first bad field', () => {
   assert.deepEqual(core.readSettings(goodRules()).value, {
     mode: 'auto', cooldown_secs: 60, max_duration_secs: 600, max_queue_len: 20, max_volume: 80,
     allow_live: true, allow_shorts: false, allowed_categories: ['music', 'gaming'],
-    song_max_duration_secs: 420, song_allowed_categories: ['music', 'entertainment'],
+    song_max_duration_secs: 420, search_daily_limit: 30, song_allowed_categories: ['music', 'entertainment'],
     youtube_min_role: 'member', youtube_superchat_bypass: true, youtube_auto_approve: 'moderator',
     youtube_cooldown_secs: 10, youtube_max_waiting: 3,
     tiktok_min_role: 'subscriber', min_gifter_level: 3, min_fan_club_level: 0,
@@ -118,7 +118,7 @@ test('readSettings accepts good values and names the first bad field', () => {
     ['max_queue_len', '1.5'], ['max_volume', 'loud'], ['min_gifter_level', '1e2'], ['max_duration_secs', '0x10'],
     ['youtube_cooldown_secs', '-5'], ['youtube_cooldown_secs', '1.5'], ['tiktok_max_waiting', 'many'],
     ['allow_live', 'true'], ['allow_shorts', 1], ['allowed_categories', 'music'], ['allowed_categories', ['cooking']],
-    ['allowed_categories', null], ['song_max_duration_secs', '7 min'], ['song_allowed_categories', ['cooking']],
+    ['allowed_categories', null], ['song_max_duration_secs', '7 min'], ['search_daily_limit', '-1'], ['song_allowed_categories', ['cooking']],
   ]) {
     assert.equal(core.readSettings({ ...goodRules(), [key]: bad }).error, key, `${key}=${bad}`);
   }
@@ -142,7 +142,7 @@ test('diffSettings compares lists and unset options', () => {
 test('every rule is on the tab of the rules it belongs to', () => {
   assert.deepEqual(core.RULES_TABS, ['general', 'youtube', 'tiktok']);
   const on = (tab) => core.SETTINGS_FIELDS.filter((f) => f.tab === tab).map((f) => f.key);
-  assert.deepEqual(on('general'), ['mode', 'cooldown_secs', 'max_duration_secs', 'max_queue_len', 'max_volume', 'allow_live', 'allow_shorts', 'allowed_categories', 'song_max_duration_secs', 'song_allowed_categories']);
+  assert.deepEqual(on('general'), ['mode', 'cooldown_secs', 'max_duration_secs', 'max_queue_len', 'max_volume', 'allow_live', 'allow_shorts', 'allowed_categories', 'song_max_duration_secs', 'search_daily_limit', 'song_allowed_categories']);
   assert.deepEqual(on('youtube'), ['youtube_min_role', 'youtube_superchat_bypass', 'youtube_auto_approve', 'youtube_cooldown_secs', 'youtube_max_waiting']);
   assert.deepEqual(on('tiktok'), ['tiktok_min_role', 'min_gifter_level', 'min_fan_club_level', 'tiktok_cooldown_secs', 'tiktok_max_waiting']);
   for (const field of core.SETTINGS_FIELDS) assert.ok(core.RULES_TABS.includes(field.tab), field.key);
@@ -381,13 +381,13 @@ test('requests and chat lines keep when they were made, and junk becomes zero', 
 
 test('the counters come with hello and stats_updated, and bad values are zero', () => {
   let state = core.reduce(core.initialState(), hello(1));
-  assert.deepEqual(state.stats, { since_ms: 0, received: 0, approved: 0, rejected: 0 });
-  state = core.reduce(state, hello(2, { stats: { since_ms: 5, received: 4, approved: 3, rejected: 1 } }));
-  assert.deepEqual(state.stats, { since_ms: 5, received: 4, approved: 3, rejected: 1 });
+  assert.deepEqual(state.stats, { since_ms: 0, received: 0, approved: 0, rejected: 0, searches_today: 0 });
+  state = core.reduce(state, hello(2, { stats: { since_ms: 5, received: 4, approved: 3, rejected: 1, searches_today: 12 } }));
+  assert.deepEqual(state.stats, { since_ms: 5, received: 4, approved: 3, rejected: 1, searches_today: 12 });
   state = core.reduce(state, envelope(3, 'stats_updated', { since_ms: 5, received: 9, approved: 6, rejected: 2 }));
   assert.equal(state.stats.received, 9);
   state = core.reduce(state, envelope(4, 'stats_updated', { since_ms: 'x', received: -1, approved: null, rejected: 1.9 }));
-  assert.deepEqual(state.stats, { since_ms: 0, received: 0, approved: 0, rejected: 1 });
+  assert.deepEqual(state.stats, { since_ms: 0, received: 0, approved: 0, rejected: 1, searches_today: 0 });
   // An event the snapshot already covers is ignored.
   const old = core.reduce(state, envelope(4, 'stats_updated', { received: 100 }));
   assert.equal(old, state);

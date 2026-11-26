@@ -24,6 +24,10 @@ pub enum YoutubeError {
     BadResponse(&'static str),
     #[error("YouTube response too large")]
     ResponseTooLarge,
+    /// A search by title could not be done: YouTube's own page did not answer
+    /// as expected, and the API may not be used (no key, or the day's limit).
+    #[error("cannot search for songs now")]
+    SearchUnavailable,
 }
 
 impl YoutubeError {
@@ -32,6 +36,7 @@ impl YoutubeError {
         match self {
             Self::QuotaExceeded => "error.quota_exceeded",
             Self::NoApiKey => "error.no_api_key",
+            Self::SearchUnavailable => "error.search_unavailable",
             _ => "error.youtube_unavailable",
         }
     }

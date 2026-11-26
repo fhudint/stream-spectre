@@ -121,7 +121,7 @@ const snapshot = (extra = {}) => ({
       mode: 'manual', tiktok_min_role: 'follower', youtube_min_role: 'viewer', youtube_superchat_bypass: false,
       min_gifter_level: 0, min_fan_club_level: 0,
       cooldown_secs: 60, max_duration_secs: 600, max_queue_len: 20, youtube_max_waiting: 0, tiktok_max_waiting: 0,
-      allow_live: false, allow_shorts: true, allowed_categories: [], song_max_duration_secs: 420, song_allowed_categories: ['music', 'entertainment'], volume: 50, max_volume: 80,
+      allow_live: false, allow_shorts: true, allowed_categories: [], song_max_duration_secs: 420, search_daily_limit: 30, song_allowed_categories: ['music', 'entertainment'], volume: 50, max_volume: 80,
     },
     blacklist: { video_ids: ['aaaaaaaaaaa'], channels: [], title_words: [], senders: [] },
     dashboard: { chat_history: 20 },
@@ -2523,7 +2523,7 @@ test('a command can be given the TikTok source on the rules page', async () => {
   const page = await ready();
   page.click(page.elements['commands-add']);
   const [first, second] = commandRows(page);
-  assert.deepEqual(first.source.children.map((o) => [o.attrs.value, o.textContent]), [['youtube', 'YouTube'], ['tiktok', 'TikTok'], ['song', 'Song']]);
+  assert.deepEqual(first.source.children.map((o) => [o.attrs.value, o.textContent]), [['youtube', 'YouTube'], ['tiktok', 'TikTok'], ['song', 'Song'], ['search', 'Search a song']]);
   second.name.value = '!vt';
   second.source.value = 'tiktok';
   const saved = withCommands({ prefix: '!', commands: [{ name: 'v', source: 'youtube' }, { name: 'vt', source: 'tiktok' }] });
@@ -2700,7 +2700,7 @@ test('the rules are on three tabs, each with the rules of its own, and one Save 
     descendants(page.elements[id])
       .filter((n) => n.attrs.id && /^setting-[a-z_]+$/.test(n.attrs.id))
       .map((n) => n.attrs.id.slice(8));
-  assert.deepEqual(inside('rules-general'), ['mode', 'cooldown_secs', 'max_duration_secs', 'max_queue_len', 'max_volume', 'allow_live', 'allow_shorts', 'allowed_categories', 'song_max_duration_secs', 'song_allowed_categories']);
+  assert.deepEqual(inside('rules-general'), ['mode', 'cooldown_secs', 'max_duration_secs', 'max_queue_len', 'max_volume', 'allow_live', 'allow_shorts', 'allowed_categories', 'song_max_duration_secs', 'search_daily_limit', 'song_allowed_categories']);
   assert.deepEqual(inside('rules-youtube'), ['youtube_min_role', 'youtube_superchat_bypass', 'youtube_auto_approve', 'youtube_cooldown_secs', 'youtube_max_waiting']);
   assert.deepEqual(inside('rules-tiktok'), ['tiktok_min_role', 'min_gifter_level', 'min_fan_club_level', 'tiktok_cooldown_secs', 'tiktok_max_waiting']);
 
@@ -3247,4 +3247,13 @@ test('the rules have a card for songs: their longest length in minutes and their
   page.elements['settings-form'].fire('submit');
   await settle();
   assert.deepEqual(page.log.requests.find((r) => r.method === 'PATCH').body, { song_max_duration_secs: 300, song_allowed_categories: ['music'] });
+});
+
+test('the rules say how many searches by title used the API today, of the limit', async () => {
+  const body = snapshot({ stats: { since_ms: 0, received: 0, approved: 0, rejected: 0, searches_today: 12 } });
+  const page = await ready({ routes: { 'GET /api/state': () => ({ status: 200, body }) } });
+  assert.match(page.elements['search-used'].textContent, /: 12 of 30\./);
+  page.socket().receive(envelope(6, 'stats_updated', { since_ms: 0, received: 0, approved: 0, rejected: 0, searches_today: 13 }));
+  assert.match(page.elements['search-used'].textContent, /: 13 of 30\./);
+  assert.equal(page.elements['setting-search_daily_limit'].value, '30');
 });

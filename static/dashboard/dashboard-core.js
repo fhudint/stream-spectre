@@ -58,7 +58,7 @@
   var MAX_COMMANDS = 8;
   var MAX_PREFIX_LEN = 4;
   var MAX_COMMAND_NAME_LEN = 32;
-  var COMMAND_SOURCES = ['youtube', 'tiktok', 'song'];
+  var COMMAND_SOURCES = ['youtube', 'tiktok', 'song', 'search'];
   /* Colours for viewers' avatars and names: see .tint-N in dashboard.css. */
   var TINTS = 6;
   var THUMBNAIL = /^https:\/\/i\.ytimg\.com\/vi\/[A-Za-z0-9_-]{11}\/[A-Za-z0-9_]+\.jpg$/;
@@ -113,6 +113,7 @@
       }),
     },
     { key: 'song_max_duration_secs', group: 'songs', tab: 'general', kind: 'number', unit: 'minutes', label: 'dashboard.settings.song_max_duration_secs' },
+    { key: 'search_daily_limit', group: 'songs', tab: 'general', kind: 'number', label: 'dashboard.settings.search_daily_limit' },
     {
       key: 'song_allowed_categories',
       group: 'songs',
@@ -374,6 +375,8 @@
       received: wholeNumber(s.received),
       approved: wholeNumber(s.approved),
       rejected: wholeNumber(s.rejected),
+      // Searches by title today that used the YouTube API.
+      searches_today: wholeNumber(s.searches_today),
     };
   }
 

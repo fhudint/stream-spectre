@@ -25,7 +25,7 @@ of truth; this page describes them for people writing clients.
 | `PATCH /api/overlay/mediashare` | Change the mediashare overlay's look (`{"theme": "pixel"}`) and whether the developer's `@dev` notice is shown (`{"developer_notice": false}`); an unknown theme is refused |
 | `PATCH /api/overlay/chat/panel` | Change the look of the chat overlay with a background (`{"theme": "ticker"}`); an unknown theme, or one of the transparent overlay, is refused |
 | `PATCH /api/overlay/chat/float` | The same for the transparent chat overlay (`outline`, `comic`, `notes`) |
-| `PATCH /api/commands` | Change the chat commands: `{"prefix": "!", "commands": [{"name": "v", "source": "youtube"}, {"name": "vt", "source": "tiktok"}]}`. `source` is `youtube`, `tiktok` or `song` (a YouTube video played by the song overlay). Either field may be left out; `commands` is always the whole list. Takes effect for the next chat message. `400` for an empty list, more than 8, a name used twice (capitals do not count), a name with anything but ASCII letters, digits and `_`, an unknown source, or a prefix that is empty, longer than 4 or has spaces. Answers the new state. |
+| `PATCH /api/commands` | Change the chat commands: `{"prefix": "!", "commands": [{"name": "v", "source": "youtube"}, {"name": "vt", "source": "tiktok"}]}`. `source` is `youtube`, `tiktok`, `song` (a YouTube video played by the song overlay) or `search` (the words after the command are searched for as a song's title). Either field may be left out; `commands` is always the whole list. Takes effect for the next chat message. `400` for an empty list, more than 8, a name used twice (capitals do not count), a name with anything but ASCII letters, digits and `_`, an unknown source, or a prefix that is empty, longer than 4 or has spaces. Answers the new state. |
 | `PATCH /api/chat/tiktok` | Body `{"username": "name", "enabled": true}`, either or both: set the TikTok username (an empty string stops reading chat) and switch the chat on or off; the chat follows without a restart. Letters, digits, `_` and `.`, at most 64; a leading `@` and spaces are dropped. Answers the new state. |
 | `PATCH /api/chat/youtube` | Body `{"video": "link or ID", "enabled": true}`, either or both: set the YouTube live whose chat is read (a link or an 11-character ID, kept as the ID; an empty string stops reading chat) and switch the chat on or off. Something that is not a video is refused. Answers the new state. |
 | `PUT /api/playback/pause` | Body `{"paused": true or false}`: pauses or resumes the video that is playing. Answers the new state. Works for YouTube and TikTok videos alike. `409` with `"code": "nothing_playing"` when no video is playing. |
@@ -138,7 +138,7 @@ Sent once to each client, first.
     "chat": { "state": "connected", "channel": "streamer", "text": "..." },
     "chat_log": [ ChatLine ],
     "history": [ HistoryEntry ],
-    "stats": { "since_ms": 1700000000000, "received": 30, "approved": 15, "rejected": 9 },
+    "stats": { "since_ms": 1700000000000, "received": 30, "approved": 15, "rejected": 9, "searches_today": 4 },
     "playback_paused": false
 } }
 ```
@@ -400,7 +400,8 @@ The counters of what the moderators decided since the program started
     "since_ms": 1700000000000,
     "received": 30,
     "approved": 15,
-    "rejected": 9
+    "rejected": 9,
+    "searches_today": 4
 } }
 ```
 
@@ -413,6 +414,10 @@ The counters of what the moderators decided since the program started
   `auto` mode, and not rejected afterwards. It includes the video playing now
   and the ones already played.
 - `rejected`: requests a moderator rejected, before or after approving them.
+- `searches_today`: searches by title (the `search` command) that used the YouTube
+  Data API today, 100 quota units each; the day is the UTC day, seen at the last
+  such search. A search that YouTube's own page answered is not counted. The
+  limit is `moderation.search_daily_limit`.
 
 At any moment `received = approved + rejected + waiting`, where `waiting` is
 the length of `queue.pending`. The counters live in memory only.

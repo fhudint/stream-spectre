@@ -43,6 +43,9 @@ pub enum Parsed {
     /// A valid song request: a YouTube video (not a Short) for the song
     /// overlay.
     Song { id: VideoId, message: String },
+    /// A song to be looked for by its title: the words after the command,
+    /// cleaned up and cut short.
+    Search { query: String },
     /// A valid TikTok request. A short code still has to be looked up.
     Tiktok { target: TiktokRef, message: String },
 }
@@ -100,6 +103,15 @@ impl CommandParser {
 
         let source = command.source;
         let invalid = |reason| Parsed::Invalid { source, reason };
+        if source == CommandSource::Search {
+            // Every word is the title: no link, and no message after it.
+            let query = sanitize_query(rest);
+            return if query.is_empty() {
+                invalid(InvalidReason::MissingArgument)
+            } else {
+                Parsed::Search { query }
+            };
+        }
         let (argument, message) = rest
             .trim_start()
             .split_once(char::is_whitespace)
@@ -116,6 +128,8 @@ impl CommandParser {
                 }
                 None => invalid(InvalidReason::InvalidLink),
             },
+            // Taken above.
+            CommandSource::Search => invalid(InvalidReason::MissingArgument),
             CommandSource::Song => match extract_video(argument) {
                 Some((id, false)) => Parsed::Song { id, message },
                 // A Short is not a song.
@@ -134,6 +148,24 @@ impl CommandParser {
             },
         }
     }
+}
+
+/// The most characters of a title that is searched for.
+pub const MAX_QUERY_CHARS: usize = 80;
+
+/// The words of a search, on one line with single spaces, cut to
+/// `MAX_QUERY_CHARS`. It is only ever sent as a query value, never as a part
+/// of an address or of markup.
+fn sanitize_query(text: &str) -> String {
+    let one_line = sanitize_message(text);
+    let words: Vec<&str> = one_line.split_whitespace().collect();
+    words
+        .join(" ")
+        .chars()
+        .take(MAX_QUERY_CHARS)
+        .collect::<String>()
+        .trim()
+        .to_owned()
 }
 
 /// Whether the argument is written as a link rather than a bare ID or code.
@@ -611,5 +643,44 @@ mod tests {
             parser.parse(&format!("@yt {ID}")),
             Parsed::Youtube { .. }
         ));
+    }
+
+    #[test]
+    fn the_search_command_takes_all_the_words_as_the_title() {
+        let parser = CommandParser::new(&CommandConfig {
+            prefix: "@".to_owned(),
+            commands: vec![CommandEntry::search("req"), CommandEntry::youtube("yt")],
+        });
+        let search = |query: &str| Parsed::Search {
+            query: query.to_owned(),
+        };
+        assert_eq!(parser.parse("@req dirimu melodi"), search("dirimu melodi"));
+        assert_eq!(
+            parser.parse("  @REQ   dirimu \t melodi   jkt48 \n"),
+            search("dirimu melodi jkt48"),
+            "one line, single spaces"
+        );
+        // Cut to the limit, with nothing left hanging at the end.
+        let Parsed::Search { query } = parser.parse(&format!("@req {}", "ab ".repeat(100))) else {
+            panic!("a long title is still a search");
+        };
+        assert!(query.chars().count() <= MAX_QUERY_CHARS && !query.ends_with(' '));
+        assert!(query.starts_with("ab ab ab"));
+        let missing = Parsed::Invalid {
+            source: CommandSource::Search,
+            reason: InvalidReason::MissingArgument,
+        };
+        assert_eq!(parser.parse("@req"), missing);
+        assert_eq!(parser.parse("@req    "), missing);
+        assert_eq!(
+            parser.parse("@reqs x"),
+            Parsed::NotACommand,
+            "a whole word only"
+        );
+        // A link is only words to search for here.
+        assert_eq!(
+            parser.parse("@req https://youtu.be/dQw4w9WgXcQ"),
+            search("https://youtu.be/dQw4w9WgXcQ")
+        );
     }
 }

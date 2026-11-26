@@ -158,7 +158,10 @@ fn parse_success(requested: &VideoId, body: &[u8]) -> Result<Option<VideoDetails
 }
 
 /// Maps an error response to an error, or to `Ok(None)` for "no such video".
-fn classify_error(status: u16, body: &[u8]) -> Result<Option<VideoDetails>, YoutubeError> {
+pub(crate) fn classify_error(
+    status: u16,
+    body: &[u8],
+) -> Result<Option<VideoDetails>, YoutubeError> {
     let reasons = error_reasons(body);
     let has = |wanted: &str| reasons.iter().any(|r| r == wanted);
 
