@@ -17,7 +17,7 @@
 //! over.
 //!
 //! **Which videos.** By default a short built-in list. To try your own, copy
-//! `demo-videos.example.json` to `demo-videos.json` (git-ignored, like `.env`)
+//! `demo-requests.example.json` to `demo-requests.json` (git-ignored, like `.env`)
 //! and put the videos in it:
 //!
 //! ```json
@@ -29,7 +29,7 @@
 //! short link or code is opened with one request to TikTok, as in the real
 //! program; an ID needs none.) A key left out keeps the built-in list for it,
 //! an empty list `[]` turns that source off, and an entry that would not be
-//! understood is reported and skipped. `DEMO_VIDEOS` names another file.
+//! understood is reported and skipped. `DEMO_REQUESTS` names another file.
 //!
 //! The settings are those of `config.example.toml` (so the commands are the
 //! ones written there, `!yt` and `!vt`), with a made-up TikTok username, no
@@ -60,7 +60,7 @@ use tokio::net::TcpListener;
 use tokio::sync::watch;
 
 /// The file the videos come from when it exists, next to `Cargo.toml`.
-const VIDEOS_FILE: &str = "demo-videos.json";
+const REQUESTS_FILE: &str = "demo-requests.json";
 
 /// Public videos the pretend viewers ask for when no file says otherwise.
 const DEFAULT_YOUTUBE: [&str; 5] = [
@@ -82,7 +82,7 @@ struct Videos {
     songs: Vec<String>,
 }
 
-/// `demo-videos.json`. A key that is left out keeps the built-in list.
+/// `demo-requests.json`. A key that is left out keeps the built-in list.
 #[derive(serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 struct VideosFile {
@@ -109,7 +109,7 @@ impl Videos {
             .with_context(|| format!("cannot read {}", path.display()))?;
         let file: VideosFile = serde_json::from_str(&text).with_context(|| {
             format!(
-                "{} is not valid (see demo-videos.example.json)",
+                "{} is not valid (see demo-requests.example.json)",
                 path.display()
             )
         })?;
@@ -144,16 +144,16 @@ impl Videos {
         })
     }
 
-    /// The file named by `DEMO_VIDEOS`, else `demo-videos.json` if it is
+    /// The file named by `DEMO_REQUESTS`, else `demo-requests.json` if it is
     /// there, else the built-in lists. Says which on the screen.
     fn load() -> anyhow::Result<Self> {
-        let named = std::env::var_os("DEMO_VIDEOS").map(PathBuf::from);
+        let named = std::env::var_os("DEMO_REQUESTS").map(PathBuf::from);
         let path = match named {
             Some(path) => path,
-            None if Path::new(VIDEOS_FILE).exists() => PathBuf::from(VIDEOS_FILE),
+            None if Path::new(REQUESTS_FILE).exists() => PathBuf::from(REQUESTS_FILE),
             None => {
                 println!(
-                    "videos:    built-in list (copy demo-videos.example.json to {VIDEOS_FILE} to use your own)"
+                    "videos:    built-in list (copy demo-requests.example.json to {REQUESTS_FILE} to use your own)"
                 );
                 return Ok(Self::built_in());
             }

@@ -12,8 +12,8 @@ config.toml
 config.settings.toml
 config.history.json*
 config.secrets.toml
-demo-videos*.json
-!demo-videos.example.json
+demo-requests*.json
+!demo-requests.example.json
 
 # Output of local tools
 graphify-out/

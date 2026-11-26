@@ -174,11 +174,11 @@ Every fourth request is a song (`@song`): it plays in
 Always use `localhost`, not `127.0.0.1`, in these addresses: see
 [the note on addresses](#use-localhost-not-an-ip-address) below.
 
-To try videos of your own, copy `demo-videos.example.json` to
-`demo-videos.json` (it is git-ignored, like `.env`) and list the videos in it:
+To try videos of your own, copy `demo-requests.example.json` to
+`demo-requests.json` (it is git-ignored, like `.env`) and list the videos in it:
 `youtube` and `songs` take IDs or links, `tiktok` takes IDs, short link codes or links. A
 key you leave out keeps the built-in list, `[]` turns that source off, and an
-entry the program would not understand is reported and skipped. `DEMO_VIDEOS`
+entry the program would not understand is reported and skipped. `DEMO_REQUESTS`
 names another file.
 
 ## Set up
