@@ -1,6 +1,6 @@
 [package]
 name = "stream-spectre"
-version = "0.1.0-rc5"
+version = "0.1.0-rc6"
 edition = "2024"
 rust-version = "1.85"
 description = "OBS browser-source stream overlay with chat-driven YouTube mediashare"
