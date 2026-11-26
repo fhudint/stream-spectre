@@ -82,6 +82,10 @@ impl Kind {
                     | Event::Skip { .. }
                     | Event::Stop {}
                     | Event::Volume { .. }
+                    | Event::OverlayTheme {
+                        overlay: OverlayKind::Song,
+                        ..
+                    }
                     | Event::PlaybackPaused { .. }
             ),
             Self::Mediashare => matches!(

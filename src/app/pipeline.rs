@@ -16,7 +16,7 @@ use crate::command::{CommandParser, InvalidReason, Parsed};
 use crate::config::{
     BlacklistConfig, ChatFloatConfig, ChatPanelConfig, ChatSourceKind, CommandConfig,
     CommandSource, Config, ConfigError, DashboardConfig, MediashareConfig, ModerationConfig,
-    OverlayConfig, Secret, TiktokConfig, YoutubeChatConfig,
+    OverlayConfig, Secret, SongConfig, TiktokConfig, YoutubeChatConfig,
 };
 use crate::i18n::I18n;
 use crate::queue::{
@@ -925,6 +925,22 @@ impl<S: VideoSource> Pipeline<S> {
                 theme: ThemeName::Mediashare(new.theme),
             });
         }
+    }
+
+    /// Changes how the song overlay looks; announced like
+    /// [`update_mediashare`](Self::update_mediashare).
+    pub fn update_song(&self, new: SongConfig) {
+        let mut inner = self.lock();
+        if inner.overlay.song == new {
+            return;
+        }
+        inner.overlay.song = new;
+        self.bus
+            .publish(Event::SettingsUpdated(Self::settings_view(&inner)));
+        self.bus.publish(Event::OverlayTheme {
+            overlay: OverlayKind::Song,
+            theme: ThemeName::Mediashare(new.theme),
+        });
     }
 
     /// Changes how the chat overlay with a background looks; announced like

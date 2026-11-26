@@ -117,6 +117,7 @@ pub fn router<S: VideoSource + 'static>(state: ServerState<S>, guard: Arc<Guard>
         .route("/api/blacklist", patch(api::blacklist::<S>))
         .route("/api/dashboard", patch(api::dashboard::<S>))
         .route("/api/overlay/mediashare", patch(api::mediashare::<S>))
+        .route("/api/overlay/song", patch(api::song::<S>))
         .route("/api/overlay/chat/panel", patch(api::chat_panel::<S>))
         .route("/api/overlay/chat/float", patch(api::chat_float::<S>))
         .route("/api/commands", patch(api::commands::<S>))
@@ -1391,6 +1392,64 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(state["settings"]["overlay"]["mediashare"]["theme"], "paper");
+    }
+
+    #[tokio::test]
+    async fn the_song_look_is_its_own_checked_and_pushed_to_the_song_page_only() {
+        let server = start(None).await;
+        let mut song = connect(&server, "/ws/overlay/song", None).await.unwrap();
+        let mut mediashare = connect(&server, "/ws/overlay/mediashare", None)
+            .await
+            .unwrap();
+        let hello = next_json(&mut song).await;
+        assert_eq!(
+            hello["data"]["settings"]["overlay"]["song"]["theme"],
+            "obsidian"
+        );
+        next_json(&mut mediashare).await;
+
+        let patch = |body: Value| {
+            server
+                .http
+                .patch(server.url("/api/overlay/song"))
+                .json(&body)
+                .send()
+        };
+        let updated: Value = patch(json!({"theme": "terminal"}))
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        assert_eq!(updated["settings"]["overlay"]["song"]["theme"], "terminal");
+        assert_eq!(
+            updated["settings"]["overlay"]["mediashare"]["theme"], "obsidian",
+            "the mediashare look is not the song look"
+        );
+        let event = next_json(&mut song).await;
+        assert_eq!(event["type"], "overlay_theme");
+        assert_eq!(event["data"]["overlay"], "song");
+        assert_eq!(event["data"]["theme"], "terminal");
+        expect_silence(&mut mediashare).await;
+
+        // The mediashare look is not pushed to the song page either.
+        server
+            .http
+            .patch(server.url("/api/overlay/mediashare"))
+            .json(&json!({"theme": "paper"}))
+            .send()
+            .await
+            .unwrap();
+        next_json(&mut mediashare).await;
+        expect_silence(&mut song).await;
+
+        for bad in [
+            json!({"theme": "neon"}),
+            json!({"theme": 3}),
+            json!({"color": "red"}),
+        ] {
+            assert_eq!(patch(bad.clone()).await.unwrap().status(), 400, "{bad}");
+        }
     }
 
     #[tokio::test]

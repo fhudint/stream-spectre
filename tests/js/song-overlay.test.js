@@ -23,6 +23,7 @@ class FakeElement {
     this.classes = new Set(classes);
     this._text = '';
     this.style = {};
+    this.attributes = {};
     this.classList = {
       add: (name) => this.classes.add(name),
       remove: (name) => this.classes.delete(name),
@@ -34,6 +35,9 @@ class FakeElement {
   }
   set textContent(value) {
     this._text = String(value);
+  }
+  setAttribute(name, value) {
+    this.attributes[name] = String(value);
   }
   set innerHTML(_value) {
     throw new Error('innerHTML must never be assigned');
@@ -226,6 +230,37 @@ test('the player is created visible, with the whole cover to itself, and the pag
   assert.ok(!/<script(?![^>]*\bsrc=)[^>]*>/.test(html) && !/\sstyle="/.test(html), 'no inline script or style');
   assert.ok(html.includes('../mediashare/overlay-core.js') && html.includes('song.js'));
   assert.ok(!/innerHTML|outerHTML|insertAdjacentHTML|document\.write/.test(source));
+});
+
+test('the song look comes from its own settings and events, and ?theme= wins for one source', () => {
+  const page = load();
+  page.socket().open();
+  page.socket().receive(envelope(1, 'hello', { volume: 50, settings: { overlay: { mediashare: { theme: 'pixel' }, song: { theme: 'terminal' } } }, queue: { now_playing: null } }));
+  assert.equal(page.elements.root.attributes['data-theme'], 'terminal', 'not the mediashare look');
+  page.socket().receive(envelope(2, 'overlay_theme', { overlay: 'song', theme: 'candy' }));
+  assert.equal(page.elements.root.attributes['data-theme'], 'candy');
+  page.socket().receive(envelope(3, 'overlay_theme', { overlay: 'mediashare', theme: 'comic' }));
+  assert.equal(page.elements.root.attributes['data-theme'], 'candy');
+
+  const forced = load({ search: '?theme=receipt' });
+  forced.socket().open();
+  forced.socket().receive(envelope(1, 'overlay_theme', { overlay: 'song', theme: 'paper' }));
+  assert.equal(forced.elements.root.attributes['data-theme'], 'receipt');
+  const junk = load({ search: '?theme=neon' });
+  junk.socket().open();
+  junk.socket().receive(envelope(1, 'overlay_theme', { overlay: 'song', theme: 'paper' }));
+  assert.equal(junk.elements.root.attributes['data-theme'], 'paper');
+});
+
+test('every look is drawn, and none of them touches the size of the cover', () => {
+  for (const name of core.THEMES.filter((n) => n !== 'obsidian')) {
+    assert.ok(css.includes('#root[data-theme="' + name + '"]'), name);
+  }
+  assert.ok(html.includes('data-theme="obsidian"'));
+  // The player stays at least 200 x 200 in every look: no rule of a look sets its size.
+  const themed = css.slice(css.indexOf('/* ---- obsidian'));
+  assert.ok(!/--cover:|#cover\s*\{[^}]*(width|height)/.test(themed));
+  assert.ok(!/display:\s*none/.test(themed.replace(/#paused|\[data-theme[^{]*#message:empty/g, '')), 'nothing is hidden by a look');
 });
 
 test('translated texts are fetched, with the token as a bearer header, and used', async () => {

@@ -1458,6 +1458,7 @@
   var themeInputs = [];
   var THEME_PICKERS = [
     { box: 'themes', radio: 'mediashare', path: '/api/overlay/mediashare', names: core.OVERLAY_THEMES, current: core.overlayTheme },
+    { box: 'song-themes', radio: 'song', path: '/api/overlay/song', names: core.OVERLAY_THEMES, current: core.songTheme },
     { box: 'chat-panel-themes', radio: 'chat-panel', path: '/api/overlay/chat/panel', names: core.CHAT_PANEL_THEMES, current: core.chatPanelTheme },
     { box: 'chat-float-themes', radio: 'chat-float', path: '/api/overlay/chat/float', names: core.CHAT_FLOAT_THEMES, current: core.chatFloatTheme },
   ];

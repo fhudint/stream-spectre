@@ -15,6 +15,9 @@
   var params = new URLSearchParams(location.search);
   var token = params.get('token') || '';
 
+  // ?theme=name shows that look whatever the dashboard chose, for one source.
+  var forcedTheme = core.isTheme(params.get('theme')) ? params.get('theme') : '';
+
   var texts = Object.create(null);
   var socket = null;
   var attempt = 0;
@@ -46,6 +49,10 @@
       barFill.style.transform = 'scaleX(0)';
       root.classList.remove('paused');
       root.classList.add('hidden');
+    },
+    /* The look of the overlay: a name the styles know (see song.css). */
+    setTheme: function (name) {
+      root.setAttribute('data-theme', forcedTheme || name);
     },
     /* The "Paused" notice, and the level meter standing still. */
     setPaused: function (paused, label) {
@@ -187,6 +194,7 @@
   controller = core.createController({
     player: player,
     ui: ui,
+    overlay: 'song',
     send: send,
     text: function (key) {
       return texts[key];

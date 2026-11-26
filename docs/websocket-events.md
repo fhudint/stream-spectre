@@ -23,6 +23,7 @@ of truth; this page describes them for people writing clients.
 | `PATCH /api/blacklist` | Replace some blacklist lists (`video_ids`, `channels`, `title_words`), keep the rest |
 | `PATCH /api/dashboard` | Change dashboard settings (`chat_history`, `display_name`, `avatar`), keep the rest |
 | `PATCH /api/overlay/mediashare` | Change the mediashare overlay's look (`{"theme": "pixel"}`) and whether the developer's `@dev` notice is shown (`{"developer_notice": false}`); an unknown theme is refused |
+| `PATCH /api/overlay/song` | Change the song overlay's look (`{"theme": "paper"}`, the same ten names as the mediashare overlay); an unknown theme is refused |
 | `PATCH /api/overlay/chat/panel` | Change the look of the chat overlay with a background (`{"theme": "ticker"}`); an unknown theme, or one of the transparent overlay, is refused |
 | `PATCH /api/overlay/chat/float` | The same for the transparent chat overlay (`outline`, `comic`, `notes`) |
 | `PATCH /api/commands` | Change the chat commands: `{"prefix": "!", "commands": [{"name": "v", "source": "youtube"}, {"name": "vt", "source": "tiktok"}]}`. `source` is `youtube`, `tiktok`, `song` (a YouTube video played by the song overlay) or `search` (the words after the command are searched for as a song's title). Either field may be left out; `commands` is always the whole list. Takes effect for the next chat message. `400` for an empty list, more than 8, a name used twice (capitals do not count), a name with anything but ASCII letters, digits and `_`, an unknown source, or a prefix that is empty, longer than 4 or has spaces. Answers the new state. |
@@ -269,11 +270,11 @@ changes.
 ### `overlay_theme`
 
 The look of an overlay changed (that overlay and the dashboard). Sent only when
-it actually changes. `overlay` says which one (`mediashare`, `chat_panel` or
+it actually changes. `overlay` says which one (`mediashare`, `song`, `chat_panel` or
 `chat_float`); an overlay is only sent its own. Each learns its look from
 `settings.overlay.<overlay>.theme` in `hello`. `theme` is one of `obsidian`, `paper`,
 `brutal`, `terminal`, `candy`, `pixel`, `comic`, `outline`, `receipt`, `messages` for the
-mediashare overlay; `obsidian`, `paper`, `brutal`, `terminal`, `candy`, `pixel`,
+mediashare and the song overlay; `obsidian`, `paper`, `brutal`, `terminal`, `candy`, `pixel`,
 `receipt`, `messages`, `ticker` for `chat_panel`; `outline`, `comic`, `notes` for
 `chat_float`. An overlay ignores a name it has no look for. Adding `theme=name` to the
 overlay's address overrides it for that page.

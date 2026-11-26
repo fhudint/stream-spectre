@@ -197,6 +197,17 @@ pub async fn mediashare<S: VideoSource + 'static>(
     Ok(Json(state.pipeline.hello()))
 }
 
+/// `PATCH /api/overlay/song`: changes the song overlay's `theme`. An unknown
+/// theme is refused and nothing changes.
+pub async fn song<S: VideoSource + 'static>(
+    State(state): State<ServerState<S>>,
+    Json(patch): Json<Value>,
+) -> ApiResult<Json<Hello>> {
+    let current = state.pipeline.hello().settings.overlay.song;
+    state.pipeline.update_song(merge_patch(&current, patch)?);
+    Ok(Json(state.pipeline.hello()))
+}
+
 /// `PATCH /api/overlay/chat/panel`: changes the `theme` of the chat overlay
 /// with a background. An unknown theme, or one of the transparent overlay, is
 /// refused and nothing changes.

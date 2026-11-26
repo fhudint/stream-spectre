@@ -18,7 +18,8 @@ pub use model::{
     ChatSourceKind, CommandConfig, CommandEntry, CommandSource, Config, DashboardConfig,
     GeneralConfig, Language, MAX_AVATAR_LEN, MAX_CHAT_HISTORY, MAX_DISPLAY_NAME_CHARS,
     MediashareConfig, MediashareTheme, ModerationConfig, ModerationMode, OverlayConfig,
-    ServerConfig, TiktokConfig, VideoCategory, YoutubeChatConfig, YoutubeConfig, YoutubeRole,
+    ServerConfig, SongConfig, TiktokConfig, VideoCategory, YoutubeChatConfig, YoutubeConfig,
+    YoutubeRole,
 };
 pub use paths::{CONFIG_FILE_NAME, ENV_CONFIG_PATH};
 /// A new empty folder under the system temp folder, for tests.
@@ -439,6 +440,9 @@ mod tests {
         assert_eq!(config.overlay.mediashare.theme, MediashareTheme::Paper);
         assert_eq!(config.overlay.chat_panel.theme, ChatPanelTheme::Messages);
         assert_eq!(config.overlay.chat_float.theme, ChatFloatTheme::Notes);
+        let song = parse_str(&format!("{USER}\n[overlay.song]\ntheme = \"receipt\"\n")).unwrap();
+        assert_eq!(song.overlay.song.theme, MediashareTheme::Receipt);
+        assert_eq!(song.overlay.mediashare.theme, MediashareTheme::Obsidian);
 
         let old = parse_str(&format!(
             "{USER}\n[overlay.mediashare]\ntheme = \"kertas\"\n[overlay.chat_panel]\ntheme = \"pesan\"\n[overlay.chat_float]\ntheme = \"catatan\"\n"

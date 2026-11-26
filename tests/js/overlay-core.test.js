@@ -769,6 +769,21 @@ test('the look is set from the hello and from an event, never from junk', () => 
   assert.deepEqual(themes, ['terminal', 'comic']);
 });
 
+test('the song controller follows the song look and not the mediashare one', () => {
+  const themes = [];
+  const controller = core.createController({
+    player: { play() {}, stop() {}, setVolume() {} },
+    ui: { show() {}, hide() {}, setTheme: (name) => themes.push(name) },
+    overlay: 'song',
+    send: () => true,
+    text: () => undefined,
+  });
+  controller.handle(envelope(1, 'hello', { volume: 50, settings: { overlay: { mediashare: { theme: 'pixel' }, song: { theme: 'receipt' } } }, queue: { now_playing: null } }));
+  controller.handle(envelope(2, 'overlay_theme', { overlay: 'mediashare', theme: 'comic' }));
+  controller.handle(envelope(3, 'overlay_theme', { overlay: 'song', theme: 'messages' }));
+  assert.deepEqual(themes, ['receipt', 'messages']);
+});
+
 test('a role is shown by its translated name, and an odd one is left out', () => {
   const t = setup({ texts: { 'role.follower': 'Follower' } });
   t.controller.handle(envelope(1, 'play', { item: item(1, ID_A, { channel: 'Chan' }), volume: 50 }));

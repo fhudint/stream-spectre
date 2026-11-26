@@ -843,6 +843,13 @@
     return OVERLAY_THEMES.indexOf(name) >= 0 ? name : OVERLAY_THEMES[0];
   }
 
+  /* The song overlay has the same looks. */
+  function songTheme(settings) {
+    var look = settings && settings.overlay && settings.overlay.song;
+    var name = look && look.theme;
+    return OVERLAY_THEMES.indexOf(name) >= 0 ? name : OVERLAY_THEMES[0];
+  }
+
   /* The same for the chat overlay with a background, and the transparent one. */
   function chatPanelTheme(settings) {
     var look = settings && settings.overlay && settings.overlay.chat_panel;
@@ -1097,6 +1104,7 @@
     overlayUrl: overlayUrl,
     OVERLAY_THEMES: OVERLAY_THEMES,
     overlayTheme: overlayTheme,
+    songTheme: songTheme,
     CHAT_PANEL_THEMES: CHAT_PANEL_THEMES,
     CHAT_FLOAT_THEMES: CHAT_FLOAT_THEMES,
     chatPanelTheme: chatPanelTheme,

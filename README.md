@@ -47,7 +47,8 @@ for what plays on your stream.
   queue and goes through the same moderation, but it has its own longest length
   (7 minutes) and its own categories (Music and Entertainment: many songs are
   filed under the second), both on the Rules page, and a Short is no song. It is
-  played by a separate overlay, `/overlay/song/`: a small music player at the
+  played by a separate overlay, `/overlay/song/` (with the same ten looks as the
+  mediashare one, chosen on the Overlay page): a small music player at the
   bottom left with the title, the artist, who asked and a progress bar. The
   YouTube player is its cover and stays visible, because YouTube does not allow
   it hidden or smaller than 200 x 200; for a song with an "art track" video

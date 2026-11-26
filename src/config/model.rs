@@ -589,6 +589,14 @@ impl Default for MediashareConfig {
     }
 }
 
+/// `[overlay.song]`: the song overlay has the same ten looks as the mediashare
+/// one (`static/overlay/song/song.css` draws them for a music player).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, Serialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct SongConfig {
+    pub theme: MediashareTheme,
+}
+
 /// How the chat overlay with a background looks (`/overlay/chat/panel/`). Each
 /// look is a block of styles in `static/overlay/chat/chat.css`; the names there
 /// must match these.
@@ -637,12 +645,13 @@ pub struct ChatFloatConfig {
     pub theme: ChatFloatTheme,
 }
 
-/// The overlays, one table each (`[overlay.mediashare]`, `[overlay.chat_panel]`,
-/// `[overlay.chat_float]`).
+/// The overlays, one table each (`[overlay.mediashare]`, `[overlay.song]`,
+/// `[overlay.chat_panel]`, `[overlay.chat_float]`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct OverlayConfig {
     pub mediashare: MediashareConfig,
+    pub song: SongConfig,
     pub chat_panel: ChatPanelConfig,
     pub chat_float: ChatFloatConfig,
 }

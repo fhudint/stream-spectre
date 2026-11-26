@@ -592,6 +592,8 @@ kbd { padding: 1px 6px; border-radius: 4px; background: var(--button); color: va
 /* The Rules page: presets, then cards, and a bar that is there only while something is unsaved. */
 .rules-form, .rules-panel { display: flex; flex-direction: column; gap: 14px; }
 .rules-panel.hidden { display: none; }
+/* The commands card comes after the form of cards: keep the same gap between them. */
+.rules-form + .page-card { margin-top: 14px; }
 .presets { display: flex; flex-wrap: wrap; gap: 8px; max-width: 720px; }
 .preset { flex: 1; min-width: 150px; height: auto; padding: 12px 14px; border-radius: 12px; display: flex; flex-direction: column; align-items: flex-start; gap: 3px; text-align: left; background: var(--card); border: 1px solid var(--rule); }
 .preset span { color: var(--muted); font-size: 12px; font-weight: 400; }

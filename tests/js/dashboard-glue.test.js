@@ -2655,6 +2655,25 @@ test('the button asks now and says what it found, newer version, none, or no ans
   assert.equal(page.log.requests.filter((r) => r.method === 'POST' && r.path === '/api/update/check').length, 3);
 });
 
+test('the song overlay has its own ten looks and saves its own choice', async () => {
+  const body = snapshot();
+  body.settings.overlay = { mediashare: { theme: 'pixel' }, song: { theme: 'candy' }, chat_panel: { theme: 'ticker' }, chat_float: { theme: 'notes' } };
+  const page = await ready({ routes: { 'GET /api/state': () => ({ status: 200, body }) } });
+  assert.deepEqual(pickerInputs(page, 'song-themes').map((i) => i.attrs.value), core.OVERLAY_THEMES);
+  assert.deepEqual(checkedIn(page, 'song-themes'), ['candy']);
+  assert.deepEqual(checkedIn(page, 'themes'), ['pixel'], 'the mediashare overlay keeps its own');
+
+  const updated = snapshot();
+  updated.settings.overlay = { mediashare: { theme: 'pixel' }, song: { theme: 'paper' } };
+  page.table['PATCH /api/overlay/song'] = { status: 200, body: updated };
+  pickerInputs(page, 'song-themes').find((i) => i.attrs.value === 'paper').fire('change');
+  await settle();
+  const patch = page.log.requests.find((r) => r.path === '/api/overlay/song');
+  assert.deepEqual(patch.body, { theme: 'paper' });
+  assert.deepEqual(checkedIn(page, 'song-themes'), ['paper']);
+  assert.ok(!page.log.requests.some((r) => r.path === '/api/overlay/mediashare'));
+});
+
 // --- the looks of the two chat overlays ---
 
 const pickerInputs = (page, box) => descendants(page.elements[box]).filter((n) => n.tag === 'input');

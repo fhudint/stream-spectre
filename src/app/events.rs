@@ -307,6 +307,8 @@ impl Hello {
 #[serde(rename_all = "snake_case")]
 pub enum OverlayKind {
     Mediashare,
+    /// The song overlay.
+    Song,
     /// The chat overlay with a background.
     ChatPanel,
     /// The transparent chat overlay.
@@ -317,6 +319,7 @@ pub enum OverlayKind {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(untagged)]
 pub enum ThemeName {
+    /// The looks of the mediashare overlay, which the song overlay shares.
     Mediashare(MediashareTheme),
     ChatPanel(ChatPanelTheme),
     ChatFloat(ChatFloatTheme),

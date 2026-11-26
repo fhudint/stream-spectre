@@ -802,6 +802,13 @@ test('the look of the overlay is read from the settings, the first when there is
   }
 });
 
+test('the song overlay has its own look, from the same ten', () => {
+  assert.equal(core.songTheme({ overlay: { mediashare: { theme: 'pixel' }, song: { theme: 'receipt' } } }), 'receipt');
+  for (const bad of [undefined, null, {}, { overlay: {} }, { overlay: { mediashare: { theme: 'pixel' } } }, { overlay: { song: { theme: 'neon' } } }]) {
+    assert.equal(core.songTheme(bad), 'obsidian', JSON.stringify(bad));
+  }
+});
+
 test('a message in an item or a request is kept only when it is text', () => {
   const item = { id: 1, video_id: 'dQw4w9WgXcQ' };
   const queue = (message) => core.reduce(core.initialState(), { v: 1, seq: 1, type: 'hello', data: { queue: { pending: [{ ...item, message }], approved: [], now_playing: null }, history: [{ ...item, source: 'youtube', status: 'played', message }] } });

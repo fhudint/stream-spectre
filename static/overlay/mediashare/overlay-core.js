@@ -279,12 +279,16 @@
    *             notice({ name, text, durationMs, badge }) (optional): the developer's notice }
    *   send:   (message) => boolean, false when the socket is not open
    *   text:   (key) => string | undefined, for translated UI texts
+   *   overlay: 'mediashare' (default) or 'song': whose look the settings and
+   *            overlay_theme events carry
    */
   function createController(deps) {
     var player = deps.player;
     var ui = deps.ui;
     var send = deps.send;
     var text = deps.text || function () { return undefined; };
+    // Which overlay this is, for its look: 'mediashare' (the default) or 'song'.
+    var overlayName = deps.overlay || 'mediashare';
 
     /* A role's name as that chat calls it (YouTube has its own words), or ''
      * when there is none. */
@@ -370,7 +374,7 @@
     function applyHello(message) {
       var data = message.data && typeof message.data === 'object' ? message.data : {};
       if (Number.isInteger(message.seq)) lastSeq = message.seq;
-      var look = data.settings && data.settings.overlay && data.settings.overlay.mediashare;
+      var look = data.settings && data.settings.overlay && data.settings.overlay[overlayName];
       setTheme(look && look.theme);
       volume = clampVolume(data.volume, volume);
       var playing = data.queue && data.queue.now_playing;
@@ -418,7 +422,7 @@
           if (current && current.id === data.item_id) setPaused(data.paused === true);
           break;
         case 'overlay_theme':
-          if (data.overlay === 'mediashare') setTheme(data.theme);
+          if (data.overlay === overlayName) setTheme(data.theme);
           break;
         case 'developer_notice': {
           var notice = noticeOf(data);

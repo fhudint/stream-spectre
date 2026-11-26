@@ -182,6 +182,11 @@ theme = "obsidian"
 # Settings page).
 developer_notice = true
 
+[overlay.song]
+# The look of the song overlay (/overlay/song/): the same ten as the mediashare
+# overlay, drawn as a music player. Changed the same way.
+theme = "obsidian"
+
 [overlay.chat_panel]
 # The look of the chat overlay with a background (/overlay/chat/panel/): obsidian,
 # paper, brutal, terminal, candy, pixel, receipt, messages or ticker (a bar along the
